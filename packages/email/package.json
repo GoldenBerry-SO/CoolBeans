@@ -1,0 +1,41 @@
+{
+	"name": "@coolbeans/email",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"description": "Email for Cool Beans — React Email templates plus the Resend/SMTP sender seam.",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": ["dist"],
+	"scripts": {
+		"dev": "tsup src/index.ts --format esm --watch --no-dts",
+		"build": "tsup src/index.ts --format esm --dts",
+		"lint": "biome check src/",
+		"format": "biome format --write src/",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"clean": "rm -rf dist"
+	},
+	"dependencies": {
+		"@react-email/components": "^1.0.12",
+		"@react-email/render": "^2.1.0",
+		"nodemailer": "^9.0.3",
+		"react": "^19.2.7",
+		"resend": "^6.17.2"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"@types/nodemailer": "^8.0.1",
+		"@types/react": "^19.2.17",
+		"react-email": "^6.9.0",
+		"tsup": "^8.5.1",
+		"typescript": "~5.9.3",
+		"vitest": "^4.1.10"
+	}
+}

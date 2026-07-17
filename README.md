@@ -28,6 +28,7 @@ packages/
   auth/         Better Auth factory — admin sessions for the dashboard only
   cli/          beans — the admin CLI
   db/           Drizzle schema + storage adapter (better-sqlite3 / D1 behind one Database type)
+  email/        React Email templates + Resend/SMTP sender seam
   logger/       Structured logger — zero deps, runs on Node and Workers
   sdk/          @coolbeans/sdk — drop-in client for Node, Electron, Tauri, and the browser
 docs/           PRD and architecture notes

@@ -11,7 +11,7 @@ The open-source license layer. Issue a key, activate it, check it's still good.
 
 A small Hono/TypeScript service that issues and validates software license keys and turns
 Stripe/PayPal payment events into license state. One codebase runs on Node (self-host, SQLite or
-Postgres) and Cloudflare Workers + D1 (cloud). MIT licensed. See `docs/PRD.md` for the full spec and
+Postgres). Deployed to our k8s infra like pleasehold; self-host via docker compose. MIT licensed. See `docs/PRD.md` for the full spec and
 `docs/ARCHITECTURE.md` for the decisions.
 
 ## Ground rules for this repo
@@ -24,7 +24,7 @@ Postgres) and Cloudflare Workers + D1 (cloud). MIT licensed. See `docs/PRD.md` f
   tokens with constant-time compare.
 - **Atomic limit enforcement.** Activation limits, floating leases, and usage quotas are enforced in a
   single guarded DB statement, never read-then-write. Race tests are mandatory for these paths.
-- **Portable SQL.** Storage sits behind a thin adapter (SQLite/libSQL first, D1, Postgres). No
+- **Portable SQL.** Storage sits behind a thin adapter (SQLite first, Postgres for production). No
   driver-specific SQL outside the adapter.
 - Keys are stored normalized (dashes stripped, uppercased). One shared normalization helper for every
   endpoint.

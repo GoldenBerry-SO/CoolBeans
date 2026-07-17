@@ -1,5 +1,5 @@
 // ABOUTME: Composition root for the Cool Beans API — builds the OpenAPIHono app with all routes.
-// ABOUTME: Runtime-agnostic: src/node.ts serves it on Node, src/worker.ts exports it for Workers.
+// ABOUTME: Dependencies are injected so handlers stay testable via app.request with no HTTP server.
 
 import { createLogger, type Logger } from '@coolbeans/logger';
 import { OpenAPIHono } from '@hono/zod-openapi';

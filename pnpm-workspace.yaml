@@ -4,11 +4,8 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  msgpackr-extract: true
   sharp: false
-  workerd: true
 minimumReleaseAgeExclude:
-  - '@cloudflare/workers-types@5.20260717.1'
-  - miniflare@4.20260714.0
-  - wrangler@4.112.0
-  - '@cloudflare/vitest-pool-workers@0.18.6'
   - lucide-react@1.25.0
+  - bullmq@5.80.7

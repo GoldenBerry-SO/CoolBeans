@@ -26,7 +26,7 @@ Squeezy License API**, so existing clients barely change.
 
 It replaces what Lemon Squeezy did for Goldenberry products and matches the feature depth of the
 commercial incumbents (Keygen, Cryptlex, keygate) while staying deliberately smaller, permissively
-licensed, and edge-native.
+licensed, and lightweight.
 
 ---
 
@@ -42,7 +42,7 @@ licensed, and edge-native.
 - **The incumbents each have a gap we can exploit** (see §5): Keygen is "Fair Source" (restricted) and
   Rails-only; Cryptlex/LicenseSpring are heavy and not Stripe-first; the one philosophically-aligned
   open-source project (keygate) is Go, AGPL-with-attribution, and has near-zero traction. Nobody ships
-  a *truly-MIT, minimal, Node/Cloudflare-Workers-native, Lemon-Squeezy-drop-in* license service.
+  a *truly-MIT, minimal, Node-native, Lemon-Squeezy-drop-in* license service.
 
 ---
 
@@ -60,7 +60,7 @@ licensed, and edge-native.
    with no network.
 6. A **drop-in SDK** that adds licensing to a Node/Electron/Tauri/browser app in minutes.
 7. **Admin dashboard** + CLI to run the business.
-8. **Self-host (MIT) and cloud (Cloudflare Workers + D1)** from one codebase.
+8. **Self-host (MIT) and cloud (our k8s infrastructure: Docker + Postgres + Redis)** from one codebase.
 9. **Lemon Squeezy API parity** so existing clients migrate with a base-URL change.
 
 ### Non-goals (v1)
@@ -79,8 +79,8 @@ licensed, and edge-native.
 
 - **Primary buyer:** indie and small software businesses selling desktop, CLI, or SaaS software who
   want to own their license layer without paying per-active-user fees.
-- **Self-hosters:** developers who want to run the whole thing on their own box or the Cloudflare free
-  tier, under a licence with no asterisks.
+- **Self-hosters:** developers who want to run the whole thing on their own box with one
+  `docker compose up`, under a licence with no asterisks.
 - **First customer:** **Clementine** (prefix `CLEM`), migrating off Lemon Squeezy. Its client code is
   written to the LS License API shape, which §9 preserves.
 
@@ -97,7 +97,7 @@ philosophy, **keygate**, has ~11 GitHub stars, is pre-1.0, Go, and AGPL-with-att
 |---|---|---|---|---|---|---|
 | Licence | **MIT (truly OSS)** | Fair Source (restricted) | Closed | AGPL + attribution | Closed | Closed |
 | Self-host | **✓** | ✓ (CE) | On-prem (enterprise) | ✓ | — | — |
-| Edge / Workers-native | **✓ (Hono, D1)** | — (Rails) | — | — (Go) | — | — |
+| Lightweight self-host (one compose file) | **✓ (Hono, Node)** | — (Rails) | — | ~ (Go) | — | — |
 | Lifetime + subscription | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Trial licenses | **✓** | ✓ | ✓ | ✓ | ~ | ✓ |
 | Floating licenses | **✓** | ✓ | ✓ | ✓ | — | — |
@@ -118,9 +118,10 @@ Sources for this table are captured in the accompanying competitor-analysis note
 
 Three things are ours and nobody with traction offers all three:
 
-1. **Edge-native from one codebase.** Hono runs on Node (self-host) *and* Cloudflare Workers/D1 (our
-   cloud). Keygen (Rails) and keygate (Go) physically can't sit on Workers; the hosted players are
-   closed. "Runs on the Cloudflare free tier" is a real indie story.
+1. **Small and boring from one codebase.** A single Node/Hono service runs our hosted cloud (k8s)
+   and any self-host box — one `docker compose up`, SQLite or Postgres, no Rails stack to babysit
+   (Keygen) and no enterprise on-prem ceremony (Cryptlex). "First key in under 10 minutes" is a real
+   indie story.
 2. **Genuinely open.** MIT beats Keygen's Fair Source restrictions and keygate's AGPL-plus-attribution
    on the "no strings" axis — the most common complaint about the incumbents.
 3. **A drop-in for the Lemon Squeezy installed base.** A large body of client code is already written
@@ -135,14 +136,14 @@ keys."** And the pricing dunk: **"We don't charge per license. Your growth is no
 ## 7. Pricing & packaging
 
 The incumbents meter on the thing that grows with your success (active users, devices, licenses). Our
-marginal cost per validate is ~one edge read, so we don't need to. Two options, mirroring how our own
+marginal cost per validate is ~one indexed read, so we don't need to. Two options, mirroring how our own
 products are sold (own it, or subscribe):
 
 - **Self-host — free forever.** MIT. Unlimited products, keys, activations, validations, metering,
   seats. You run it; you own it. This is the "lifetime" equivalent.
 - **Cloud Free.** One product, unlimited validations, emails from a shared sender — enough to ship.
 - **Cloud Pro — $99 / year, flat.** Unlimited products, keys, activations, validations, metering
-  events, and seats. Managed edge hosting, managed email deliverability (your own sending domain),
+  events, and seats. Managed hosting, managed email deliverability (your own sending domain),
   automatic Stripe/PayPal webhook wiring, hosted success + portal endpoints, daily backups, priority
   support. **No per-seat, per-license, per-active-user, or percentage-of-sales fees, ever.**
 
@@ -153,9 +154,9 @@ licensing service to third parties.
 
 ## 8. Design principles
 
-- **Boring and small.** Node/TypeScript with [Hono](https://hono.dev) so one codebase runs on Node
-  (self-host) and Cloudflare Workers (cloud). Storage behind a thin adapter: SQLite/libSQL or Postgres
-  for self-host, D1 for Workers. A migration tool applies the schema on boot/deploy.
+- **Boring and small.** Node/TypeScript with [Hono](https://hono.dev); one codebase serves the
+  self-host story and our hosted cloud (k8s). Storage behind a thin adapter: SQLite for dev and
+  lightweight self-host, Postgres for production. A migration tool applies the schema on boot.
 - **Multi-product from day one**, but NOT an outside-tenant SaaS in v1. Onboarding a product is an
   admin action.
 - **Provider-pluggable payments.** The payment webhook and the issuance core are separated so a new
@@ -334,8 +335,8 @@ Track API calls, storage, bandwidth, or product-defined metrics, with quotas enf
 the database level** so two concurrent requests can never both pass a limit check.
 
 - Postgres: `SELECT … FOR UPDATE` / `UPDATE … WHERE current + :delta <= limit RETURNING current`.
-- SQLite / D1: a single guarded `UPDATE … WHERE current + :delta <= limit RETURNING current` inside a
-  transaction (D1 batch), which is atomic on the row.
+- SQLite: a single guarded `UPDATE … WHERE current + :delta <= limit RETURNING current` inside a
+  transaction, which is atomic on the row.
 - Auto-reset periods (`daily` / `monthly` / none) with `period_start` / `resets_at`.
 - Over-limit → `429 quota_exceeded`. Custom metrics defined per product by the admin.
 
@@ -350,8 +351,8 @@ five-minute job.
 ### Stripe (primary)
 
 Signature-verified with the official `stripe` SDK
-(`Stripe.createSubtleCryptoProvider()` + `stripe.webhooks.constructEventAsync(rawBody, sig, secret)` on
-Workers). "Easy onboarding" specifics: `beans stripe connect` (CLI) or an admin action creates the two
+(`stripe.webhooks.constructEvent(rawBody, sig, secret)` against the raw request body). "Easy
+onboarding" specifics: `beans stripe connect` (CLI) or an admin action creates the two
 prices (one-time lifetime, recurring yearly) and **auto-registers the webhook endpoint via the Stripe
 API**, then stores the signing secret — no manual dashboard wiring.
 
@@ -452,7 +453,7 @@ dashboard.**
 
 ## 17. Data model
 
-Portable SQL (SQLite/libSQL and, with trivial type edits, Postgres/D1). Extends the original core with
+Portable SQL (SQLite and, with trivial type edits, Postgres). Extends the original core with
 metering, floating leases, offline signing keys, PayPal, and audit.
 
 ```sql
@@ -586,9 +587,11 @@ boot. Env:
 
 ### Cloud (Goldenberry's instance)
 
-Cloudflare Workers + D1 at `app.coolbeans.tools`. Secrets in the Workers/Pages env. A Cloudflare WAF
-rate rule of 30 req/min/IP on `/v1/*` (the webhook path excluded — it's protected by signature
-verification instead).
+Runs on Goldenberry's k8s infrastructure at `app.coolbeans.tools`: Docker images built in CI, pushed
+to GHCR, rolled out via the GitOps infra repo (the same pipeline as pleasehold). Postgres + Redis
+alongside. Secrets via the deployment env. Rate limiting of 30 req/min/IP on `/v1/*` enforced by the
+Redis-backed middleware (the webhook path excluded — it's protected by signature verification
+instead).
 
 ---
 
@@ -641,8 +644,8 @@ verification instead).
 8. **Floating leases + heartbeat; usage metering.**
 9. **PayPal adapter.**
 10. **Customer portal + admin dashboard.**
-11. **Packaging:** Dockerfile + compose (self-host), `wrangler.jsonc` + D1 (cloud), README for both,
-    compose smoke test.
+11. **Packaging:** Dockerfile + compose (self-host), CI images + GitOps rollout (cloud), README for
+    both, compose smoke test.
 
 §9's client contract is **frozen first** — products build against it and it must not drift.
 
@@ -651,7 +654,7 @@ verification instead).
 ## 23. Risks & open questions
 
 - **"Why not just use Keygen CE?"** — answer it on the homepage: smaller, MIT (no Fair Source strings),
-  Workers-native, LS-parity drop-in, flat pricing.
+  self-host-in-minutes, LS-parity drop-in, flat pricing.
 - **Keyforge owns the hosted "no-backend Stripe→keys" narrative.** Our counter is self-host + OSS +
   own-your-data.
 - **Commoditization** (a 2026 wave of entrants). Tie-breaker is DX, docs, and the clean drop-in path —

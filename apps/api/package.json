@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "tsx watch src/node.ts",
-		"build": "tsup src/node.ts src/worker.ts --format esm --dts",
+		"build": "tsup src/node.ts --format esm --dts",
 		"lint": "biome check src/",
 		"format": "biome format --write src/",
 		"typecheck": "tsc --noEmit",
@@ -23,17 +23,16 @@
 		"better-sqlite3": "^12.11.1",
 		"hono": "^4.12.30",
 		"stripe": "^22.3.2",
-		"zod": "^4.4.3"
+		"zod": "^4.4.3",
+		"hono-rate-limiter": "^0.5.3",
+		"ioredis": "^5.9.2"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.18.6",
-		"@cloudflare/workers-types": "^5.20260717.1",
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/node": "^24.0.0",
 		"tsup": "^8.5.1",
 		"typescript": "~5.9.3",
 		"tsx": "^4.23.1",
-		"vitest": "^4.1.10",
-		"wrangler": "^4.112.0"
+		"vitest": "^4.1.10"
 	}
 }

@@ -11,11 +11,11 @@ engineering decisions, most of them borrowed from two references:
 
 pnpm workspaces + Turborepo. `apps/api` is the Hono service; `apps/web` is the React SPA for the
 admin dashboard (Vite + TanStack Router, mirroring pleasehold's `apps/web`; in production the API
-serves its built assets); `packages/db` holds the Drizzle schema and storage adapter;
-`packages/auth` wraps Better Auth for dashboard admin sessions; `packages/email` holds the React
-Email templates and the Resend/SMTP sender seam; `packages/logger` is our own small structured
-logger (zero deps, Node + Workers); `packages/cli` is the `beans` admin CLI; `packages/sdk` is the
-publishable client. Conventions carried over wholesale:
+serves its built assets); `apps/worker` is the BullMQ background-job processor (mirroring
+pleasehold's worker); `packages/db` holds the Drizzle schema and storage adapter; `packages/auth`
+wraps Better Auth for dashboard admin sessions; `packages/email` holds the React Email templates
+and the Resend/SMTP sender seam; `packages/logger` is our own small structured logger (zero deps);
+`packages/cli` is the `beans` admin CLI; `packages/sdk` is the publishable client. Conventions carried over wholesale:
 
 - **Biome** (tabs, single quotes, lineWidth 100), per-package `lint`/`format`/`typecheck`/`test`
   scripts, husky pre-commit running `pnpm run check`.
@@ -23,22 +23,20 @@ publishable client. Conventions carried over wholesale:
 - **Response envelope**: success bodies carry `ok: true` (the PRD §9 contract shape); errors are
   `{ "ok": false, "error": "<code>", "message": "<human sentence>" }`. One shared helper, uniform
   everywhere.
-- **Factory injection everywhere**: `createApp(deps)`, `createDbSqlite(...)`/`createDbD1(...)`, route
-  factories that close over their dependencies. No module-scope singletons in the route layer. This is
-  what makes one codebase serve two runtimes and makes handlers testable via `app.request()` with no
-  HTTP server.
+- **Factory injection everywhere**: `createApp(deps)`, `createDb(...)`, route factories that close
+  over their dependencies. No module-scope singletons in the route layer — it keeps handlers
+  testable via `app.request()` with no HTTP server and lets tests inject throwaway databases.
 - **OpenAPIHono** (`@hono/zod-openapi`): routes are declared with typed request/response schemas, which
   gives us validation and a free OpenAPI doc at `/doc` (+ Scalar UI at `/docs`).
 
 Where we deliberately diverge from pleasehold.dev:
 
-- **It's Node + Postgres only; we target Node *and* Workers.** The runtime seam is two entrypoints
-  over one `createApp`: `src/node.ts` (`@hono/node-server`) and `src/worker.ts` (`export default`).
-- **SQLite dialect first, not Postgres.** Drizzle's sqlite dialect covers both better-sqlite3
-  (self-host) and D1 (cloud) with a single schema and a single migrations folder. Postgres support is
-  a later adapter, per the PRD.
-- **No Redis, no BullMQ.** Neither runs on Workers. Rate limiting is Cloudflare WAF on the cloud and
-  a middleware seam for self-host; async work stays in-request or behind Cron Triggers.
+- **Same runtime as pleasehold — plain Node on our k8s infra** (Docker images → GHCR → GitOps
+  against the infra repo). No Cloudflare Workers target; we don't optimize for edge runtimes.
+  Self-hosters get the same images via docker compose. Redis backs rate limiting
+  (hono-rate-limiter) and queues (BullMQ in `apps/worker`), as in pleasehold.
+- **SQLite dialect first** for dev and lightweight self-host; the production k8s instance runs
+  Postgres behind the same `Database` seam (tracked as its own issue).
 - **Zod v4 everywhere** (pleasehold is stuck on a v3/v4 dual-version override; greenfield means we
   skip that).
 - **Better Auth only for the dashboard.** The license key itself is the public credential and the
@@ -74,7 +72,7 @@ Keygate pitfalls we avoid:
   store the normalized key with a UNIQUE constraint per PRD §17, no plaintext duplicates.
 - Its single global license-signing key can't rotate per product. We support per-product signing keys
   with rotation (multiple active public keys) from the schema up.
-- Its in-process rate limiting doesn't survive horizontal scaling. Ours lives at the edge (WAF) for
+- Its in-process rate limiting doesn't survive horizontal scaling. Ours is Redis-backed for
   the cloud and behind a seam for self-host.
 - Unbounded append-only logs. `audit_log` and `provider_events` get a documented retention story.
 

@@ -1,0 +1,29 @@
+{
+	"name": "@coolbeans/worker",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"build": "tsup src/index.ts --format esm",
+		"lint": "biome check src/",
+		"format": "biome format --write src/",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run --passWithNoTests",
+		"clean": "rm -rf dist"
+	},
+	"dependencies": {
+		"@coolbeans/db": "workspace:*",
+		"@coolbeans/email": "workspace:*",
+		"@coolbeans/logger": "workspace:*",
+		"bullmq": "^5.80.7",
+		"ioredis": "^5.11.1"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"tsup": "^8.5.1",
+		"tsx": "^4.23.1",
+		"typescript": "~5.9.3",
+		"vitest": "^4.1.10"
+	}
+}

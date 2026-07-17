@@ -11,7 +11,9 @@
 			"import": "./dist/index.js"
 		}
 	},
-	"files": ["dist"],
+	"files": [
+		"dist"
+	],
 	"scripts": {
 		"dev": "tsup src/index.ts --format esm --watch --no-dts",
 		"build": "tsup src/index.ts --format esm --dts",
@@ -23,10 +25,10 @@
 		"db:generate": "drizzle-kit generate"
 	},
 	"dependencies": {
-		"drizzle-orm": "^0.45.2"
+		"drizzle-orm": "^0.45.2",
+		"postgres": "^3.4.8"
 	},
 	"devDependencies": {
-		"@cloudflare/workers-types": "^5.20260717.1",
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/node": "^24.0.0",
 		"better-sqlite3": "^12.11.1",

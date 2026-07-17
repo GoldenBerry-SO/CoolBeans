@@ -10,7 +10,7 @@ machines, and Cool Beans is the source of truth for whether that key is still go
 One codebase, two homes:
 
 - **Self-host** on Node with SQLite (or Postgres) — free forever, `docker compose up`.
-- **Cloud** on Cloudflare Workers + D1 — the hosted convenience option.
+- **Cloud** on our k8s infrastructure (Docker + Postgres + Redis) — the hosted convenience option.
 
 It's a drop-in for the Lemon Squeezy License API, so existing clients migrate with a base-URL change.
 
@@ -22,14 +22,15 @@ progress. Full product spec: [`docs/PRD.md`](docs/PRD.md). Architecture decision
 
 ```
 apps/
-  api/          Hono API server — runs on Node (self-host) and Cloudflare Workers (cloud)
+  api/          Hono API server (Node)
+  worker/       BullMQ background-job processor
   web/          React SPA (Vite) — the admin dashboard
 packages/
   auth/         Better Auth factory — admin sessions for the dashboard only
   cli/          beans — the admin CLI
-  db/           Drizzle schema + storage adapter (better-sqlite3 / D1 behind one Database type)
+  db/           Drizzle schema + storage adapter (SQLite dev/self-host, Postgres in production)
   email/        React Email templates + Resend/SMTP sender seam
-  logger/       Structured logger — zero deps, runs on Node and Workers
+  logger/       Structured logger — zero deps
   sdk/          @coolbeans/sdk — drop-in client for Node, Electron, Tauri, and the browser
 docs/           PRD and architecture notes
 ```

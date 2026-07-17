@@ -1,5 +1,5 @@
 // ABOUTME: Drizzle Kit config — generates portable SQLite migrations from the schema barrel.
-// ABOUTME: Node applies them on boot; the cloud applies them via wrangler d1 migrations apply.
+// ABOUTME: The server applies pending migrations on boot (self-host and k8s alike).
 
 import { defineConfig } from 'drizzle-kit';
 

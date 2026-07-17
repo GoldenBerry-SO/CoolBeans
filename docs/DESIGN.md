@@ -82,6 +82,13 @@ etc.), 7px squares with 2px radius.
 - **Usage meters**: 7–8px track bars; fill turns warn near the limit and danger over it, with a
   matching tinted badge (OK / % / "Over limit").
 - **Toast**: ink background, white 13px text, bottom-center, 10px radius.
+- **Dialogs** (not in the source design — derived from its portal card language): centered card,
+  16px radius, `card` background, `0 4px 24px rgba(26,26,25,0.06)` shadow over a
+  `rgba(26,26,25,0.35)` scrim; 28–30px padding; 20px/600 title with a 13.5px `ink-muted` lede;
+  form labels are 11px/600 uppercase `ink-muted`; inputs are `fill-soft` with `0.14` borders that
+  focus to `positive`; footer is a right-aligned secondary + one accent (or ink) primary. Results
+  that produce a key show it in a mono `fill-soft` well with a copy button. Enter animation is the
+  standard `cbin` fade-up.
 - **Logo**: lime rounded square with an ink bean (ellipse rotated -38° with a lime slash).
 
 ## Motion

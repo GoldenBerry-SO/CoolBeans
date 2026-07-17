@@ -245,6 +245,18 @@ Request: `{ "license_key": "CLEM-…", "instance_id": "<uuid>" }`
   atomically (§12); over-limit returns `429 quota_exceeded` with the same body shape.
 - `GET /v1/usage` — current counters for a key.
 
+### Lemon Squeezy compatibility routes (validated 2026-07-17)
+
+The real LS License API lives at `POST /v1/licenses/activate|validate|deactivate` and returns
+`activated` / `valid` / `deactivated` booleans, `error` (human message or `null`), a `license_key`
+object (`id`, `status`, `key`, `activation_limit`, `activation_usage`, `created_at`, `expires_at`),
+an `instance` object (`id`, `name`, `created_at`), and a `meta` object. A base-URL-swap migration
+therefore requires more than the shapes above: Cool Beans also serves **alias routes at
+`/v1/licenses/*`** that emulate the LS request/response contract exactly (status mapping: our
+`disabled` → LS `disabled`; an expired trial → LS `expired`), while the native `/v1/*` routes carry
+the clean contract defined in this section. Both route families hit the same handlers; the alias
+layer is a serializer, not a second implementation. The parity test suite pins both.
+
 ---
 
 ## 10. Key generation
@@ -351,6 +363,28 @@ API**, then stores the signing secret — no manual dashboard wiring.
 | `charge.refunded` | Find the purchase via `charge.payment_intent`; disable the key, `reason=refund`. |
 | `customer.subscription.updated` | Find the purchase via `stripe_subscription_id`; set `expires_at = current_period_end`. Covers renewals and scheduled cancels (key stays active, date stops advancing). |
 | `customer.subscription.deleted` | Disable the key, `reason=subscription_canceled`. **This is the yearly-lapse enforcement**, fired at the end of the paid-through period. Lifetime keys are never touched by subscription events; they die only on refund. |
+
+### Stripe integration notes (validated against 2026 Stripe API, 2026-07-17)
+
+- **`current_period_end` lives on subscription items now.** Since API version `2025-03-31.basil`
+  (which the pinned `stripe` v22 SDK uses), the Subscription object no longer carries
+  `current_period_start/end`; read `subscription.items.data[0].current_period_end` instead.
+- **Renewal refunds don't match the stored payment intent.** The purchase row stores the checkout's
+  `payment_intent`; a refunded *renewal* invoice has a different one. `charge.refunded` must fall
+  back to resolving `charge.invoice → invoice.subscription → purchases.provider_subscription_id`.
+- **Partial refunds fire `charge.refunded` too.** Only a full refund
+  (`charge.amount_refunded === charge.amount_captured`) disables the key; a partial refund is
+  recorded in the audit log but leaves the license active.
+- **Disputes:** handle `charge.dispute.created` → disable the key (`reason=chargeback`), resolved
+  via the same payment-intent/subscription fallback. A lost chargeback emits no `charge.refunded`,
+  so without this a charged-back lifetime key would stay active forever.
+- **Dunning must end in cancellation.** `customer.subscription.deleted` (our yearly-lapse signal)
+  only fires when Stripe's post-retry action is *cancel*. `beans stripe connect` verifies/documents
+  that setting, and as belt-and-braces `customer.subscription.updated` with `status: "unpaid"` is
+  also treated as a lapse (disable, `reason=subscription_canceled`), since yearly `expires_at` is
+  advisory and never enforced client-side.
+- **Quantity is 1.** Created prices/checkout links disable adjustable quantity; one checkout
+  session issues exactly one key.
 
 ### PayPal (second provider)
 

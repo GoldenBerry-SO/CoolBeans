@@ -23,8 +23,12 @@ progress. Full product spec: [`docs/PRD.md`](docs/PRD.md). Architecture decision
 ```
 apps/
   api/          Hono API server — runs on Node (self-host) and Cloudflare Workers (cloud)
+  web/          React SPA (Vite) — the admin dashboard
 packages/
+  auth/         Better Auth factory — admin sessions for the dashboard only
+  cli/          beans — the admin CLI
   db/           Drizzle schema + storage adapter (better-sqlite3 / D1 behind one Database type)
+  logger/       Structured logger — zero deps, runs on Node and Workers
   sdk/          @coolbeans/sdk — drop-in client for Node, Electron, Tauri, and the browser
 docs/           PRD and architecture notes
 ```

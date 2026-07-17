@@ -1,0 +1,31 @@
+{
+	"name": "@coolbeans/cli",
+	"version": "0.0.0",
+	"type": "module",
+	"description": "beans — the Cool Beans admin CLI.",
+	"license": "MIT",
+	"bin": {
+		"beans": "./dist/index.js"
+	},
+	"main": "./dist/index.js",
+	"files": ["dist"],
+	"scripts": {
+		"dev": "tsx src/index.ts",
+		"build": "tsup src/index.ts --format esm",
+		"lint": "biome check src/",
+		"format": "biome format --write src/",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run --passWithNoTests",
+		"clean": "rm -rf dist"
+	},
+	"dependencies": {
+		"commander": "^15.0.0"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"tsup": "^8.5.1",
+		"tsx": "^4.23.1",
+		"typescript": "~5.9.3",
+		"vitest": "^4.1.10"
+	}
+}

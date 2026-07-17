@@ -9,8 +9,12 @@ engineering decisions, most of them borrowed from two references:
 
 ## Repo shape (from pleasehold.dev)
 
-pnpm workspaces + Turborepo. `apps/api` is the Hono service; `packages/db` holds the Drizzle schema
-and storage adapter; `packages/sdk` is the publishable client. Conventions carried over wholesale:
+pnpm workspaces + Turborepo. `apps/api` is the Hono service; `apps/web` is the React SPA for the
+admin dashboard (Vite + TanStack Router, mirroring pleasehold's `apps/web`; in production the API
+serves its built assets); `packages/db` holds the Drizzle schema and storage adapter;
+`packages/auth` wraps Better Auth for dashboard admin sessions; `packages/logger` is our own small
+structured logger (zero deps, Node + Workers); `packages/cli` is the `beans` admin CLI;
+`packages/sdk` is the publishable client. Conventions carried over wholesale:
 
 - **Biome** (tabs, single quotes, lineWidth 100), per-package `lint`/`format`/`typecheck`/`test`
   scripts, husky pre-commit running `pnpm run check`.
@@ -36,8 +40,10 @@ Where we deliberately diverge from pleasehold.dev:
   a middleware seam for self-host; async work stays in-request or behind Cron Triggers.
 - **Zod v4 everywhere** (pleasehold is stuck on a v3/v4 dual-version override; greenfield means we
   skip that).
-- **No Better Auth.** The license key itself is the public credential; admin is a bearer token with
-  constant-time compare. A user/session system is a non-goal.
+- **Better Auth only for the dashboard.** The license key itself is the public credential and the
+  admin API uses a bearer token with constant-time compare — no user/session system on those
+  surfaces. Better Auth (`packages/auth`, pleasehold's pattern) backs admin sessions for the web
+  dashboard only.
 
 ## Domain design (from keygate, adapted)
 

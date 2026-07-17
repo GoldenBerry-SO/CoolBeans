@@ -1,0 +1,29 @@
+{
+	"name": "@coolbeans/web",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview",
+		"lint": "biome check src/",
+		"format": "biome format --write src/",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run --passWithNoTests",
+		"clean": "rm -rf dist"
+	},
+	"dependencies": {
+		"@tanstack/react-router": "^1.170.18",
+		"react": "^19.2.7",
+		"react-dom": "^19.2.7"
+	},
+	"devDependencies": {
+		"@types/react": "^19.2.17",
+		"@types/react-dom": "^19.2.3",
+		"@vitejs/plugin-react": "^6.0.3",
+		"typescript": "~5.9.3",
+		"vite": "^8.1.5",
+		"vitest": "^4.1.10"
+	}
+}

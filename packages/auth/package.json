@@ -1,0 +1,33 @@
+{
+	"name": "@coolbeans/auth",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": ["dist"],
+	"scripts": {
+		"dev": "tsup src/index.ts --format esm --watch --no-dts",
+		"build": "tsup src/index.ts --format esm --dts",
+		"lint": "biome check src/",
+		"format": "biome format --write src/",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run --passWithNoTests",
+		"clean": "rm -rf dist"
+	},
+	"dependencies": {
+		"@coolbeans/db": "workspace:*",
+		"better-auth": "^1.6.23"
+	},
+	"devDependencies": {
+		"tsup": "^8.5.1",
+		"typescript": "~5.9.3",
+		"vitest": "^4.1.10"
+	}
+}

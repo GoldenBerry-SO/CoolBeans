@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+a{color:#4d6b16;text-decoration:none}
+a:hover{color:#3a5210}
+input,select,button,textarea{font-family:inherit}
+::-webkit-scrollbar{width:12px;height:12px}
+::-webkit-scrollbar-thumb{background:rgba(26,26,25,0.18);border-radius:8px;border:3px solid #f6f5f1}
+::-webkit-scrollbar-track{background:transparent}
+@keyframes cbin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes cbtoast{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+</style>
+</helmet>
+<div style="height:100vh;overflow:hidden;background:#f6f5f1;color:#1a1a19;font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased">
+
+<sc-if value="{{ adminActive }}" hint-placeholder-val="{{ true }}">
+<div style="display:grid;grid-template-columns:248px 1fr;height:100vh">
+
+  <!-- SIDEBAR -->
+  <aside style="display:flex;flex-direction:column;background:#fbfaf7;border-right:1px solid rgba(26,26,25,0.09);overflow-y:auto">
+    <div style="display:flex;align-items:center;gap:10px;height:61px;padding:0 16px;border-bottom:1px solid rgba(26,26,25,0.08);flex:none">
+      <span style="display:inline-flex;width:31px;height:31px;align-items:center;justify-content:center;background:#c8ff4d;border-radius:9px;flex:none">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="12" rx="8.2" ry="6" transform="rotate(-38 12 12)" fill="#1a1a19"/><path d="M8.8 15.6C10.6 13.4 13.4 10.6 15.2 8.4" stroke="#c8ff4d" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </span>
+      <div style="line-height:1.1">
+        <div style="font-weight:600;font-size:14.5px;letter-spacing:-0.01em">Cool Beans</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9a92">coolbeans.tools</div>
+      </div>
+    </div>
+
+    <div style="padding:14px 16px 10px">
+      <button style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 11px;background:#fff;border:1px solid rgba(26,26,25,0.11);border-radius:9px;color:#1a1a19;cursor:pointer;font-size:13px;box-shadow:0 1px 2px rgba(26,26,25,0.04)" style-hover="border-color:rgba(26,26,25,0.24)">
+        <span style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:2px;background:#e8863a"></span>All products</span>
+        <span style="color:#9a9a92;font-size:11px">4 ▾</span>
+      </button>
+    </div>
+
+    <div style="padding:6px 16px;font-size:10px;font-weight:600;letter-spacing:0.09em;color:#a8a89f;text-transform:uppercase">Manage</div>
+    <nav style="display:flex;flex-direction:column;gap:1px;padding:2px 12px 0">
+      <a onClick="{{ goOverview }}" style="{{ nav.overview }}" style-hover="background:rgba(26,26,25,0.05)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="flex:none"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg><span>Overview</span></a>
+      <a onClick="{{ goLicenses }}" style="{{ nav.licenses }}" style-hover="background:rgba(26,26,25,0.05)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="flex:none"><circle cx="7.5" cy="8" r="4"/><path d="M10.5 11 L20 20.5 M17 17.5 L19.5 15"/></svg><span>Licenses</span></a>
+      <a onClick="{{ goProducts }}" style="{{ nav.products }}" style-hover="background:rgba(26,26,25,0.05)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="flex:none"><path d="M12 3 L20 7 V17 L12 21 L4 17 V7 Z"/><path d="M4 7 L12 11 L20 7 M12 11 V21"/></svg><span>Products</span></a>
+      <a onClick="{{ goCustomers }}" style="{{ nav.customers }}" style-hover="background:rgba(26,26,25,0.05)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="flex:none"><circle cx="9" cy="8" r="3.4"/><circle cx="16.5" cy="9.5" r="2.6"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5M15 18.5c0-2 1.2-3.4 3-3.4s2.5 1 2.5 2.4"/></svg><span>Customers</span></a>
+      <a onClick="{{ goUsage }}" style="{{ nav.usage }}" style-hover="background:rgba(26,26,25,0.05)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style="flex:none"><path d="M5 19V11 M12 19V5 M19 19V14"/></svg><span>Usage</span></a>
+      <a onClick="{{ goWebhooks }}" style="{{ nav.webhooks }}" style-hover="background:rgba(26,26,25,0.05)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="flex:none"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="M8 7.5C13 9 15.5 12 16.5 16"/></svg><span>Webhooks</span></a>
+      <a onClick="{{ goAudit }}" style="{{ nav.audit }}" style-hover="background:rgba(26,26,25,0.05)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style="flex:none"><path d="M6 5h12 M6 10h12 M6 15h8"/></svg><span>Audit log</span></a>
+    </nav>
+
+    <div style="margin-top:auto;padding:14px 12px 16px">
+      <a onClick="{{ showPortal }}" style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;color:#5a5a54;font-size:13.5px;font-weight:500;cursor:pointer" style-hover="background:rgba(26,26,25,0.05);color:#1a1a19"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" style="flex:none"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg><span>Customer portal</span></a>
+      <div style="display:flex;align-items:center;gap:10px;margin:10px 8px 0;padding-top:12px;border-top:1px solid rgba(26,26,25,0.08)">
+        <span style="width:29px;height:29px;border-radius:50%;background:#eef7d3;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#4d6b16;flex:none">G</span>
+        <div style="line-height:1.2;flex:1;min-width:0">
+          <div style="font-size:12.5px;font-weight:500">Goldenberry</div>
+          <div style="font-size:10.5px;color:#9a9a92;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">admin · global token</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div style="display:flex;flex-direction:column;height:100vh;overflow:hidden">
+    <header style="display:flex;align-items:center;gap:16px;height:61px;padding:0 28px;border-bottom:1px solid rgba(26,26,25,0.08);background:#fbfaf7;flex:none">
+      <div style="flex:1;min-width:0">
+        <h1 style="margin:0;font-size:16px;font-weight:600;letter-spacing:-0.01em">{{ pageTitle }}</h1>
+        <div style="font-size:12px;color:#9a9a92">{{ pageSub }}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;padding:8px 12px;background:#fff;border:1px solid rgba(26,26,25,0.11);border-radius:9px;width:280px;color:#9a9a92" style-focus-within="border-color:rgba(77,107,22,0.5)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.5-4.5"/></svg>
+        <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Search keys, emails…" style="flex:1;background:transparent;border:none;outline:none;color:#1a1a19;font-size:13px"/>
+        <kbd style="font-family:'IBM Plex Mono',monospace;font-size:10px;padding:1px 5px;border:1px solid rgba(26,26,25,0.14);border-radius:4px">⌘K</kbd>
+      </div>
+      <button onClick="{{ notifyIssue }}" style="display:flex;align-items:center;gap:7px;padding:9px 14px;background:#c8ff4d;color:#1a1a19;border:1px solid #b4ee38;border-radius:9px;font-weight:600;font-size:13px;cursor:pointer;box-shadow:0 1px 2px rgba(26,26,25,0.08)" style-hover="background:#bcf53f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Issue key</button>
+    </header>
+
+    <main style="flex:1;overflow-y:auto;padding:28px">
+
+      <!-- OVERVIEW -->
+      <sc-if value="{{ showOverview }}" hint-placeholder-val="{{ true }}">
+      <div style="max-width:1180px;animation:cbin .35s ease both">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px">
+          <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+            <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;padding:17px 18px;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+              <div style="font-size:12px;color:#6e6e68;font-weight:500">{{ s.label }}</div>
+              <div style="font-size:27px;font-weight:600;letter-spacing:-0.02em;margin:6px 0 3px">{{ s.value }}</div>
+              <div style="{{ s.deltaStyle }}">{{ s.delta }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-bottom:16px">
+          <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;padding:18px 20px 16px;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:18px">
+              <div><div style="font-size:13px;font-weight:600">Validations</div><div style="font-size:11.5px;color:#9a9a92">edge reads · last 16 days</div></div>
+              <div style="font-size:11.5px;font-family:'IBM Plex Mono',monospace;color:#4d6b16">↑ 12.4%</div>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:6px;height:150px">
+              <sc-for list="{{ chart }}" as="d" hint-placeholder-count="16">
+                <div style="flex:1;display:flex;align-items:flex-end;height:100%"><div style="{{ d.style }}"></div></div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;padding:18px 20px;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+            <div style="font-size:13px;font-weight:600;margin-bottom:15px">Recent activity</div>
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <sc-for list="{{ activity }}" as="a" hint-placeholder-count="5">
+                <div style="display:flex;gap:11px;align-items:flex-start">
+                  <span style="{{ a.dot }}"></span>
+                  <div style="min-width:0;flex:1">
+                    <div style="font-size:12.5px;line-height:1.4">{{ a.text }} <span style="font-family:'IBM Plex Mono',monospace;color:#4d6b16;font-size:11.5px">{{ a.key }}</span></div>
+                    <div style="font-size:11px;color:#9a9a92">{{ a.meta }} · {{ a.when }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;overflow:hidden;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:1px solid rgba(26,26,25,0.08)"><div style="font-size:13px;font-weight:600">Audit log</div><a onClick="{{ goAudit }}" style="font-size:12px;cursor:pointer">View all →</a></div>
+          <sc-for list="{{ auditPreview }}" as="e" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:170px 1fr 170px;gap:14px;padding:12px 20px;border-bottom:1px solid rgba(26,26,25,0.05);align-items:center">
+              <span style="{{ e.actionStyle }}">{{ e.action }}</span>
+              <span style="font-size:12.5px;color:#4a4a44">{{ e.detail }}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#9a9a92;text-align:right">{{ e.actor }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- LICENSES -->
+      <sc-if value="{{ showLicenses }}">
+      <div style="max-width:1180px;animation:cbin .3s ease both">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <div style="display:flex;gap:3px;padding:4px;background:#eceae3;border-radius:10px">
+            <button onClick="{{ setStatusAll }}" style="{{ pill.all }}">All</button>
+            <button onClick="{{ setStatusActive }}" style="{{ pill.active }}">Active</button>
+            <button onClick="{{ setStatusDisabled }}" style="{{ pill.disabled }}">Disabled</button>
+          </div>
+          <select value="{{ productFilter }}" onChange="{{ onProductFilter }}" style="padding:9px 12px;background:#fff;border:1px solid rgba(26,26,25,0.12);border-radius:10px;color:#1a1a19;font-size:13px;cursor:pointer">
+            <option value="all">All products</option>
+            <sc-for list="{{ products }}" as="p" hint-placeholder-count="4"><option value="{{ p.slug }}">{{ p.name }}</option></sc-for>
+          </select>
+          <div style="flex:1"></div>
+          <div style="font-size:12.5px;color:#9a9a92;font-family:'IBM Plex Mono',monospace">{{ licenseCount }} keys</div>
+        </div>
+        <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;overflow:hidden;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+          <div style="display:grid;grid-template-columns:1.7fr 1fr 0.85fr 0.85fr 0.6fr 1.4fr;gap:14px;padding:11px 18px;border-bottom:1px solid rgba(26,26,25,0.08);font-size:10.5px;font-weight:600;color:#9a9a92;letter-spacing:0.05em;text-transform:uppercase">
+            <span>License key</span><span>Product</span><span>Tier</span><span>Status</span><span>Seats</span><span>Customer</span>
+          </div>
+          <sc-for list="{{ rows }}" as="r" hint-placeholder-count="7">
+            <div onClick="{{ r.open }}" style="display:grid;grid-template-columns:1.7fr 1fr 0.85fr 0.85fr 0.6fr 1.4fr;gap:14px;padding:13px 18px;border-bottom:1px solid rgba(26,26,25,0.05);align-items:center;cursor:pointer;font-size:13px" style-hover="background:rgba(26,26,25,0.025)">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:500;letter-spacing:-0.01em">{{ r.keyDisplay }}</span>
+              <span style="display:flex;align-items:center;gap:7px;color:#4a4a44;overflow:hidden"><span style="{{ r.dotStyle }}"></span>{{ r.productName }}</span>
+              <span style="{{ r.tierStyle }}">{{ r.tierLabel }}</span>
+              <span style="{{ r.statusStyle }}">{{ r.statusLabel }}</span>
+              <span style="{{ r.seatsStyle }}">{{ r.seatsLabel }}</span>
+              <span style="color:#4a4a44;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ r.email }}</span>
+            </div>
+          </sc-for>
+          <sc-if value="{{ rowsEmpty }}"><div style="padding:44px;text-align:center;color:#9a9a92;font-size:13px">{{ t.emptyList }}</div></sc-if>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- LICENSE DETAIL -->
+      <sc-if value="{{ showDetail }}">
+      <div style="max-width:1020px;animation:cbin .3s ease both">
+        <a onClick="{{ back }}" style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#6e6e68;cursor:pointer;margin-bottom:16px" style-hover="color:#1a1a19"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg>All licenses</a>
+        <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:22px">
+          <div style="flex:1;min-width:280px">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;letter-spacing:-0.01em">{{ sel.keyDisplay }}</span>
+              <button onClick="{{ sel.copy }}" style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;background:#fff;border:1px solid rgba(26,26,25,0.12);border-radius:7px;font-size:11.5px;color:#4a4a44;cursor:pointer;font-family:'IBM Plex Mono',monospace" style-hover="border-color:rgba(26,26,25,0.3)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg>Copy</button>
+              <span style="{{ sel.statusStyle }}">{{ sel.statusLabel }}</span>
+            </div>
+            <div style="font-size:13px;color:#6e6e68;margin-top:7px">{{ sel.name }} · {{ sel.email }}</div>
+          </div>
+          <div style="display:flex;gap:9px">
+            <button onClick="{{ sel.reissue }}" style="padding:9px 14px;background:#fff;border:1px solid rgba(26,26,25,0.14);border-radius:9px;font-size:13px;font-weight:500;color:#1a1a19;cursor:pointer" style-hover="border-color:rgba(26,26,25,0.3)">Resend key email</button>
+            <button onClick="{{ sel.toggle }}" style="{{ sel.toggleStyle }}">{{ sel.toggleLabel }}</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;margin-bottom:16px;box-shadow:0 1px 2px rgba(26,26,25,0.04);overflow:hidden">
+          <sc-for list="{{ sel.facts }}" as="f" hint-placeholder-count="4">
+            <div style="padding:14px 16px;border-right:1px solid rgba(26,26,25,0.06)"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:#9a9a92;font-weight:600">{{ f.label }}</div><div style="{{ f.style }}">{{ f.value }}</div></div>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px;align-items:start">
+          <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;overflow:hidden;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid rgba(26,26,25,0.08)">
+              <div style="font-size:13px;font-weight:600">Activations</div>
+              <span style="{{ sel.seatsStyle }}">{{ sel.seatsLabel }} seats</span>
+            </div>
+            <sc-for list="{{ sel.activations }}" as="a" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:12px;padding:13px 18px;border-bottom:1px solid rgba(26,26,25,0.05)">
+                <span style="{{ a.dot }}"></span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:13px;font-weight:500">{{ a.name }}</div>
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#9a9a92">{{ a.iid }} · {{ a.meta }}</div>
+                </div>
+                <sc-if value="{{ a.canDeactivate }}"><button onClick="{{ a.deactivate }}" style="padding:5px 10px;background:transparent;border:1px solid rgba(26,26,25,0.14);border-radius:7px;font-size:11.5px;color:#6e6e68;cursor:pointer" style-hover="border-color:#e0533f;color:#b42318">Deactivate</button></sc-if>
+                <sc-if value="{{ a.deactivated }}"><span style="font-size:11.5px;color:#9a9a92;font-style:italic">freed</span></sc-if>
+              </div>
+            </sc-for>
+            <sc-if value="{{ sel.noActivations }}"><div style="padding:28px;text-align:center;color:#9a9a92;font-size:12.5px">No live activations — every seat is free.</div></sc-if>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;padding:16px 18px;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+              <div style="font-size:13px;font-weight:600;margin-bottom:14px">Usage</div>
+              <sc-for list="{{ sel.usage }}" as="u" hint-placeholder-count="1">
+                <div style="margin-bottom:13px">
+                  <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px"><span style="color:#4a4a44">{{ u.label }}</span><span style="{{ u.numStyle }}">{{ u.num }}</span></div>
+                  <div style="height:7px;border-radius:5px;background:#eceae3;overflow:hidden"><div style="{{ u.bar }}"></div></div>
+                  <div style="font-size:10.5px;color:#9a9a92;margin-top:5px">resets {{ u.resets }}</div>
+                </div>
+              </sc-for>
+              <sc-if value="{{ sel.noUsage }}"><div style="font-size:12.5px;color:#9a9a92">No metered usage on this product.</div></sc-if>
+            </div>
+            <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;padding:16px 18px;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+              <div style="font-size:13px;font-weight:600;margin-bottom:14px">Timeline</div>
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <sc-for list="{{ sel.timeline }}" as="e" hint-placeholder-count="3">
+                  <div style="display:flex;gap:10px"><span style="{{ e.dot }}"></span><div><div style="{{ e.style }}">{{ e.action }}</div><div style="font-size:11px;color:#9a9a92">{{ e.when }}</div></div></div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- PRODUCTS -->
+      <sc-if value="{{ showProducts }}">
+      <div style="max-width:1180px;animation:cbin .3s ease both">
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px">
+          <sc-for list="{{ productCards }}" as="p" hint-placeholder-count="4">
+            <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;padding:20px;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+                <span style="{{ p.iconStyle }}">{{ p.initial }}</span>
+                <div style="flex:1"><div style="font-size:15px;font-weight:600">{{ p.name }}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#9a9a92">{{ p.slug }}</div></div>
+                <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 8px;background:#f4f2ec;border:1px solid rgba(26,26,25,0.08);border-radius:6px;font-weight:500">{{ p.prefix }}-••••</span>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+                <div style="background:#faf9f5;border:1px solid rgba(26,26,25,0.06);border-radius:9px;padding:11px"><div style="font-size:19px;font-weight:600">{{ p.keys }}</div><div style="font-size:10.5px;color:#9a9a92">keys</div></div>
+                <div style="background:#faf9f5;border:1px solid rgba(26,26,25,0.06);border-radius:9px;padding:11px"><div style="font-size:19px;font-weight:600">{{ p.active }}</div><div style="font-size:10.5px;color:#9a9a92">active</div></div>
+                <div style="background:#faf9f5;border:1px solid rgba(26,26,25,0.06);border-radius:9px;padding:11px"><div style="font-size:19px;font-weight:600">{{ p.limit }}</div><div style="font-size:10.5px;color:#9a9a92">seats/key</div></div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px">
+                <span style="padding:4px 9px;border-radius:20px;border:1px solid rgba(26,26,25,0.1);color:#4a4a44">{{ p.modelLabel }}</span>
+                <span style="padding:4px 9px;border-radius:20px;border:1px solid rgba(26,26,25,0.1);color:#4a4a44">{{ p.tiers }}</span>
+                <span style="padding:4px 9px;border-radius:20px;border:1px solid rgba(26,26,25,0.1);color:#4a4a44;font-family:'IBM Plex Mono',monospace">{{ p.emailFrom }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- CUSTOMERS -->
+      <sc-if value="{{ showCustomers }}">
+      <div style="max-width:1180px;animation:cbin .3s ease both">
+        <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;overflow:hidden;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+          <div style="display:grid;grid-template-columns:1.9fr 1.3fr 0.6fr 0.9fr 0.9fr;gap:14px;padding:11px 18px;border-bottom:1px solid rgba(26,26,25,0.08);font-size:10.5px;font-weight:600;color:#9a9a92;letter-spacing:0.05em;text-transform:uppercase"><span>Customer</span><span>Products</span><span>Keys</span><span>Status</span><span>Since</span></div>
+          <sc-for list="{{ customers }}" as="c" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:1.9fr 1.3fr 0.6fr 0.9fr 0.9fr;gap:14px;padding:13px 18px;border-bottom:1px solid rgba(26,26,25,0.05);align-items:center;font-size:13px">
+              <div style="display:flex;align-items:center;gap:11px;min-width:0"><span style="width:30px;height:30px;border-radius:50%;background:#f4f2ec;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#6e6e68;flex:none">{{ c.initial }}</span><div style="min-width:0"><div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.name }}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#9a9a92;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.email }}</div></div></div>
+              <span style="color:#4a4a44">{{ c.products }}</span>
+              <span style="font-family:'IBM Plex Mono',monospace">{{ c.keys }}</span>
+              <span style="{{ c.statusStyle }}">{{ c.statusLabel }}</span>
+              <span style="color:#6e6e68;font-family:'IBM Plex Mono',monospace;font-size:12px">{{ c.since }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- USAGE -->
+      <sc-if value="{{ showUsage }}">
+      <div style="max-width:1180px;animation:cbin .3s ease both">
+        <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;overflow:hidden;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+          <div style="padding:15px 20px;border-bottom:1px solid rgba(26,26,25,0.08);font-size:13px;font-weight:600">Metered usage <span style="color:#9a9a92;font-weight:400">· enforced atomically per key</span></div>
+          <sc-for list="{{ usageRows }}" as="u" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:1.4fr 0.8fr 2fr 0.8fr;gap:18px;padding:15px 20px;border-bottom:1px solid rgba(26,26,25,0.05);align-items:center">
+              <div><div style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:500">{{ u.key }}</div><div style="font-size:11px;color:#9a9a92">{{ u.product }} · {{ u.metric }}</div></div>
+              <div style="{{ u.numStyle }}">{{ u.num }}</div>
+              <div style="height:8px;border-radius:5px;background:#eceae3;overflow:hidden"><div style="{{ u.bar }}"></div></div>
+              <div style="text-align:right"><span style="{{ u.badgeStyle }}">{{ u.badge }}</span></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- WEBHOOKS -->
+      <sc-if value="{{ showWebhooks }}">
+      <div style="max-width:1180px;animation:cbin .3s ease both">
+        <div style="display:flex;gap:16px;margin-bottom:16px">
+          <div style="flex:1;background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;padding:16px 18px;box-shadow:0 1px 2px rgba(26,26,25,0.04)"><div style="display:flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:50%;background:#4d6b16"></span><span style="font-size:13px;font-weight:600">Stripe</span></div><div style="font-size:12px;color:#9a9a92;margin-top:6px;font-family:'IBM Plex Mono',monospace">/v1/stripe/webhook · verified</div></div>
+          <div style="flex:1;background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;padding:16px 18px;box-shadow:0 1px 2px rgba(26,26,25,0.04)"><div style="display:flex;align-items:center;gap:9px"><span style="width:9px;height:9px;border-radius:50%;background:#4d6b16"></span><span style="font-size:13px;font-weight:600">PayPal</span></div><div style="font-size:12px;color:#9a9a92;margin-top:6px;font-family:'IBM Plex Mono',monospace">/v1/paypal/webhook · verified</div></div>
+        </div>
+        <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;overflow:hidden;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+          <div style="display:grid;grid-template-columns:0.75fr 1.7fr 1.3fr 0.85fr 0.65fr;gap:14px;padding:11px 18px;border-bottom:1px solid rgba(26,26,25,0.08);font-size:10.5px;font-weight:600;color:#9a9a92;letter-spacing:0.05em;text-transform:uppercase"><span>Provider</span><span>Event</span><span>Detail</span><span>When</span><span>Status</span></div>
+          <sc-for list="{{ events }}" as="e" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:0.75fr 1.7fr 1.3fr 0.85fr 0.65fr;gap:14px;padding:12px 18px;border-bottom:1px solid rgba(26,26,25,0.05);align-items:center;font-size:12.5px">
+              <span style="{{ e.provStyle }}">{{ e.provider }}</span>
+              <div style="min-width:0"><div style="font-family:'IBM Plex Mono',monospace;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ e.type }}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#9a9a92">{{ e.id }}</div></div>
+              <span style="color:#4a4a44;font-size:12px">{{ e.detail }}</span>
+              <span style="color:#9a9a92;font-family:'IBM Plex Mono',monospace;font-size:11.5px">{{ e.when }}</span>
+              <span style="{{ e.statusStyle }}">{{ e.status }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- AUDIT -->
+      <sc-if value="{{ showAudit }}">
+      <div style="max-width:1180px;animation:cbin .3s ease both">
+        <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:13px;overflow:hidden;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+          <div style="display:grid;grid-template-columns:190px 1fr 160px 110px;gap:14px;padding:11px 20px;border-bottom:1px solid rgba(26,26,25,0.08);font-size:10.5px;font-weight:600;color:#9a9a92;letter-spacing:0.05em;text-transform:uppercase"><span>Action</span><span>Detail</span><span>Actor</span><span>When</span></div>
+          <sc-for list="{{ auditFull }}" as="e" hint-placeholder-count="8">
+            <div style="display:grid;grid-template-columns:190px 1fr 160px 110px;gap:14px;padding:12px 20px;border-bottom:1px solid rgba(26,26,25,0.05);align-items:center">
+              <span style="{{ e.actionStyle }}">{{ e.action }}</span>
+              <span style="font-size:12.5px;color:#4a4a44">{{ e.detail }}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6e6e68">{{ e.actor }}</span>
+              <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#9a9a92">{{ e.when }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+    </main>
+  </div>
+</div>
+</sc-if>
+
+<!-- CUSTOMER PORTAL -->
+<sc-if value="{{ portalActive }}">
+<div style="height:100vh;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:40px 20px 60px">
+  <div style="width:100%;max-width:520px;display:flex;align-items:center;justify-content:space-between;margin-bottom:36px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="display:inline-flex;width:30px;height:30px;align-items:center;justify-content:center;background:#c8ff4d;border-radius:9px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="12" rx="8.2" ry="6" transform="rotate(-38 12 12)" fill="#1a1a19"/><path d="M8.8 15.6C10.6 13.4 13.4 10.6 15.2 8.4" stroke="#c8ff4d" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+      <span style="font-weight:600;font-size:15px">Clementine</span>
+    </div>
+    <a onClick="{{ showAdmin }}" style="font-size:12px;color:#9a9a92;cursor:pointer" style-hover="color:#1a1a19">← Back to admin (demo)</a>
+  </div>
+
+  <sc-if value="{{ portalEnter }}" hint-placeholder-val="{{ true }}">
+  <div style="width:100%;max-width:420px;background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:16px;padding:32px 30px;box-shadow:0 4px 24px rgba(26,26,25,0.06);animation:cbin .35s ease both">
+    <h2 style="margin:0 0 6px;font-size:20px;font-weight:600;letter-spacing:-0.01em">Manage your license</h2>
+    <p style="margin:0 0 22px;font-size:13.5px;color:#6e6e68">Enter your license key or the email you bought with. We'll pull up your seats and renewal.</p>
+    <label style="font-size:11px;font-weight:600;color:#6e6e68;text-transform:uppercase;letter-spacing:0.05em">License key or email</label>
+    <input value="{{ portalInput }}" onChange="{{ onPortalInput }}" placeholder="CLEM-XXXX-XXXX-XXXX" style="width:100%;margin-top:7px;padding:12px 14px;background:#faf9f5;border:1px solid rgba(26,26,25,0.14);border-radius:10px;font-size:14px;font-family:'IBM Plex Mono',monospace;outline:none;color:#1a1a19" style-focus="border-color:#4d6b16;background:#fff"/>
+    <button onClick="{{ portalLookup }}" style="width:100%;margin-top:16px;padding:12px;background:#c8ff4d;border:1px solid #b4ee38;border-radius:10px;font-size:14px;font-weight:600;color:#1a1a19;cursor:pointer" style-hover="background:#bcf53f">Look up my license</button>
+    <p style="margin:18px 0 0;font-size:11.5px;color:#9a9a92;text-align:center">No password. No account. The key is the credential.</p>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ portalLicense }}">
+  <div style="width:100%;max-width:520px;animation:cbin .35s ease both">
+    <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:16px;padding:28px;box-shadow:0 4px 24px rgba(26,26,25,0.06);margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+        <span style="width:44px;height:44px;border-radius:50%;background:#eef7d3;display:inline-flex;align-items:center;justify-content:center;flex:none"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4d6b16" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+        <div><div style="font-size:17px;font-weight:600">{{ t.portalValid }}</div><div style="font-size:12.5px;color:#6e6e68">Clementine · Yearly · renews {{ pl.renews }}</div></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:13px 15px;background:#faf9f5;border:1px solid rgba(26,26,25,0.09);border-radius:11px">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600;flex:1">{{ pl.key }}</span>
+        <button onClick="{{ pl.copy }}" style="padding:6px 11px;background:#fff;border:1px solid rgba(26,26,25,0.14);border-radius:8px;font-size:12px;cursor:pointer;color:#4a4a44" style-hover="border-color:rgba(26,26,25,0.3)">Copy</button>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button style="flex:1;padding:11px;background:#1a1a19;color:#fff;border:none;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer" style-hover="background:#000">Download Clementine</button>
+        <button style="flex:1;padding:11px;background:#fff;border:1px solid rgba(26,26,25,0.14);border-radius:10px;font-size:13px;font-weight:500;color:#1a1a19;cursor:pointer" style-hover="border-color:rgba(26,26,25,0.3)">Manage billing</button>
+      </div>
+    </div>
+    <div style="background:#fff;border:1px solid rgba(26,26,25,0.1);border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(26,26,25,0.04)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(26,26,25,0.08)"><div style="font-size:13.5px;font-weight:600">Your devices</div><span style="{{ sel.seatsStyle }}">{{ sel.seatsLabel }} seats</span></div>
+      <sc-for list="{{ sel.activations }}" as="a" hint-placeholder-count="2">
+        <div style="display:flex;align-items:center;gap:13px;padding:14px 20px;border-bottom:1px solid rgba(26,26,25,0.05)">
+          <span style="width:36px;height:36px;border-radius:9px;background:#f4f2ec;display:inline-flex;align-items:center;justify-content:center;flex:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6e6e68" stroke-width="1.8"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></span>
+          <div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:500">{{ a.name }}</div><div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:#9a9a92">{{ a.meta }}</div></div>
+          <sc-if value="{{ a.canDeactivate }}"><button onClick="{{ a.deactivate }}" style="padding:6px 12px;background:transparent;border:1px solid rgba(26,26,25,0.14);border-radius:8px;font-size:12px;color:#6e6e68;cursor:pointer" style-hover="border-color:#e0533f;color:#b42318">Deactivate</button></sc-if>
+          <sc-if value="{{ a.deactivated }}"><span style="font-size:12px;color:#9a9a92;font-style:italic">freed</span></sc-if>
+        </div>
+      </sc-for>
+      <div style="padding:14px 20px;font-size:11.5px;color:#9a9a92">Deactivating frees a seat instantly — no support ticket needed.</div>
+    </div>
+    <div style="text-align:center;margin-top:20px"><a onClick="{{ portalSignout }}" style="font-size:12.5px;color:#9a9a92;cursor:pointer" style-hover="color:#1a1a19">Look up a different license</a></div>
+  </div>
+  </sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ toast }}"><div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#1a1a19;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;font-weight:500;box-shadow:0 8px 30px rgba(0,0,0,0.22);animation:cbtoast .25s ease;z-index:50">{{ toast }}</div></sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:860},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#c8ff4d&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;comfortable&quot;,&quot;options&quot;:[&quot;comfortable&quot;,&quot;compact&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;playful&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Voice&quot;}}">
+class Component extends DCLogic {
+  state = {
+    view: 'admin', page: 'overview', licenseId: null,
+    query: '', productFilter: 'all', statusFilter: 'all',
+    portalStep: 'enter', portalInput: '', toast: '',
+    products: [
+      { slug:'clementine', name:'Clementine', prefix:'CLEM', model:'node_locked', limit:3, keys:'1,284', active:'1,173', color:'#e8863a', emailFrom:'receipts@clementine.email', tiers:'Lifetime · Yearly · Trial', since:'Mar 2025' },
+      { slug:'hexis', name:'Hexis', prefix:'HEX', model:'floating', limit:5, keys:'412', active:'388', color:'#7b6cf0', emailFrom:'hello@hexis.app', tiers:'Yearly · Lifetime', since:'Jan 2026' },
+      { slug:'photoglide', name:'PhotoGlide', prefix:'PG', model:'node_locked', limit:2, keys:'876', active:'790', color:'#2fa89b', emailFrom:'keys@photoglide.io', tiers:'Yearly · Trial', since:'Nov 2025' },
+      { slug:'pace', name:'Pace', prefix:'PACE', model:'node_locked', limit:3, keys:'203', active:'181', color:'#d4a017', emailFrom:'team@paceapp.io', tiers:'Yearly', since:'May 2026' },
+    ],
+    licenses: [
+      { id:'l1', key:'CLEM-A2B3-C4D5-E6F7', product:'clementine', tier:'yearly', status:'active', name:'Chris Vance', email:'chris@studio.io', expires:'Jul 17, 2027', created:'Jul 17, 2026', provider:'stripe', since:'Jul 2026',
+        activations:[{iid:'inst_8f2c1a4e', name:"Chris's MacBook Pro", meta:'validated 12 min ago', deactivated:false},{iid:'inst_b7d3e921', name:'Studio iMac', meta:'validated 3 days ago', deactivated:false}],
+        usage:[{metric:'api_calls', label:'API calls', current:9847, limit:10000, resets:'Aug 1'}] },
+      { id:'l2', key:'CLEM-H8JK-M2N3-P4Q5', product:'clementine', tier:'lifetime', status:'active', name:'Fable Labs', email:'dev@fable.app', expires:null, created:'Mar 2, 2025', provider:'stripe', since:'Mar 2025',
+        activations:[{iid:'inst_4a1f8c02', name:'fable-build-server', meta:'validated 1 h ago', deactivated:false}], usage:[] },
+      { id:'l3', key:'CLEM-R6S7-T8V9-W2X3', product:'clementine', tier:'trial', status:'active', name:'Jo Okafor', email:'jo@indie.dev', expires:'Jul 25, 2026', created:'Jul 11, 2026', provider:'manual', since:'Jul 2026',
+        activations:[{iid:'inst_c9e40b7a', name:"Jo's ThinkPad", meta:'validated today', deactivated:false}],
+        usage:[{metric:'api_calls', label:'API calls', current:120, limit:1000, resets:'Aug 1'}] },
+      { id:'l4', key:'CLEM-Y4Z5-A6B7-C8D9', product:'clementine', tier:'yearly', status:'disabled', reason:'refund', name:'Pat Nguyen', email:'pat@acme.co', expires:'Jan 4, 2027', created:'Jan 4, 2026', provider:'stripe', since:'Jan 2026', activations:[], usage:[] },
+      { id:'l5', key:'HEX-K3L4-M5N6-P7Q8', product:'hexis', tier:'yearly', status:'active', name:'Northwind', email:'team@northwind.io', expires:'Feb 10, 2027', created:'Feb 10, 2026', provider:'stripe', since:'Feb 2026',
+        activations:[{iid:'inst_1d2e3f40', name:'render-node-1', meta:'lease renews in 22 min', deactivated:false},{iid:'inst_5a6b7c80', name:'render-node-2', meta:'lease renews in 18 min', deactivated:false},{iid:'inst_9e0f1a20', name:'render-node-3', meta:'lease renews in 25 min', deactivated:false}], usage:[] },
+      { id:'l6', key:'HEX-R9S2-T3V4-W5X6', product:'hexis', tier:'lifetime', status:'active', name:'Glyph Studio', email:'owner@glyph.studio', expires:null, created:'Apr 8, 2026', provider:'paypal', since:'Apr 2026',
+        activations:[{iid:'inst_2b3c4d50', name:'glyph-ci', meta:'validated 6 h ago', deactivated:false}], usage:[] },
+      { id:'l7', key:'PG-A7B8-C9D2-E3F4', product:'photoglide', tier:'yearly', status:'active', name:'Mia Rivera', email:'mia@shoot.pro', expires:'Sep 1, 2026', created:'Sep 1, 2025', provider:'stripe', since:'Sep 2025',
+        activations:[{iid:'inst_6e7f8a90', name:"Mia's Mac Studio", meta:'validated 40 min ago', deactivated:false},{iid:'inst_3c4d5e60', name:'Field laptop', meta:'validated yesterday', deactivated:false}], usage:[] },
+      { id:'l8', key:'PG-G5H6-J7K8-L9M2', product:'photoglide', tier:'trial', status:'disabled', reason:'trial_expired', name:'Sam Lens', email:'sam@lens.app', expires:'Jun 30, 2026', created:'Jun 16, 2026', provider:'manual', since:'Jun 2026', activations:[], usage:[] },
+      { id:'l9', key:'PACE-N3P4-Q5R6-S7T8', product:'pace', tier:'yearly', status:'active', name:'Pace Team', email:'runner@paceapp.io', expires:'May 20, 2027', created:'May 20, 2026', provider:'stripe', since:'May 2026',
+        activations:[{iid:'inst_7a8b9c00', name:'pace-prod', meta:'validated 2 h ago', deactivated:false}], usage:[] },
+    ],
+  };
+
+  notify(msg){ this.setState({toast:msg}); clearTimeout(this._t); this._t=setTimeout(()=>this.setState({toast:''}),1900); }
+  copyText(text,msg){ try{ navigator.clipboard && navigator.clipboard.writeText(text); }catch(e){} this.notify(msg); }
+
+  prod(slug){ return this.state.products.find(p=>p.slug===slug); }
+  live(l){ return l.activations.filter(a=>!a.deactivated).length; }
+
+  statusPill(status){
+    if(status==='active') return {display:'inline-flex',alignItems:'center',width:'fit-content',padding:'3px 10px',borderRadius:'20px',fontSize:'11.5px',fontWeight:600,color:'#3d6b16',background:'#eef7d3',border:'1px solid #d4e9a6'};
+    return {display:'inline-flex',alignItems:'center',width:'fit-content',padding:'3px 10px',borderRadius:'20px',fontSize:'11.5px',fontWeight:600,color:'#b42318',background:'#fdecea',border:'1px solid #f5cdc6'};
+  }
+  tierStyle(tier){
+    const c = tier==='lifetime' ? '#6b5bd6' : tier==='trial' ? '#b8860b' : '#4a4a44';
+    return {fontSize:'12.5px',fontWeight:500,color:c};
+  }
+  tierLabel(tier){ return tier.charAt(0).toUpperCase()+tier.slice(1); }
+  seatStyle(live,limit){ return {fontFamily:"'IBM Plex Mono',monospace",fontSize:'12px',fontWeight:500,color: live>=limit ? '#b8860b' : '#4a4a44'}; }
+  dot(color,size){ const s=(size||8)+'px'; return {marginTop:'5px',flex:'none',width:s,height:s,borderRadius:'50%',background:color}; }
+
+  navStyle(active){
+    return {display:'flex',alignItems:'center',gap:'11px',padding:'9px 11px',borderRadius:'9px',fontSize:'13.5px',fontWeight:500,cursor:'pointer',
+      color: active ? '#2f4a0e' : '#4a4a44', background: active ? '#eef7d3' : 'transparent',
+      boxShadow: active ? 'inset 3px 0 0 #4d6b16' : 'none'};
+  }
+
+  renderVals(){
+    const S = this.state;
+    const accent = this.props.accent || '#c8ff4d';
+    const playful = this.props.playful !== false;
+    const compact = (this.props.density || 'comfortable') === 'compact';
+    const t = {
+      emptyList: playful ? 'No keys here. Nice and quiet.' : 'No licenses match your filters.',
+      portalValid: playful ? "Cool beans — you're all set." : 'Your license is valid.',
+      copyDone: playful ? 'Copied. Cool beans.' : 'Copied to clipboard.',
+    };
+    const activeKey = S.licenseId ? 'licenses' : S.page;
+    const nav = {};
+    ['overview','licenses','products','customers','usage','webhooks','audit'].forEach(k=>{ nav[k]=this.navStyle(activeKey===k); });
+
+    const titles = {
+      overview:['Overview','Everything Cool Beans issued and validated, at a glance'],
+      licenses:['Licenses','Every key across your products'],
+      products:['Products','Prefixes, seat models and payment wiring'],
+      customers:['Customers','People holding a Cool Beans key'],
+      usage:['Usage','Metered counters, enforced at the edge'],
+      webhooks:['Webhooks','Stripe & PayPal events feeding issuance'],
+      audit:['Audit log','Every state change, with actor and detail'],
+    };
+    const tt = titles[S.page] || titles.overview;
+
+    // ---- licenses list rows ----
+    const matchQ = (l)=>{ const q=S.query.trim().toLowerCase(); if(!q) return true; return l.key.toLowerCase().includes(q)||l.email.toLowerCase().includes(q)||l.name.toLowerCase().includes(q); };
+    const filtered = S.licenses.filter(l=> (S.statusFilter==='all'||l.status===S.statusFilter) && (S.productFilter==='all'||l.product===S.productFilter) && matchQ(l));
+    const rows = filtered.map(l=>{
+      const p=this.prod(l.product); const live=this.live(l);
+      return { id:l.id, keyDisplay:l.key, productName:p.name, dotStyle:{width:'7px',height:'7px',borderRadius:'2px',flex:'none',background:p.color},
+        tierLabel:this.tierLabel(l.tier), tierStyle:this.tierStyle(l.tier),
+        statusLabel: l.status==='active'?'Active':'Disabled', statusStyle:this.statusPill(l.status),
+        seatsLabel:`${live}/${p.limit}`, seatsStyle:this.seatStyle(live,p.limit), email:l.email,
+        open:()=>this.setState({licenseId:l.id, page:'licenses'}) };
+    });
+
+    // ---- selected / portal license ----
+    const selId = S.view==='portal' ? 'l1' : S.licenseId;
+    const L = S.licenses.find(l=>l.id===selId);
+    let sel=null, pl=null;
+    if(L){
+      const p=this.prod(L.product); const live=this.live(L);
+      const acts = L.activations.map(a=>({ name:a.name, iid:a.iid, meta:a.meta, deactivated:a.deactivated, canDeactivate:!a.deactivated,
+        dot:{width:'9px',height:'9px',borderRadius:'50%',flex:'none',background:a.deactivated?'#c4c4bd':'#4d6b16'},
+        deactivate:()=>{ this.setState(st=>({licenses:st.licenses.map(x=> x.id===L.id ? {...x, activations:x.activations.map(y=> y.iid===a.iid ? {...y,deactivated:true} : y)} : x)})); this.notify('Seat freed.'); } }));
+      const usage = L.usage.map(u=>{ const pct=Math.min(100, Math.round(u.current/u.limit*100)); const over=u.current>=u.limit; const col=over?'#e0533f':(pct>85?'#e8a33a':'#8fbf3f');
+        return { label:u.label, num:`${u.current.toLocaleString()} / ${u.limit.toLocaleString()}`, numStyle:{fontFamily:"'IBM Plex Mono',monospace",fontSize:'12px',color:over?'#b42318':'#4a4a44'},
+          bar:{height:'100%',width:pct+'%',borderRadius:'5px',background:col}, resets:u.resets }; });
+      const facts = [
+        {label:'Tier', value:this.tierLabel(L.tier), style:{fontSize:'14px',marginTop:'5px',fontWeight:500,color:'#1a1a19'}},
+        {label:'Product', value:p.name, style:{fontSize:'14px',marginTop:'5px',fontWeight:500,color:'#1a1a19'}},
+        {label:'Expires', value: L.expires || (L.tier==='lifetime'?'Never (lifetime)':'—'), style:{fontSize:'13px',marginTop:'6px',fontWeight:500,fontFamily:"'IBM Plex Mono',monospace",color: L.tier==='trial'?'#b8860b':'#1a1a19'}},
+        {label:'Provider', value: L.provider.charAt(0).toUpperCase()+L.provider.slice(1), style:{fontSize:'14px',marginTop:'5px',fontWeight:500,color:'#1a1a19'}},
+      ];
+      const timeline=[{action:'license.issued', when:L.created, dc:'#4d6b16'}];
+      L.activations.forEach(a=> timeline.push({action:'instance.activated', when:a.meta.replace('validated ','').replace('lease renews in','lease · '), dc:'#2fa89b'}));
+      if(L.status==='disabled') timeline.push({action:'license.disabled ('+(L.reason||'manual')+')', when:'recently', dc:'#b42318'});
+      const tItems = timeline.map(e=>({ action:e.action, when:e.when, dot:{marginTop:'5px',width:'7px',height:'7px',borderRadius:'50%',flex:'none',background:e.dc},
+        style:{fontFamily:"'IBM Plex Mono',monospace",fontSize:'11.5px',color: e.dc } }));
+      sel = { keyDisplay:L.key, name:L.name, email:L.email, statusLabel:L.status==='active'?'Active':'Disabled', statusStyle:this.statusPill(L.status),
+        seatsLabel:`${live}/${p.limit}`, seatsStyle:this.seatStyle(live,p.limit),
+        facts, activations:acts, noActivations:acts.length===0, usage, noUsage:usage.length===0, timeline:tItems,
+        copy:()=>this.copyText(L.key.replace(/-/g,''), t.copyDone), reissue:()=>this.notify('Key email re-sent to '+L.email+'.'),
+        toggleLabel: L.status==='active'?'Disable key':'Re-enable key',
+        toggleStyle: L.status==='active'
+          ? {padding:'9px 14px',background:'#fff',border:'1px solid #f0b7ae',borderRadius:'9px',fontSize:'13px',fontWeight:500,color:'#b42318',cursor:'pointer'}
+          : {padding:'9px 14px',background:'#eef7d3',border:'1px solid #d4e9a6',borderRadius:'9px',fontSize:'13px',fontWeight:500,color:'#3d6b16',cursor:'pointer'},
+        toggle:()=>{ this.setState(st=>({licenses:st.licenses.map(x=> x.id===L.id ? {...x, status:x.status==='active'?'disabled':'active', reason:'manual'} : x)})); this.notify(L.status==='active'?'Key disabled.':'Key re-enabled. Cool beans.'); } };
+      pl = { key:L.key, renews:'Jul 17, 2027', copy:()=>this.copyText(L.key.replace(/-/g,''), t.copyDone) };
+    }
+
+    // ---- product cards ----
+    const productCards = S.products.map(p=>({ name:p.name, slug:p.slug, prefix:p.prefix, keys:p.keys, active:p.active, limit:p.limit, tiers:p.tiers, emailFrom:p.emailFrom,
+      initial:p.name.charAt(0), modelLabel: p.model==='floating'?'Floating':'Node-locked',
+      iconStyle:{width:'38px',height:'38px',borderRadius:'10px',display:'inline-flex',alignItems:'center',justifyContent:'center',fontWeight:600,color:'#fff',flex:'none',background:p.color} }));
+
+    // ---- customers (dedupe by email) ----
+    const cmap={};
+    S.licenses.forEach(l=>{ const p=this.prod(l.product); if(!cmap[l.email]) cmap[l.email]={name:l.name,email:l.email,products:new Set(),keys:0,anyDisabled:false,allDisabled:true,since:l.since}; const c=cmap[l.email]; c.products.add(p.name); c.keys++; if(l.status==='disabled') c.anyDisabled=true; else c.allDisabled=false; });
+    const customers = Object.values(cmap).map(c=>{ let label='Active', st='active'; if(c.allDisabled){label='Disabled';st='disabled';} else if(c.anyDisabled){label='Mixed';st='mixed';}
+      const style = st==='mixed' ? {display:'inline-flex',width:'fit-content',padding:'3px 10px',borderRadius:'20px',fontSize:'11.5px',fontWeight:600,color:'#b8860b',background:'#fdf3e0',border:'1px solid #f0dcae'} : this.statusPill(st);
+      return { initial:c.name.charAt(0), name:c.name, email:c.email, products:Array.from(c.products).join(', '), keys:c.keys, statusLabel:label, statusStyle:style, since:c.since }; });
+
+    // ---- usage rows ----
+    const usageRows=[];
+    S.licenses.forEach(l=>{ const p=this.prod(l.product); l.usage.forEach(u=>{ const pct=Math.min(100,Math.round(u.current/u.limit*100)); const over=u.current>=u.limit; const near=pct>85;
+      usageRows.push({ key:l.key, product:p.name, metric:u.metric, num:`${u.current.toLocaleString()} / ${u.limit.toLocaleString()}`,
+        numStyle:{fontFamily:"'IBM Plex Mono',monospace",fontSize:'12.5px',color:over?'#b42318':'#4a4a44'},
+        bar:{height:'100%',width:pct+'%',borderRadius:'5px',background:over?'#e0533f':(near?'#e8a33a':'#8fbf3f')},
+        badge: over?'Over limit':(near?String(pct)+'%':'OK'),
+        badgeStyle: over?{display:'inline-flex',padding:'3px 9px',borderRadius:'20px',fontSize:'11px',fontWeight:600,color:'#b42318',background:'#fdecea'}:(near?{display:'inline-flex',padding:'3px 9px',borderRadius:'20px',fontSize:'11px',fontWeight:600,color:'#b8860b',background:'#fdf3e0'}:{display:'inline-flex',padding:'3px 9px',borderRadius:'20px',fontSize:'11px',fontWeight:600,color:'#3d6b16',background:'#eef7d3'}) }); }); });
+
+    // ---- webhooks ----
+    const provPill=(prov)=> prov==='Stripe' ? {display:'inline-flex',width:'fit-content',padding:'2px 9px',borderRadius:'6px',fontSize:'11px',fontWeight:600,color:'#635bff',background:'#efeefb'} : {display:'inline-flex',width:'fit-content',padding:'2px 9px',borderRadius:'6px',fontSize:'11px',fontWeight:600,color:'#1c64c4',background:'#eaf1fb'};
+    const okStyle={color:'#3d6b16',fontSize:'11.5px',fontWeight:600}; const retryStyle={color:'#b8860b',fontSize:'11.5px',fontWeight:600};
+    const events = [
+      {provider:'Stripe', type:'checkout.session.completed', id:'evt_1Pq9zLdX', detail:'clementine · yearly', when:'2 min ago', status:'Delivered', ok:true},
+      {provider:'Stripe', type:'customer.subscription.updated', id:'evt_1Pq8yKcW', detail:'renewal → Jul 17 2027', when:'1 h ago', status:'Delivered', ok:true},
+      {provider:'Stripe', type:'charge.refunded', id:'evt_1Pq5vHbT', detail:'disabled CLEM-Y4Z5…', when:'5 h ago', status:'Delivered', ok:true},
+      {provider:'PayPal', type:'BILLING.SUBSCRIPTION.CANCELLED', id:'WH-6RA82910', detail:'disabled HEX-…', when:'yesterday', status:'Delivered', ok:true},
+      {provider:'Stripe', type:'checkout.session.completed', id:'evt_1Pq1sEaQ', detail:'email retry pending', when:'yesterday', status:'Retrying', ok:false},
+    ].map(e=>({ ...e, provStyle:provPill(e.provider), statusStyle: e.ok?okStyle:retryStyle }));
+
+    // ---- audit ----
+    const actionColor=(a)=> a.startsWith('license.issued')?'#3d6b16' : a.startsWith('license.disabled')?'#b42318' : a.startsWith('license.enabled')?'#3d6b16' : '#4a4a44';
+    const auditRaw = [
+      {action:'license.issued', detail:'CLEM-A2B3-C4D5-E6F7 → chris@studio.io', actor:'stripe:evt_1Pq9', when:'2m ago'},
+      {action:'instance.activated', detail:"Chris's MacBook Pro on CLEM-A2B3…", actor:'system', when:'2m ago'},
+      {action:'license.disabled', detail:'CLEM-Y4Z5… reason=refund', actor:'stripe:evt_1Pq5', when:'5h ago'},
+      {action:'product.updated', detail:'hexis activation_limit 3 → 5', actor:'admin:global', when:'8h ago'},
+      {action:'license.disabled', detail:'HEX-… reason=subscription_canceled', actor:'paypal:WH-6RA8', when:'1d ago'},
+      {action:'license.issued', detail:'PACE-N3P4… → runner@paceapp.io', actor:'stripe:evt_1Po2', when:'2d ago'},
+      {action:'license.disabled', detail:'PG-G5H6… reason=trial_expired', actor:'system', when:'2d ago'},
+      {action:'signing_key.rotated', detail:'clementine ed25519 (2 active)', actor:'admin:global', when:'4d ago'},
+    ].map(e=>({ ...e, actionStyle:{fontFamily:"'IBM Plex Mono',monospace",fontSize:'11.5px',fontWeight:500,color:actionColor(e.action)} }));
+
+    // ---- overview activity + stats + chart ----
+    const activity = [
+      {text:'Issued', key:'CLEM-A2B3…', meta:'chris@studio.io', when:'2 min ago', c:'#4d6b16'},
+      {text:'Activated on', key:'Studio iMac', meta:'CLEM-A2B3…', when:'3 days ago', c:'#2fa89b'},
+      {text:'Disabled', key:'CLEM-Y4Z5…', meta:'refund', when:'5 h ago', c:'#b42318'},
+      {text:'Renewed', key:'HEX-K3L4…', meta:'→ Feb 10 2027', when:'8 h ago', c:'#6b5bd6'},
+      {text:'Trial expired', key:'PG-G5H6…', meta:'auto-disabled', when:'2 days ago', c:'#b8860b'},
+    ].map(a=>({ text:a.text, key:a.key, meta:a.meta, when:a.when, dot:this.dot(a.c,8) }));
+    const stats = [
+      {label:'Keys issued', value:'2,775', delta:'+48 this week', up:true},
+      {label:'Active licenses', value:'2,532', delta:'+41 this week', up:true},
+      {label:'Activations (7d)', value:'190', delta:'across 4 products', up:false},
+      {label:'Validations (24h)', value:'41,208', delta:'↑ 12.4%', up:true},
+    ].map(s=>({ ...s, deltaStyle:{fontSize:'11.5px',fontFamily:"'IBM Plex Mono',monospace",color: s.up?'#4d6b16':'#9a9a92'} }));
+    const heights=[38,44,40,52,48,60,55,66,58,72,68,80,74,88,82,96];
+    const chart = heights.map((h,i)=>({ style:{width:'100%',height:h+'%',borderRadius:'4px 4px 2px 2px',background: i===heights.length-1 ? accent : '#d8e6b0'} }));
+
+    return {
+      adminActive: S.view==='admin', portalActive: S.view==='portal',
+      portalEnter: S.portalStep==='enter', portalLicense: S.portalStep==='license',
+      showOverview: !S.licenseId && S.page==='overview', showLicenses: !S.licenseId && S.page==='licenses',
+      showDetail: !!S.licenseId, showProducts: !S.licenseId && S.page==='products', showCustomers: !S.licenseId && S.page==='customers',
+      showUsage: !S.licenseId && S.page==='usage', showWebhooks: !S.licenseId && S.page==='webhooks', showAudit: !S.licenseId && S.page==='audit',
+      pageTitle: tt[0], pageSub: tt[1], nav, t,
+      query:S.query, productFilter:S.productFilter, portalInput:S.portalInput, toast:S.toast,
+      products:S.products, rows, rowsEmpty: rows.length===0, licenseCount: filtered.length,
+      sel, pl, productCards, customers, usageRows, events, auditFull:auditRaw, auditPreview:auditRaw.slice(0,4), activity, stats, chart,
+      pill: {
+        all: this.pillStyle(S.statusFilter==='all'), active: this.pillStyle(S.statusFilter==='active'), disabled: this.pillStyle(S.statusFilter==='disabled'),
+      },
+      goOverview:()=>this.setState({page:'overview',licenseId:null}),
+      goLicenses:()=>this.setState({page:'licenses',licenseId:null}),
+      goProducts:()=>this.setState({page:'products',licenseId:null}),
+      goCustomers:()=>this.setState({page:'customers',licenseId:null}),
+      goUsage:()=>this.setState({page:'usage',licenseId:null}),
+      goWebhooks:()=>this.setState({page:'webhooks',licenseId:null}),
+      goAudit:()=>this.setState({page:'audit',licenseId:null}),
+      back:()=>this.setState({licenseId:null}),
+      setStatusAll:()=>this.setState({statusFilter:'all'}), setStatusActive:()=>this.setState({statusFilter:'active'}), setStatusDisabled:()=>this.setState({statusFilter:'disabled'}),
+      onQuery:(e)=>this.setState({query:e.target.value}), onProductFilter:(e)=>this.setState({productFilter:e.target.value}),
+      onPortalInput:(e)=>this.setState({portalInput:e.target.value}),
+      showPortal:()=>this.setState({view:'portal',portalStep:'enter'}), showAdmin:()=>this.setState({view:'admin'}),
+      portalLookup:()=>this.setState({portalStep:'license'}), portalSignout:()=>this.setState({portalStep:'enter',portalInput:''}),
+      notifyIssue:()=>this.notify('New key issued. Cool beans.'),
+    };
+  }
+
+  pillStyle(active){
+    const base={padding:'6px 13px',borderRadius:'7px',fontSize:'12.5px',fontWeight:500,border:'none',cursor:'pointer'};
+    return active ? {...base,background:'#fff',color:'#1a1a19',boxShadow:'0 1px 2px rgba(26,26,25,0.12)'} : {...base,background:'transparent',color:'#6e6e68'};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,12 +1,11 @@
-// ABOUTME: Root component of the admin dashboard — placeholder until the dashboard issue lands.
-// ABOUTME: The dashboard spec lives in docs/PRD.md §16.
+// ABOUTME: Root component of the console — mounts the router over the design-system shell.
+// ABOUTME: Look and feel per docs/DESIGN.md; dashboard spec per docs/PRD.md §16.
+
+import { RouterProvider } from '@tanstack/react-router';
+import { createConsoleRouter } from './router.js';
+
+const router = createConsoleRouter();
 
 export function App() {
-	return (
-		<main>
-			<h1>Cool Beans</h1>
-			<p>Your licence? Cool beans — you're all set.</p>
-			<p>The admin dashboard lands here. See docs/PRD.md §16.</p>
-		</main>
-	);
+	return <RouterProvider router={router} />;
 }

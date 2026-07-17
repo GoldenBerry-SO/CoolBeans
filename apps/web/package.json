@@ -14,9 +14,22 @@
 		"clean": "rm -rf dist"
 	},
 	"dependencies": {
+		"@hookform/resolvers": "^5.4.0",
+		"@tailwindcss/vite": "^4.3.3",
+		"@tanstack/react-query": "^5.101.2",
 		"@tanstack/react-router": "^1.170.18",
+		"@tanstack/react-table": "^8.21.3",
+		"class-variance-authority": "^0.7.1",
+		"clsx": "^2.1.1",
+		"lucide-react": "^1.25.0",
+		"radix-ui": "^1.6.2",
 		"react": "^19.2.7",
-		"react-dom": "^19.2.7"
+		"react-dom": "^19.2.7",
+		"react-hook-form": "^7.81.0",
+		"sonner": "^2.0.7",
+		"tailwind-merge": "^3.6.0",
+		"tailwindcss": "^4.3.3",
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@types/react": "^19.2.17",

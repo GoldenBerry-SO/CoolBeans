@@ -1,0 +1,88 @@
+/* ABOUTME: Global stylesheet for the console — Tailwind 4 theme tokens per docs/DESIGN.md. */
+@import "tailwindcss";
+
+@theme {
+	--font-sans: "IBM Plex Sans", system-ui, sans-serif;
+	--font-mono: "IBM Plex Mono", monospace;
+
+	--color-canvas: #f6f5f1;
+	--color-surface: #fbfaf7;
+	--color-card: #ffffff;
+	--color-fill-soft: #faf9f5;
+	--color-fill: #f4f2ec;
+	--color-track: #eceae3;
+
+	--color-ink: #1a1a19;
+	--color-ink-secondary: #4a4a44;
+	--color-ink-muted: #6e6e68;
+	--color-ink-faint: #9a9a92;
+
+	--color-accent: #c8ff4d;
+	--color-accent-hover: #bcf53f;
+	--color-accent-border: #b4ee38;
+
+	--color-positive: #4d6b16;
+	--color-positive-deep: #3d6b16;
+	--color-positive-tint: #eef7d3;
+	--color-positive-border: #d4e9a6;
+
+	--color-danger: #b42318;
+	--color-danger-cue: #e0533f;
+	--color-danger-tint: #fdecea;
+	--color-danger-border: #f5cdc6;
+
+	--color-warn: #b8860b;
+	--color-warn-tint: #fdf3e0;
+	--color-warn-border: #f0dcae;
+
+	--color-tier-lifetime: #6b5bd6;
+}
+
+html,
+body,
+#root {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--color-canvas);
+	color: var(--color-ink);
+	font-family: var(--font-sans);
+	font-size: 14px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+a {
+	color: var(--color-positive);
+	text-decoration: none;
+}
+
+::-webkit-scrollbar {
+	width: 12px;
+	height: 12px;
+}
+::-webkit-scrollbar-thumb {
+	background: rgb(26 26 25 / 0.18);
+	border-radius: 8px;
+	border: 3px solid var(--color-canvas);
+}
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+@keyframes cbin {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.cbin {
+	animation: cbin 0.3s ease both;
+}

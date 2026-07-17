@@ -1,0 +1,46 @@
+{
+	"name": "@coolbeans/db",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": ["dist"],
+	"scripts": {
+		"dev": "tsup src/index.ts --format esm --watch --no-dts",
+		"build": "tsup src/index.ts --format esm --dts",
+		"lint": "biome check src/",
+		"format": "biome format --write src/",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run --passWithNoTests",
+		"clean": "rm -rf dist",
+		"db:generate": "drizzle-kit generate"
+	},
+	"dependencies": {
+		"drizzle-orm": "^0.45.2"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^5.20260717.1",
+		"@types/better-sqlite3": "^7.6.13",
+		"@types/node": "^24.0.0",
+		"better-sqlite3": "^12.11.1",
+		"drizzle-kit": "^0.31.10",
+		"tsup": "^8.5.1",
+		"typescript": "~5.9.3",
+		"vitest": "^4.1.10"
+	},
+	"peerDependencies": {
+		"better-sqlite3": "^12.0.0"
+	},
+	"peerDependenciesMeta": {
+		"better-sqlite3": {
+			"optional": true
+		}
+	}
+}

@@ -1,0 +1,28 @@
+{
+	"name": "coolbeans",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"description": "Cool Beans — the open-source license layer. Issue a key, activate it, check it's still good.",
+	"license": "MIT",
+	"packageManager": "pnpm@11.14.0",
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"dev": "turbo dev",
+		"build": "turbo build",
+		"lint": "turbo lint",
+		"format": "turbo format",
+		"typecheck": "turbo typecheck",
+		"test": "turbo test",
+		"check": "turbo lint typecheck",
+		"prepare": "husky"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.4",
+		"husky": "^9.1.7",
+		"turbo": "^2.10.5",
+		"typescript": "~5.9.3"
+	}
+}

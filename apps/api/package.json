@@ -1,0 +1,32 @@
+{
+	"name": "@coolbeans/api",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch src/node.ts",
+		"build": "tsup src/node.ts src/worker.ts --format esm --dts",
+		"lint": "biome check src/",
+		"format": "biome format --write src/",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"clean": "rm -rf dist"
+	},
+	"dependencies": {
+		"@coolbeans/db": "workspace:*",
+		"@hono/node-server": "^2.0.10",
+		"@hono/zod-openapi": "^1.5.1",
+		"@scalar/hono-api-reference": "^0.11.11",
+		"hono": "^4.12.30",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^5.20260717.1",
+		"@types/node": "^24.0.0",
+		"tsup": "^8.5.1",
+		"typescript": "~5.9.3",
+		"tsx": "^4.23.1",
+		"vitest": "^4.1.10",
+		"wrangler": "^4.112.0"
+	}
+}

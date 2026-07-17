@@ -1,0 +1,29 @@
+# Reference clones, not part of this repo
+temporal/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.wrangler/
+.turbo/
+
+# Local data
+*.sqlite
+*.sqlite-journal
+*.db
+data/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+
+# Test & coverage
+coverage/
+
+# Editor / OS noise
+.DS_Store
+*.log

@@ -57,6 +57,15 @@ Where we deliberately diverge from pleasehold.dev:
   shape and needs the same lock. The usage quota is a single guarded `UPDATE` on one row, so
   Postgres takes the row lock itself and that one ports unchanged. Any Postgres work starts by
   running that script.
+
+  **The sharpest trap is not SQL at all.** Every guarded statement decides whether it applied by
+  reading `result.changes`, which is a better-sqlite3 field. libSQL calls it `rowsAffected` and
+  Postgres reports differently again. Read the wrong one and you get `undefined`, and
+  `undefined === 0` is `false` — so `if (result.changes === 0) throw activationLimitReached(...)`
+  simply stops throwing and **the seat cap silently stops being enforced**. Nothing fails loudly;
+  licences just quietly become unlimited. Eleven call sites depend on this field across
+  `licensing.ts`, `payments.ts`, `sweep.ts` and `prune.ts`. Any driver change has to sweep all of
+  them and then prove the caps still hold with the race tests, not with a green unit suite.
 - **Zod v4 everywhere** (pleasehold is stuck on a v3/v4 dual-version override; greenfield means we
   skip that).
 - **Better Auth only for the dashboard.** The license key itself is the public credential and the

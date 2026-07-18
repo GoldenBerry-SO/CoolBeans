@@ -29,3 +29,21 @@ export function listPrefixes(db: Database): string[] {
 		.all()
 		.map((r) => r.prefix);
 }
+
+export interface PriceMatch {
+	product: Product;
+	tier: 'lifetime' | 'yearly';
+}
+
+/** Resolve a product (and its tier) from a Stripe price id (PRD §13). */
+export function getProductByStripePrice(db: Database, priceId: string): PriceMatch | undefined {
+	const lifetime = db
+		.select()
+		.from(products)
+		.where(eq(products.stripePriceLifetime, priceId))
+		.get();
+	if (lifetime) return { product: lifetime, tier: 'lifetime' };
+	const yearly = db.select().from(products).where(eq(products.stripePriceYearly, priceId)).get();
+	if (yearly) return { product: yearly, tier: 'yearly' };
+	return undefined;
+}

@@ -6,7 +6,7 @@ import { metrics, usageCounters } from '@coolbeans/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
-import { notFound, quotaExceeded } from '../http/errors.js';
+import { licenseDisabled, notFound, quotaExceeded } from '../http/errors.js';
 import { resolveLicense } from './licensing.js';
 
 export interface UsageState {
@@ -76,6 +76,8 @@ export function incrementUsage(
 	delta: number,
 ): UsageState {
 	const resolved = resolveLicense(deps, keyInput);
+	// Fail closed: a disabled (or lazily-expired trial) license cannot consume quota.
+	if (resolved.status === 'disabled') throw licenseDisabled();
 	const metric = getMetric(deps, resolved.product.id, metricKey);
 
 	return deps.db.transaction((): UsageState => {

@@ -20,6 +20,8 @@ export interface StripeGateway {
 	constructEvent(rawBody: string, signature: string, secret: string): StripeEvent;
 	/** current_period_end of a subscription as ISO 8601 (Basil: read from the first item). */
 	subscriptionPeriodEnd(subscriptionId: string): Promise<string | null>;
+	/** Price ids of a checkout session's line items (for product resolution, PRD §13). */
+	sessionPriceIds(sessionId: string): Promise<string[]>;
 	/**
 	 * Onboard a product: create the two prices (one-time lifetime + recurring yearly) and
 	 * register the webhook endpoint, returning the ids and signing secret. Idempotent by
@@ -48,6 +50,10 @@ export function createStripeGateway(secretKey: string): StripeGateway {
 			const item = sub.items?.data?.[0] as { current_period_end?: number } | undefined;
 			const end = item?.current_period_end;
 			return end ? new Date(end * 1000).toISOString() : null;
+		},
+		async sessionPriceIds(sessionId) {
+			const items = await stripe.checkout.sessions.listLineItems(sessionId, { limit: 10 });
+			return items.data.map((li) => li.price?.id).filter((id): id is string => !!id);
 		},
 		async connect(args) {
 			const product = await stripe.products.create({

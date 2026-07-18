@@ -27,11 +27,15 @@ try {
 	process.exit(1);
 }
 
-if (!config.databaseUrl.startsWith('postgres')) {
-	// Ensure the SQLite directory exists before opening the file.
-	if (config.databaseUrl !== ':memory:')
-		mkdirSync(dirname(config.databaseUrl), { recursive: true });
+if (config.databaseUrl.startsWith('postgres')) {
+	// Guard: without this we'd silently create a SQLite file literally named "postgres://…".
+	logger.error(
+		'DATABASE_URL points at Postgres, which is not supported yet (see the Postgres issue). Use a SQLite/libSQL file path.',
+	);
+	process.exit(1);
 }
+// Ensure the SQLite directory exists before opening the file.
+if (config.databaseUrl !== ':memory:') mkdirSync(dirname(config.databaseUrl), { recursive: true });
 const db = createDb(openSqlite(config.databaseUrl));
 migrate(db);
 

@@ -87,6 +87,17 @@ describe('usage metering', () => {
 		expect(r.status).toBe(404);
 	});
 
+	it('fails closed: a disabled license cannot consume quota', async () => {
+		await h.app.request(`/admin/keys/${key}/disable`, { method: 'POST', headers: h.adminHeaders });
+		const r = await post(h.app, '/v1/usage/increment', {
+			license_key: key,
+			metric: 'api_calls',
+			delta: 1,
+		});
+		expect(r.status).toBe(403);
+		expect(r.body.error).toBe('license_disabled');
+	});
+
 	it('GET /v1/usage lists counters for a key', async () => {
 		await post(h.app, '/v1/usage/increment', { license_key: key, metric: 'api_calls', delta: 4 });
 		const res = await h.app.request(`/v1/usage?license_key=${encodeURIComponent(key)}`);

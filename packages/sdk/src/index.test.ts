@@ -97,6 +97,50 @@ describe('CoolBeans SDK', () => {
 		await expect(cb.activate('HEX-A2B3-C4D5-E6F7-G8H9')).rejects.toBeInstanceOf(CoolBeansError);
 	});
 
+	it('drops the cached offline token when the server says disabled', async () => {
+		const storage = memStorage();
+		const now = Math.floor(Date.now() / 1000);
+		const cached = await signToken(
+			{
+				key: 'CLEM',
+				status: 'active',
+				tier: 'yearly',
+				product: 'clementine',
+				expires_at: null,
+				instance_id: 'i',
+				iat: now,
+				exp: now + 3600,
+			},
+			'1',
+		);
+		storage.setItem('coolbeans.token', cached.token);
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage,
+			publicKeys: cached.publicKeys,
+			fetch: cannedFetch(() => ({
+				status: 200,
+				json: {
+					ok: true,
+					valid: false,
+					license: {
+						key: 'CLEM-…',
+						status: 'disabled',
+						tier: 'yearly',
+						product: 'clementine',
+						expires_at: null,
+					},
+					instance: null,
+				},
+			})),
+		});
+		expect(await cb.verifyOffline()).toBe(true); // cached token still unlocks pre-verify
+		const res = await cb.verify('CLEM-A2B3-C4D5-E6F7-G8H9', { instanceId: 'i' });
+		expect(res.valid).toBe(false);
+		// The definitive disabled signal cleared the cache: offline no longer unlocks.
+		expect(await cb.verifyOffline()).toBe(false);
+	});
+
 	it('verify never hard-locks on a network error (offline:true)', async () => {
 		const cb = new CoolBeans({
 			product: 'clementine',

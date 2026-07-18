@@ -3,7 +3,7 @@
 
 import { metrics, products } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { badRequest, conflict, notFound } from '../../http/errors.js';
@@ -128,14 +128,12 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
 		const body = await readBody(c, metricBody);
-		if (
-			deps.db
-				.select({ id: metrics.id })
-				.from(metrics)
-				.where(eq(metrics.productId, product.id))
-				.all().length &&
-			deps.db.select({ id: metrics.id }).from(metrics).where(eq(metrics.key, body.key)).get()
-		) {
+		const existing = deps.db
+			.select({ id: metrics.id })
+			.from(metrics)
+			.where(and(eq(metrics.productId, product.id), eq(metrics.key, body.key)))
+			.get();
+		if (existing) {
 			throw conflict('metric_exists', `A metric "${body.key}" already exists for this product.`);
 		}
 		const metric = deps.db

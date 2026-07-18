@@ -61,8 +61,11 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 	};
 }
 
-/** A fake Stripe gateway: 'valid' signature passes, others throw; period-end from a map. */
-export function fakeStripeGateway(periodEnds: Record<string, string> = {}) {
+/** A fake Stripe gateway: 'valid' signature passes, others throw; period-end/prices from maps. */
+export function fakeStripeGateway(
+	periodEnds: Record<string, string> = {},
+	sessionPrices: Record<string, string[]> = {},
+) {
 	return {
 		constructEvent(rawBody: string, signature: string, _secret: string) {
 			if (signature !== 'valid') throw new Error('Invalid signature');
@@ -70,6 +73,9 @@ export function fakeStripeGateway(periodEnds: Record<string, string> = {}) {
 		},
 		async subscriptionPeriodEnd(subscriptionId: string): Promise<string | null> {
 			return periodEnds[subscriptionId] ?? null;
+		},
+		async sessionPriceIds(sessionId: string): Promise<string[]> {
+			return sessionPrices[sessionId] ?? [];
 		},
 		async connect(args: { productSlug: string }) {
 			return {

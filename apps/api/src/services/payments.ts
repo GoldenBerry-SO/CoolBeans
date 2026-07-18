@@ -50,32 +50,37 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 
 	if (!license) {
 		try {
-			const purchase = createPurchase(deps, {
-				productId: args.product.id,
-				provider: args.provider,
-				providerCheckoutId: args.checkoutId,
-				providerCustomerId: args.customerId ?? null,
-				providerSubscriptionId: args.subscriptionId ?? null,
-				providerPaymentId: args.paymentId ?? null,
-				email: args.email,
-				amountTotal: args.amountTotal ?? null,
-				currency: args.currency ?? null,
-			});
-			license = issueLicense(deps, {
-				product: args.product,
-				purchaseId: purchase.id,
-				tier: args.tier,
-				expiresAt: args.expiresAt,
-				actor: `${args.provider}:${args.checkoutId}`,
+			// One transaction: a failure anywhere leaves no orphaned purchase behind, so a
+			// provider retry re-enters this path cleanly instead of hitting a dead UNIQUE row.
+			license = db.transaction((): License => {
+				const purchase = createPurchase(deps, {
+					productId: args.product.id,
+					provider: args.provider,
+					providerCheckoutId: args.checkoutId,
+					providerCustomerId: args.customerId ?? null,
+					providerSubscriptionId: args.subscriptionId ?? null,
+					providerPaymentId: args.paymentId ?? null,
+					email: args.email,
+					amountTotal: args.amountTotal ?? null,
+					currency: args.currency ?? null,
+				});
+				const issued = issueLicense(deps, {
+					product: args.product,
+					purchaseId: purchase.id,
+					tier: args.tier,
+					expiresAt: args.expiresAt,
+					actor: `${args.provider}:${args.checkoutId}`,
+				});
+				// Durable backstop: if inline send and provider retries all fail, the worker sends later.
+				enqueue(
+					deps,
+					'send_key_email',
+					{ licenseId: issued.id, email: args.email },
+					EMAIL_BACKSTOP_DELAY_MS,
+				);
+				return issued;
 			});
 			created = true;
-			// Durable backstop: if inline send and provider retries all fail, the worker retries later.
-			enqueue(
-				deps,
-				'send_key_email',
-				{ licenseId: license.id, email: args.email },
-				EMAIL_BACKSTOP_DELAY_MS,
-			);
 		} catch (err) {
 			// A concurrent insert won the checkout-id UNIQUE race; re-read the winner's license.
 			if (err instanceof Error && /UNIQUE/i.test(err.message)) {

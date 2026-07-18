@@ -24,6 +24,32 @@ function pickString(obj: Record<string, unknown>, path: string[]): string | null
 	return typeof cur === 'string' ? cur : null;
 }
 
+/** Extract the capture id from a refund resource's "up" link (…/captures/<id>). */
+function captureIdFromLinks(resource: Record<string, unknown>): string | null {
+	const links = resource.links;
+	if (!Array.isArray(links)) return null;
+	for (const link of links) {
+		if (link && typeof link === 'object') {
+			const { rel, href } = link as { rel?: unknown; href?: unknown };
+			if (rel === 'up' && typeof href === 'string') {
+				const match = href.match(/\/captures\/([^/?#]+)/);
+				if (match) return match[1] ?? null;
+			}
+		}
+	}
+	return null;
+}
+
+/** Try each candidate id in order against the purchase provider-id columns. */
+function findLicenseByAnyId(deps: AppDeps, candidates: Array<string | null>) {
+	for (const id of candidates) {
+		if (!id) continue;
+		const found = findLicenseByProviderId(deps, id);
+		if (found) return found;
+	}
+	return undefined;
+}
+
 /** Process a verified PayPal event; record it only on full success (retry-safe email). */
 export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<void> {
 	if (eventAlreadyProcessed(deps, event.id)) return;
@@ -80,9 +106,13 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 		}
 
 		case 'PAYMENT.CAPTURE.REFUNDED': {
-			const captureId =
-				pickString(resource, ['id']) ?? pickString(resource, ['links', '0', 'href']);
-			const found = captureId && findLicenseByProviderId(deps, captureId);
+			// The refund resource's own id is the REFUND id; the capture we stored is in the
+			// "up" link (…/v2/payments/captures/<capture_id>). Try that first, then fall back
+			// to resource.id for older/alternate payload shapes.
+			const found = findLicenseByAnyId(deps, [
+				captureIdFromLinks(resource),
+				pickString(resource, ['id']),
+			]);
 			if (found) {
 				disableLicense(deps, {
 					license: found.license,

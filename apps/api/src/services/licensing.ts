@@ -107,10 +107,18 @@ export function activate(deps: AppDeps, keyInput: string, instanceName: string):
 				.get();
 			if (existing) {
 				if (leaseExpiresAt) {
-					tx.update(activations)
-						.set({ leaseExpiresAt })
-						.where(eq(activations.id, existing.id))
-						.run();
+					// Guarded renew: an expired lease may only be revived if a seat is free —
+					// other live leases (excluding this record) must be under the limit.
+					const renewed = tx.run(sql`
+						UPDATE activations SET lease_expires_at = ${leaseExpiresAt}
+						WHERE id = ${existing.id}
+						AND (
+							SELECT COUNT(*) FROM activations
+							WHERE license_id = ${license.id} AND id != ${existing.id}
+								AND ${liveSeatCondition(product, nowIso)}
+						) < ${product.activationLimit}
+					`);
+					if (renewed.changes === 0) throw activationLimitReached(product.activationLimit);
 					existing.leaseExpiresAt = leaseExpiresAt;
 				}
 				return existing;
@@ -244,18 +252,28 @@ export function heartbeat(deps: AppDeps, keyInput: string, instanceId: string): 
 	}
 
 	const now = nowDate(deps);
+	const nowIso = now.toISOString();
 	const leaseExpiresAt = new Date(
 		now.getTime() + product.floatingLeaseMinutes * 60_000,
 	).toISOString();
-	db.update(activations)
-		.set({ leaseExpiresAt })
-		.where(
-			and(
-				eq(activations.instanceId, instanceId),
-				eq(activations.licenseId, license.id),
-				sql`deactivated_at IS NULL`,
-			),
-		)
-		.run();
-	return { leaseExpiresAt };
+	// Renew a live lease freely; an expired lease may only be revived if a seat is free
+	// (other live leases stay under the limit). A crashed client whose seat was taken
+	// must re-activate rather than silently exceeding the pool.
+	const renewed = db.run(sql`
+		UPDATE activations SET lease_expires_at = ${leaseExpiresAt}
+		WHERE instance_id = ${instanceId} AND license_id = ${license.id}
+			AND deactivated_at IS NULL
+			AND (
+				lease_expires_at > ${nowIso}
+				OR (
+					SELECT COUNT(*) FROM activations AS others
+					WHERE others.license_id = ${license.id}
+						AND others.instance_id != ${instanceId}
+						AND others.deactivated_at IS NULL
+						AND others.lease_expires_at > ${nowIso}
+				) < ${product.activationLimit}
+			)
+	`);
+	// No row renewed: unknown/deactivated instance, or a lapsed lease with no free seat.
+	return { leaseExpiresAt: renewed.changes > 0 ? leaseExpiresAt : null };
 }

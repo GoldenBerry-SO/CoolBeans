@@ -99,10 +99,17 @@ describe('PayPal webhook', () => {
 				payer: { email_address: 'r@x.io' },
 			},
 		});
+		// Realistic refund payload: resource.id is the REFUND id; the capture is in the up link.
 		await webhook(h.app, {
 			id: 'wh_evt_5',
 			event_type: 'PAYMENT.CAPTURE.REFUNDED',
-			resource: { id: 'cap_4' },
+			resource: {
+				id: 'refund_9XY',
+				links: [
+					{ rel: 'self', href: 'https://api.paypal.com/v2/payments/refunds/refund_9XY' },
+					{ rel: 'up', href: 'https://api.paypal.com/v2/payments/captures/cap_4' },
+				],
+			},
 		});
 		expect((await keys(h, 'r@x.io'))[0]?.status).toBe('disabled');
 	});

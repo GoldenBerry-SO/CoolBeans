@@ -4,7 +4,7 @@
 import type { License, Product } from '@coolbeans/db';
 import { activations, licenses, metrics, purchases, usageCounters } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { and, desc, eq, like, or } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
@@ -39,7 +39,7 @@ function adminLicenseView(deps: AppDeps, license: License, product: Product) {
 	const liveSeats = deps.db
 		.select({ id: activations.id })
 		.from(activations)
-		.where(and(eq(activations.licenseId, license.id), eq(activations.deactivatedAt, null as never)))
+		.where(and(eq(activations.licenseId, license.id), isNull(activations.deactivatedAt)))
 		.all().length;
 	return {
 		...serializeLicense(license, product),

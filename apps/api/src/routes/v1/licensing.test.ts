@@ -184,4 +184,24 @@ describe('trial expiry (lazy)', () => {
 		expect(after.body.valid).toBe(false);
 		expect((after.body.license as { status: string }).status).toBe('disabled');
 	});
+
+	it('caps the offline token exp at the trial expiry (never outlives the trial)', async () => {
+		const trialKey = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'trial2@example.com',
+			tier: 'trial',
+			trial_days: 2, // shorter than the 7-day token TTL
+		});
+		const act = await post(h.app, '/v1/activate', { license_key: trialKey, instance_name: 'Mac' });
+		const instanceId = (act.body.instance as { id: string }).id;
+		const res = await post(h.app, '/v1/validate', {
+			license_key: trialKey,
+			instance_id: instanceId,
+		});
+		const token = res.body.token as string;
+		const payload = JSON.parse(
+			Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'),
+		) as { exp: number; expires_at: string };
+		expect(payload.exp * 1000).toBeLessThanOrEqual(new Date(payload.expires_at).getTime());
+	});
 });

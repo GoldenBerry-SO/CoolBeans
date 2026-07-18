@@ -15,7 +15,7 @@ import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug } from '../../store/products.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
-import { readBody } from './util.js';
+import { auditActor, readBody } from './util.js';
 
 export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	const admin = new OpenAPIHono();
@@ -60,7 +60,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const key = rotateKey(deps, product.id);
 		writeAudit(deps.db, {
 			action: 'signing_key.rotated',
-			actor: 'admin',
+			actor: auditActor(c),
 			productId: product.id,
 			detail: { kid: String(key.id) },
 		});

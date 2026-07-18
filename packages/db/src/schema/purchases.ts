@@ -23,6 +23,11 @@ export const purchases = sqliteTable(
 		amountTotal: integer('amount_total'),
 		currency: text('currency'),
 		note: text('note'),
+		/**
+		 * `created` of the newest subscription event we have applied, in unix seconds.
+		 * Stripe retries, so a stale event can arrive after the one that superseded it.
+		 */
+		lastSubscriptionEventAt: integer('last_subscription_event_at'),
 		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 	},
 	(t) => [

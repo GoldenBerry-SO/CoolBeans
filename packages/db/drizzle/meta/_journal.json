@@ -64,6 +64,13 @@
       "when": 1784398430024,
       "tag": "0008_revocation_cause_key",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1784398856943,
+      "tag": "0009_subscription_event_order",
+      "breakpoints": true
     }
   ]
 }

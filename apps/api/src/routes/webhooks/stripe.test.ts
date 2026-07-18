@@ -609,6 +609,61 @@ describe('Stripe webhook', () => {
 		expect(stranded.n).toBe(0);
 	});
 
+	it('ignores a subscription event older than one already applied', async () => {
+		// Stripe retries, so a delayed 'active' can land after the cancellation that
+		// superseded it. Acting on arrival order hands access back to someone whose
+		// subscription is gone.
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		await webhook(h.app, {
+			id: 'evt_cancel_new',
+			type: 'customer.subscription.deleted',
+			created: 2_000,
+			data: { object: { id: 'sub_1', status: 'canceled' } },
+		});
+		expect((await keysForEmail(h, 'buyer@example.com'))[0]?.status).toBe('disabled');
+
+		await webhook(h.app, {
+			id: 'evt_active_stale',
+			type: 'customer.subscription.updated',
+			created: 1_000, // older than the cancellation above
+			data: { object: { id: 'sub_1', status: 'active' } },
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'a stale active must not resurrect a cancelled key').toBe('disabled');
+	});
+
+	it('still applies a genuinely newer event', async () => {
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		await webhook(h.app, {
+			id: 'evt_unpaid_old',
+			type: 'customer.subscription.updated',
+			created: 1_000,
+			data: { object: { id: 'sub_1', status: 'unpaid' } },
+		});
+		expect((await keysForEmail(h, 'buyer@example.com'))[0]?.status).toBe('disabled');
+
+		await webhook(h.app, {
+			id: 'evt_recovered_new',
+			type: 'customer.subscription.updated',
+			created: 2_000,
+			data: { object: { id: 'sub_1', status: 'active' } },
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'a real recovery still lands').toBe('active');
+	});
+
+	it('applies events that carry no timestamp rather than dropping them', async () => {
+		// Older deliveries and hand-made replays may omit `created`. Refusing them would
+		// be worse than applying them in arrival order.
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		await webhook(h.app, {
+			id: 'evt_no_created',
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_1', status: 'unpaid' } },
+		});
+		expect((await keysForEmail(h, 'buyer@example.com'))[0]?.status).toBe('disabled');
+	});
+
 	it('flags a checkout that paid for several units but gets one key', async () => {
 		// A landing page with adjustable quantity (or quantity: 3) charges three times
 		// and still gets exactly one licence. We cannot un-charge them, but leaving no

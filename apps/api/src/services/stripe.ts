@@ -5,6 +5,11 @@ import type { License, Product } from '@coolbeans/db';
 import type { AppDeps } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
 import { getProductBySlug, getProductByStripePrice } from '../store/products.js';
+import {
+	lastSubscriptionEventAt,
+	markSubscriptionEventApplied,
+	shouldApplySubscriptionEvent,
+} from './event-order.js';
 import { disableLicense, restoreLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
@@ -261,6 +266,17 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			const subId = str(obj, 'id');
 			const status = str(obj, 'status');
 			if (!subId) break;
+			// Stripe retries for days, so this may be an older state than the one we have
+			// already acted on. Applying it would resurrect a cancelled licence.
+			if (!shouldApplySubscriptionEvent(event.created, lastSubscriptionEventAt(deps, subId))) {
+				deps.logger.info('Ignoring a stale subscription event', {
+					event: event.id,
+					subscription: subId,
+					status,
+				});
+				break;
+			}
+			markSubscriptionEventApplied(deps, subId, event.created);
 			const found = findLicenseByProviderId(deps, subId);
 
 			// Dunning belt-and-braces: an unpaid or dead subscription is a lapse.
@@ -312,6 +328,14 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// The yearly-lapse enforcement at end of the paid-through period.
 			const subId = str(obj, 'id');
 			if (!subId) break;
+			if (!shouldApplySubscriptionEvent(event.created, lastSubscriptionEventAt(deps, subId))) {
+				deps.logger.info('Ignoring a stale subscription deletion', {
+					event: event.id,
+					subscription: subId,
+				});
+				break;
+			}
+			markSubscriptionEventApplied(deps, subId, event.created);
 			const found = findLicenseByProviderId(deps, subId);
 			if (found) {
 				disableLicense(deps, {

@@ -6,6 +6,8 @@ import Stripe from 'stripe';
 export interface StripeEvent {
 	id: string;
 	type: string;
+	/** Unix seconds. Used to ignore a stale subscription event Stripe redelivered late. */
+	created?: number;
 	data: { object: Record<string, unknown> };
 }
 

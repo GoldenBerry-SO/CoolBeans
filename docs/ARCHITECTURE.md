@@ -66,6 +66,14 @@ Where we deliberately diverge from pleasehold.dev:
   licences just quietly become unlimited. Eleven call sites depend on this field across
   `licensing.ts`, `payments.ts`, `sweep.ts` and `prune.ts`. Any driver change has to sweep all of
   them and then prove the caps still hold with the race tests, not with a green unit suite.
+
+  The second trap is transactions. Our `db.transaction(cb)` callbacks call helpers that take
+  `deps` and reach for `deps.db` — the outer client — rather than the transaction handle. On
+  better-sqlite3 that is harmless, because it is synchronous and everything shares one
+  connection. Every async driver runs an interactive transaction on its own connection, so
+  those writes land *outside* the transaction and the atomicity we think we have is not there.
+  Issuance (`payments.ts` → `createPurchase`/`issueLicense`) is the case that matters: the
+  helpers have to take the `tx` handle before this moves to libSQL or Postgres.
 - **Zod v4 everywhere** (pleasehold is stuck on a v3/v4 dual-version override; greenfield means we
   skip that).
 - **Better Auth only for the dashboard.** The license key itself is the public credential and the

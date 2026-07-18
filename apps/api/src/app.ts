@@ -9,6 +9,7 @@ import type { AppDeps } from './deps.js';
 import { toErrorResponse } from './http/errors.js';
 import { redactLogLine } from './http/redact.js';
 import { registerAdminRoutes } from './routes/admin/index.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerPublicRoutes } from './routes/v1/index.js';
 import { registerWebhookRoutes } from './routes/webhooks/index.js';
 
@@ -42,6 +43,7 @@ export function createApp(deps: AppDeps) {
 	// Webhooks first: they need the raw body and their own (signature) auth.
 	registerWebhookRoutes(app, deps);
 	registerPublicRoutes(app, deps);
+	registerAuthRoutes(app, deps);
 	registerAdminRoutes(app, deps);
 
 	app.doc('/doc', {

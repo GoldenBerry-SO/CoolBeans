@@ -2,6 +2,7 @@
 // ABOUTME: Portable SQL — SQLite for dev/self-host, Postgres for the k8s production instance.
 
 export * from './activations.js';
+export * from './admins.js';
 export * from './events.js';
 export * from './licenses.js';
 export * from './metrics.js';

@@ -4,6 +4,7 @@
 export { render } from '@react-email/render';
 export { createResendSender, createSmtpSender, type SmtpOptions } from './senders.js';
 export { LicenseKeyEmail, type LicenseKeyEmailProps } from './templates/license-key.js';
+export { MagicCodeEmail, type MagicCodeEmailProps } from './templates/magic-code.js';
 
 export interface OutgoingEmail {
 	from: string;

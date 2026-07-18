@@ -260,6 +260,144 @@ describe('E2E: metered app', () => {
 	});
 });
 
+describe('E2E: Stripe lifetime purchase lifecycle (gateway faked at the seam)', () => {
+	it('checkout -> email -> SDK activates + verifies offline -> refund -> definitive lockout', async () => {
+		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
+		h.deps.stripe = fakeStripeGateway();
+
+		// 1. The customer buys: Stripe delivers checkout.session.completed (paid).
+		await stripeWebhook('evt_buy', 'checkout.session.completed', {
+			id: 'cs_life',
+			mode: 'payment',
+			payment_status: 'paid',
+			payment_intent: 'pi_life',
+			customer_email: 'desktop@example.com',
+			metadata: { product: 'clementine' },
+		});
+
+		// 2. The key email went out; the key inside it is the real credential.
+		expect(h.email.sent).toHaveLength(1);
+		const emailedKey = h.email.sent[0]?.html.match(/CLEM(?:-[A-Z0-9]{4}){4}/)?.[0];
+		expect(emailedKey).toBeTruthy();
+
+		// 3. A real SDK app activates and verifies with the emailed key.
+		const cb = sdk('clementine');
+		const { instance } = await cb.activate(emailedKey as string, { name: 'Buyer Mac' });
+		const online = await cb.verify(emailedKey as string, { instanceId: instance.id });
+		expect(online.valid).toBe(true);
+		expect(await cb.verifyOffline()).toBe(true);
+
+		// 4. Full refund: the license is revoked and the SDK sees the definitive signal.
+		await stripeWebhook('evt_refund', 'charge.refunded', {
+			id: 'ch_life',
+			payment_intent: 'pi_life',
+			amount_captured: 4900,
+			amount_refunded: 4900,
+		});
+		const after = await cb.verify(emailedKey as string, { instanceId: instance.id });
+		expect(after.valid).toBe(false);
+		expect(after.license?.status).toBe('disabled');
+		expect(after.inconclusive).toBe(false);
+		// The definitive disabled signal cleared the cached token: offline no longer unlocks.
+		expect(await cb.verifyOffline()).toBe(false);
+	});
+});
+
+describe('E2E: Stripe yearly subscription lifecycle (gateway faked at the seam)', () => {
+	it('subscribe -> renewal advances expiry -> lapse disables', async () => {
+		const firstPeriodEnd = '2027-07-17T00:00:00.000Z';
+		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
+		h.deps.stripe = fakeStripeGateway({ sub_year: firstPeriodEnd });
+
+		await stripeWebhook('evt_sub', 'checkout.session.completed', {
+			id: 'cs_year',
+			mode: 'subscription',
+			payment_status: 'paid',
+			subscription: 'sub_year',
+			customer_email: 'yearly@example.com',
+			metadata: { product: 'clementine' },
+		});
+		let keys = await adminKeys('yearly@example.com');
+		expect(keys[0]?.tier).toBe('yearly');
+		expect(keys[0]?.expires_at).toBe(firstPeriodEnd);
+
+		// A year later Stripe renews: subscription.updated advances the renewal date.
+		const nextPeriodEnd = '2028-07-17T00:00:00.000Z';
+		await stripeWebhook('evt_renew', 'customer.subscription.updated', {
+			id: 'sub_year',
+			status: 'active',
+			items: {
+				data: [{ current_period_end: Math.floor(new Date(nextPeriodEnd).getTime() / 1000) }],
+			},
+		});
+		keys = await adminKeys('yearly@example.com');
+		expect(keys[0]?.expires_at).toBe(nextPeriodEnd);
+		expect(keys[0]?.status).toBe('active');
+
+		// The customer cancels; at period end Stripe deletes the subscription: lapse.
+		await stripeWebhook('evt_lapse', 'customer.subscription.deleted', {
+			id: 'sub_year',
+			status: 'canceled',
+		});
+		keys = await adminKeys('yearly@example.com');
+		expect(keys[0]?.status).toBe('disabled');
+		expect(keys[0]?.disabled_reason).toBe('subscription_canceled');
+	});
+
+	it('success page wins the race: lookup ensures the key before the webhook lands', async () => {
+		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
+		h.deps.stripe = fakeStripeGateway(
+			{},
+			{},
+			{
+				sessions: {
+					cs_race2: {
+						id: 'cs_race2',
+						mode: 'payment',
+						payment_status: 'paid',
+						payment_intent: 'pi_race2',
+						customer_email: 'racer@example.com',
+						metadata: { product: 'clementine' },
+					},
+				},
+			},
+		);
+		// The buyer hits the success page before Stripe delivers the webhook.
+		const lookup = await h.app.request('/v1/purchase/session/cs_race2', {
+			headers: h.adminHeaders,
+		});
+		expect(lookup.status).toBe(200);
+		expect(((await lookup.json()) as { license: { key: string } }).license.key).toMatch(/^CLEM-/);
+		// The webhook then lands: same idempotent path, still exactly one key.
+		await stripeWebhook('evt_race2', 'checkout.session.completed', {
+			id: 'cs_race2',
+			mode: 'payment',
+			payment_status: 'paid',
+			payment_intent: 'pi_race2',
+			customer_email: 'racer@example.com',
+			metadata: { product: 'clementine' },
+		});
+		expect(await adminKeys('racer@example.com')).toHaveLength(1);
+	});
+});
+
+async function stripeWebhook(eventId: string, type: string, object: Record<string, unknown>) {
+	const res = await h.app.request('/v1/stripe/webhook', {
+		method: 'POST',
+		headers: { 'stripe-signature': 'valid', 'Content-Type': 'application/json' },
+		body: JSON.stringify({ id: eventId, type, data: { object } }),
+	});
+	expect(res.status).toBe(200);
+}
+
+async function adminKeys(email: string) {
+	const res = await h.app.request(
+		`/admin/products/clementine/keys?email=${encodeURIComponent(email)}`,
+		{ headers: h.adminHeaders },
+	);
+	return ((await res.json()) as { keys: Array<Record<string, unknown>> }).keys;
+}
+
 describe('E2E: Lemon Squeezy client via alias routes', () => {
 	it('an LS-shaped client activates/validates/deactivates through /v1/licenses/*', async () => {
 		const key = await issueKey(h.app, { product: 'clementine', email: 'ls@x.io', tier: 'yearly' });

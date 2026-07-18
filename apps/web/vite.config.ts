@@ -13,6 +13,7 @@ export default defineConfig({
 		port: 5173,
 		proxy: {
 			'/admin': { target, changeOrigin: true },
+			'/auth': { target, changeOrigin: true },
 			'/v1': { target, changeOrigin: true },
 		},
 	},

@@ -7,7 +7,7 @@ import { desc } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { notFound } from '../../http/errors.js';
-import { adminAuth } from '../../middleware/admin-auth.js';
+import { consoleAuth } from '../../middleware/console-auth.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { rotateKey } from '../../services/signing.js';
 import { connectStripe } from '../../services/stripe-connect.js';
@@ -19,7 +19,7 @@ import { readBody } from './util.js';
 
 export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	const admin = new OpenAPIHono();
-	admin.use('*', adminAuth(deps.config.adminToken));
+	admin.use('*', consoleAuth(deps));
 
 	registerAdminProductRoutes(admin, deps);
 	registerAdminKeyRoutes(admin, deps);

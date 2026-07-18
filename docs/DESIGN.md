@@ -91,6 +91,16 @@ etc.), 7px squares with 2px radius.
   standard `cbin` fade-up.
 - **Logo**: lime rounded square with an ink bean (ellipse rotated -38° with a lime slash).
 
+## Auth screens (sign in / create account)
+
+Magic-code flow, two steps on the portal-card language: (1) email + optional name ("first
+sign-in creates your account" — the bootstrap IS the create-account flow), (2) a six-digit
+code input — centered, mono, 24px with wide (8px) tracking, `autocomplete="one-time-code"`.
+Copy stays in the product voice: "No password to remember." A quiet "Use a different email"
+text link returns to step one. NOTE: the design source for these screens lives in the updated
+"Cool Beans Console.dc.html" revision; exact v2 fonts/spacing to be trued up once the design
+project is re-authorized (/design-login).
+
 ## Motion
 
 One entrance: fade-up 8px, 0.3–0.35s ease (`cbin`), on page swap. Toasts slide up 0.25s. Hovers are

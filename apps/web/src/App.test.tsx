@@ -31,7 +31,7 @@ describe('primitives', () => {
 });
 
 describe('auth gate', () => {
-	it('login screen prompts for the admin token', () => {
+	it('login screen starts the magic-code flow with an email prompt', () => {
 		const qc = new QueryClient();
 		const html = renderToString(
 			<QueryClientProvider client={qc}>
@@ -40,6 +40,6 @@ describe('auth gate', () => {
 				</AuthProvider>
 			</QueryClientProvider>,
 		);
-		expect(html).toContain('Admin token');
+		expect(html).toContain('Email me a code');
 	});
 });

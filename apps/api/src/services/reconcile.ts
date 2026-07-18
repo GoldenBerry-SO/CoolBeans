@@ -7,6 +7,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { type DisableReason, disableLicense } from './lifecycle.js';
+import { findLicenseByProviderId } from './payments.js';
 
 type Provider = 'stripe' | 'paypal';
 
@@ -28,6 +29,41 @@ export function recordPendingRevocation(
 			eventId: args.eventId,
 		})
 		.onConflictDoNothing()
+		.run();
+
+	// Look again now the row is committed. Issuance and this handler are not one
+	// transaction, so a checkout that ran between our lookup and this insert would have
+	// seen no pending row while we saw no licence, and the revocation would sit here
+	// forever. Whichever side goes second finds the other's write.
+	const found = findLicenseByProviderId(deps, args.reference);
+	if (found) {
+		applyPendingRevocation(deps, {
+			license: found.license,
+			provider: args.provider,
+			references: [args.reference],
+		});
+	}
+}
+
+/**
+ * Forget a parked revocation because the thing behind it went away — we won the dispute
+ * before the checkout ever landed. Leaving it would revoke a licence for a customer who
+ * paid, on the strength of a chargeback that no longer stands.
+ */
+export function dropPendingRevocation(
+	deps: AppDeps,
+	args: { provider: Provider; reference: string; reason: DisableReason },
+): void {
+	deps.db
+		.delete(pendingRevocations)
+		.where(
+			and(
+				eq(pendingRevocations.provider, args.provider),
+				eq(pendingRevocations.reference, args.reference),
+				eq(pendingRevocations.reason, args.reason),
+				isNull(pendingRevocations.consumedAt),
+			),
+		)
 		.run();
 }
 

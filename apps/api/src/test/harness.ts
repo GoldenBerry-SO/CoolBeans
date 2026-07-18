@@ -7,6 +7,7 @@ import { createApp } from '../app.js';
 import type { Config } from '../config.js';
 import type { AppDeps } from '../deps.js';
 import { resetKeyThrottle } from '../services/key-throttle.js';
+import type { SessionLineItem } from '../services/stripe-gateway.js';
 
 export interface FakeClock {
 	now(): Date;
@@ -65,7 +66,9 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 /** A fake Stripe gateway: 'valid' signature passes, others throw; reads come from maps. */
 export function fakeStripeGateway(
 	periodEnds: Record<string, string> = {},
-	sessionPrices: Record<string, string[]> = {},
+	// A bare price id means quantity 1, which is what almost every test wants; pass the
+	// object form only when the quantity is the point.
+	sessionPrices: Record<string, Array<string | SessionLineItem>> = {},
 	extras: {
 		invoiceSubscriptions?: Record<string, string>;
 		chargeSubscriptions?: Record<string, string>;
@@ -82,8 +85,10 @@ export function fakeStripeGateway(
 		async subscriptionPeriodEnd(subscriptionId: string): Promise<string | null> {
 			return periodEnds[subscriptionId] ?? null;
 		},
-		async sessionPriceIds(sessionId: string): Promise<string[]> {
-			return sessionPrices[sessionId] ?? [];
+		async sessionLineItems(sessionId: string): Promise<SessionLineItem[]> {
+			return (sessionPrices[sessionId] ?? []).map((item) =>
+				typeof item === 'string' ? { priceId: item, quantity: 1 } : item,
+			);
 		},
 		async invoiceSubscription(invoiceId: string): Promise<string | null> {
 			return extras.invoiceSubscriptions?.[invoiceId] ?? null;

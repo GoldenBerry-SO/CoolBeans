@@ -4,6 +4,7 @@
 export * from './activations.js';
 export * from './admins.js';
 export * from './events.js';
+export * from './license-revocations.js';
 export * from './licenses.js';
 export * from './metrics.js';
 export * from './outbox.js';

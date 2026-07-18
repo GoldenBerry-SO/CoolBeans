@@ -14,8 +14,25 @@ import {
 	findLicenseByProviderId,
 	releaseEvent,
 } from './payments.js';
-import { applyPendingRevocation, recordPendingRevocation } from './reconcile.js';
+import {
+	applyPendingRevocation,
+	dropPendingRevocation,
+	recordPendingRevocation,
+} from './reconcile.js';
 import type { StripeEvent } from './stripe-gateway.js';
+
+/**
+ * Subscription statuses that mean access should stop. 'past_due' is deliberately absent:
+ * Stripe is still retrying the card, and cutting a customer off mid-dunning is the
+ * lockout §9 exists to prevent. 'unpaid' is where dunning gives up.
+ */
+const LAPSED_SUBSCRIPTION_STATUSES = new Set(['unpaid', 'canceled', 'incomplete_expired']);
+
+/**
+ * Statuses that mean they are actually paying, and the only ones that restore access.
+ * Everything else (past_due, paused, incomplete) leaves the licence exactly as it is.
+ */
+const PAYING_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
 
 function str(obj: Record<string, unknown>, key: string): string | null {
 	const v = obj[key];
@@ -64,14 +81,16 @@ export async function ensureLicenseForSession(
 		str(obj, 'client_reference_id');
 	let product: Product | undefined;
 	let priceTier: 'lifetime' | 'yearly' | null = null;
+	let paidQuantity = 1;
 	if (deps.stripe) {
 		const sessionId = str(obj, 'id');
-		const priceIds = sessionId ? await deps.stripe.sessionPriceIds(sessionId) : [];
-		for (const priceId of priceIds) {
-			const match = getProductByStripePrice(deps.db, priceId);
+		const lineItems = sessionId ? await deps.stripe.sessionLineItems(sessionId) : [];
+		for (const item of lineItems) {
+			const match = getProductByStripePrice(deps.db, item.priceId);
 			if (match) {
 				product = match.product;
 				priceTier = match.tier;
+				paidQuantity = item.quantity;
 				break;
 			}
 		}
@@ -133,6 +152,23 @@ export async function ensureLicenseForSession(
 		amountTotal: num(obj, 'amount_total'),
 		currency: str(obj, 'currency'),
 	});
+	// One checkout issues exactly one key. If they were charged for more, we cannot
+	// un-charge them here, but a silent mismatch means nobody ever finds out.
+	if (paidQuantity > 1) {
+		writeAudit(deps.db, {
+			action: 'payment.quantity_mismatch',
+			actor: `stripe:${actorEventId}`,
+			productId: product.id,
+			licenseId: result.license.id,
+			detail: {
+				quantity: paidQuantity,
+				issued: 1,
+				checkout_id: str(obj, 'id'),
+				email,
+			},
+		});
+	}
+
 	// A refund or dispute for this payment may have arrived before the checkout did.
 	const license = applyPendingRevocation(deps, {
 		license: result.license,
@@ -185,14 +221,21 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			if (!found) {
 				// The checkout has not landed yet. Remember it so issuance revokes on
 				// arrival instead of handing out a key for refunded money.
-				const reference = str(obj, 'payment_intent') ?? resolveSubscriptionFromCharge(obj);
-				if (isFull && reference) {
-					recordPendingRevocation(deps, {
-						provider: 'stripe',
-						reference,
-						reason: 'refund',
-						eventId: event.id,
-					});
+				//
+				// Park under EVERY id the checkout might carry. A renewal refund names an
+				// invoice payment intent the checkout session never mentions, so parking
+				// under that alone would strand the revocation forever.
+				if (isFull) {
+					const subFromCharge = await subscriptionForCharge(deps, obj);
+					for (const reference of [str(obj, 'payment_intent'), subFromCharge]) {
+						if (!reference) continue;
+						recordPendingRevocation(deps, {
+							provider: 'stripe',
+							reference,
+							reason: 'refund',
+							eventId: event.id,
+						});
+					}
 				}
 				break;
 			}
@@ -218,31 +261,39 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			const subId = str(obj, 'id');
 			const status = str(obj, 'status');
 			if (!subId) break;
-			// Dunning belt-and-braces: an unpaid subscription is a lapse.
-			if (status === 'unpaid' || status === 'canceled') {
-				const found = findLicenseByProviderId(deps, subId);
+			const found = findLicenseByProviderId(deps, subId);
+
+			// Dunning belt-and-braces: an unpaid or dead subscription is a lapse.
+			if (LAPSED_SUBSCRIPTION_STATUSES.has(status ?? '')) {
 				if (found) {
 					disableLicense(deps, {
 						license: found.license,
 						reason: 'subscription_canceled',
 						actor: `stripe:${event.id}`,
 					});
-				}
-			} else {
-				// The subscription is paying again (active/trialing). If we disabled it for
-				// falling behind, give access back: Stripe says they are current, so
-				// refusing them means billing someone we will not serve.
-				const found = findLicenseByProviderId(deps, subId);
-				if (found) {
-					restoreLicense(deps, {
-						license: found.license,
-						trigger: 'subscription_recovered',
-						actor: `stripe:${event.id}`,
+				} else {
+					recordPendingRevocation(deps, {
+						provider: 'stripe',
+						reference: subId,
+						reason: 'subscription_canceled',
+						eventId: event.id,
 					});
 				}
-				const periodEnd = subscriptionPeriodEnd(obj);
-				if (periodEnd) advanceSubscriptionExpiry(deps, subId, periodEnd, `stripe:${event.id}`);
+				break;
 			}
+
+			// Only an explicitly healthy status gives access back. past_due means they
+			// still have not paid, and treating every other status as recovery would let
+			// a stale 'active' delivered after a cancellation resurrect a dead licence.
+			if (found && PAYING_SUBSCRIPTION_STATUSES.has(status ?? '')) {
+				restoreLicense(deps, {
+					license: found.license,
+					trigger: 'subscription_recovered',
+					actor: `stripe:${event.id}`,
+				});
+			}
+			const periodEnd = subscriptionPeriodEnd(obj);
+			if (periodEnd) advanceSubscriptionExpiry(deps, subId, periodEnd, `stripe:${event.id}`);
 			break;
 		}
 
@@ -256,6 +307,15 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 					license: found.license,
 					reason: 'subscription_canceled',
 					actor: `stripe:${event.id}`,
+				});
+			} else {
+				// The checkout has not landed yet. Without parking this, the licence it
+				// issues would be active for a subscription that is already gone.
+				recordPendingRevocation(deps, {
+					provider: 'stripe',
+					reference: subId,
+					reason: 'subscription_canceled',
+					eventId: event.id,
 				});
 			}
 			break;
@@ -296,6 +356,18 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 					trigger: 'dispute_won',
 					actor: `stripe:${event.id}`,
 				});
+			} else {
+				// The dispute was opened before the checkout landed, so a chargeback is
+				// parked waiting to revoke a licence that does not exist yet. We won, so
+				// drop it: otherwise issuance later disables a customer who paid.
+				const reference = str(obj, 'payment_intent');
+				if (reference) {
+					dropPendingRevocation(deps, {
+						provider: 'stripe',
+						reference,
+						reason: 'chargeback',
+					});
+				}
 			}
 			break;
 		}
@@ -333,6 +405,39 @@ async function findLicenseForCharge(deps: AppDeps, charge: Record<string, unknow
 		subId = await deps.stripe.invoiceSubscription(charge.invoice);
 	}
 	return subId ? findLicenseByProviderId(deps, subId) : undefined;
+}
+
+/**
+ * The subscription behind a charge: inline hints first, then the gateway (charge ->
+ * invoice -> subscription). Used when parking a revocation so it is filed under an id
+ * the checkout session will actually present.
+ */
+async function subscriptionForCharge(
+	deps: AppDeps,
+	charge: Record<string, unknown>,
+): Promise<string | null> {
+	const inline = resolveSubscriptionFromCharge(charge);
+	if (inline) return inline;
+	if (!deps.stripe) return null;
+	// Best effort only. A one-time charge has no invoice to look up, and the lookup can
+	// fail outright; neither is a reason to fail the webhook and have Stripe retry a
+	// refund forever. Park under the ids we do have instead.
+	try {
+		const chargeId = str(charge, 'id');
+		if (chargeId) {
+			const viaCharge = await deps.stripe.subscriptionForCharge(chargeId);
+			if (viaCharge) return viaCharge;
+		}
+		if (typeof charge.invoice === 'string') {
+			return await deps.stripe.invoiceSubscription(charge.invoice);
+		}
+	} catch (err) {
+		deps.logger.info('Could not resolve a subscription for this charge', {
+			charge: str(charge, 'id'),
+			message: (err as Error).message,
+		});
+	}
+	return null;
 }
 
 /** Read current_period_end off a subscription object (Basil: read from the first item). */

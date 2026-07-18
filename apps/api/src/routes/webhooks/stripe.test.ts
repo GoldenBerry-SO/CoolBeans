@@ -362,6 +362,200 @@ describe('Stripe webhook', () => {
 		expect(keys[0]?.disabled_reason).toBe('refund');
 	});
 
+	// Codex found these against the first version of the restore work. Every one of them
+	// either hands back access that should stay revoked, or strands a paying customer.
+
+	it('stays disabled when a second cause is still standing', async () => {
+		// Chargeback AND cancellation. Winning the dispute clears the chargeback, but the
+		// subscription is still gone, so access must not come back.
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		await webhook(h.app, {
+			id: 'evt_dispute',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_cancel',
+			type: 'customer.subscription.deleted',
+			data: { object: { id: 'sub_1', status: 'canceled' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_won',
+			type: 'charge.dispute.closed',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1', status: 'won' } },
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status).toBe('disabled');
+	});
+
+	it('does not treat past_due or a dead subscription as recovery', async () => {
+		for (const status of ['past_due', 'incomplete_expired', 'paused']) {
+			const harness = h;
+			await webhook(harness.app, {
+				id: `evt_unpaid_${status}`,
+				type: 'customer.subscription.updated',
+				data: { object: { id: 'sub_1', status: 'unpaid' } },
+			});
+			await webhook(harness.app, {
+				id: `evt_${status}`,
+				type: 'customer.subscription.updated',
+				data: { object: { id: 'sub_1', status } },
+			});
+		}
+		// Set up a real subscription licence first, then replay the sequence on it.
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_2' }));
+		await webhook(h.app, {
+			id: 'evt_lapse_2',
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_2', status: 'unpaid' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_pastdue_2',
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_2', status: 'past_due' } },
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'past_due means still not paid').toBe('disabled');
+	});
+
+	it('revokes when a cancellation arrives before its checkout', async () => {
+		// Same out-of-order problem refunds have. Without parking it, the checkout behind
+		// it issues an active yearly key for a subscription that is already dead.
+		await webhook(h.app, {
+			id: 'evt_early_cancel',
+			type: 'customer.subscription.deleted',
+			data: { object: { id: 'sub_1', status: 'canceled' } },
+		});
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys).toHaveLength(1);
+		expect(keys[0]?.status).toBe('disabled');
+		expect(keys[0]?.disabled_reason).toBe('subscription_canceled');
+	});
+
+	it('revokes an early subscription refund the checkout can actually match', async () => {
+		// A renewal refund names an invoice payment intent the checkout never mentions.
+		// Parking it under that id alone means issuance can never find it.
+		h.deps.stripe = fakeStripeGateway(
+			{ sub_1: PERIOD_END },
+			{},
+			{ chargeSubscriptions: { ch_renewal: 'sub_1' } },
+		);
+		await webhook(h.app, {
+			id: 'evt_early_sub_refund',
+			type: 'charge.refunded',
+			data: {
+				object: {
+					id: 'ch_renewal',
+					payment_intent: 'pi_invoice_unknown',
+					amount_captured: 4900,
+					amount_refunded: 4900,
+				},
+			},
+		});
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status).toBe('disabled');
+		expect(keys[0]?.disabled_reason).toBe('refund');
+	});
+
+	it('does not strand a customer when the dispute is won before the checkout lands', async () => {
+		// dispute.created parks a chargeback; we then win. The parked revocation must not
+		// outlive the dispute and disable a licence issued afterwards.
+		await webhook(h.app, {
+			id: 'evt_dispute_early',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_won_early',
+			type: 'charge.dispute.closed',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1', status: 'won' } },
+		});
+		await webhook(h.app, checkout());
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'we kept the money, so they keep the licence').toBe('active');
+	});
+
+	it('still revokes when a dispute is lost before the checkout lands', () => {
+		return (async () => {
+			await webhook(h.app, {
+				id: 'evt_dispute_early',
+				type: 'charge.dispute.created',
+				data: { object: { id: 'dp_1', payment_intent: 'pi_1' } },
+			});
+			await webhook(h.app, {
+				id: 'evt_lost_early',
+				type: 'charge.dispute.closed',
+				data: { object: { id: 'dp_1', payment_intent: 'pi_1', status: 'lost' } },
+			});
+			await webhook(h.app, checkout());
+			const keys = await keysForEmail(h, 'buyer@example.com');
+			expect(keys[0]?.status).toBe('disabled');
+			expect(keys[0]?.disabled_reason).toBe('chargeback');
+		})();
+	});
+
+	it('flags a checkout that paid for several units but gets one key', async () => {
+		// A landing page with adjustable quantity (or quantity: 3) charges three times
+		// and still gets exactly one licence. We cannot un-charge them, but leaving no
+		// record means nobody ever finds out they were short-changed.
+		await h.app.request('/admin/products/clementine', {
+			method: 'PATCH',
+			headers: h.adminHeaders,
+			body: JSON.stringify({ stripe_price_lifetime: 'price_life_1' }),
+		});
+		h.deps.stripe = fakeStripeGateway({}, { cs_bulk: [{ priceId: 'price_life_1', quantity: 3 }] });
+		const r = await webhook(h.app, {
+			id: 'evt_bulk',
+			type: 'checkout.session.completed',
+			data: {
+				object: {
+					id: 'cs_bulk',
+					mode: 'payment',
+					payment_status: 'paid',
+					customer_email: 'bulk@example.com',
+					amount_total: 14700,
+					metadata: {},
+				},
+			},
+		});
+		expect(r.status).toBe(200);
+		// Issuance still happens: the customer paid and must not be left with nothing.
+		expect(await keysForEmail(h, 'bulk@example.com')).toHaveLength(1);
+
+		const audit = await h.app.request('/admin/audit', { headers: h.adminHeaders });
+		const rows = ((await audit.json()) as { audit: Array<Record<string, unknown>> }).audit;
+		const flagged = rows.find((e) => e.action === 'payment.quantity_mismatch');
+		expect(flagged, 'paying for three and getting one must leave a trail').toBeDefined();
+		expect(flagged?.detail).toMatchObject({ quantity: 3, issued: 1 });
+	});
+
+	it('says nothing about quantity on an ordinary single-unit checkout', async () => {
+		await h.app.request('/admin/products/clementine', {
+			method: 'PATCH',
+			headers: h.adminHeaders,
+			body: JSON.stringify({ stripe_price_lifetime: 'price_life_1' }),
+		});
+		h.deps.stripe = fakeStripeGateway({}, { cs_one: [{ priceId: 'price_life_1', quantity: 1 }] });
+		await webhook(h.app, {
+			id: 'evt_one',
+			type: 'checkout.session.completed',
+			data: {
+				object: {
+					id: 'cs_one',
+					mode: 'payment',
+					payment_status: 'paid',
+					customer_email: 'single@example.com',
+					metadata: {},
+				},
+			},
+		});
+		const audit = await h.app.request('/admin/audit', { headers: h.adminHeaders });
+		const rows = ((await audit.json()) as { audit: Array<Record<string, unknown>> }).audit;
+		expect(rows.find((e) => e.action === 'payment.quantity_mismatch')).toBeUndefined();
+	});
+
 	it('records a payment it cannot fulfil instead of silently dropping it', async () => {
 		// A price nobody configured (someone edited it in Stripe). We answer 200 so Stripe
 		// stops retrying, so the only way anyone finds out is a durable record.

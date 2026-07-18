@@ -50,6 +50,13 @@
       "when": 1784396420729,
       "tag": "0006_validation_counters",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1784397854517,
+      "tag": "0007_license_revocations",
+      "breakpoints": true
     }
   ]
 }

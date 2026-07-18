@@ -102,11 +102,10 @@ state-change trail, and §16 wants every change to stay explainable. They are al
 tables that grow with traffic rather than with customers, so they need a policy rather
 than a cron nobody wrote:
 
-- **provider_events** may be pruned once rows are far older than any provider's retry
-  window (Stripe gives up after ~3 days). Anything past 30 days can go without weakening
-  idempotency, because a redelivery that old will not arrive.
+- **provider_events** is pruned at 30 days, far outside any provider's retry window
+  (Stripe gives up after ~3 days), so a redelivery that old will not arrive and dropping
+  the row cannot weaken idempotency. Only finished rows go: a row still `processing` is
+  either in flight or a stuck claim worth investigating, and deleting it would let the
+  same event run twice. The prune runs with the other sweeps and audits what it removed.
 - **audit_log** is the operator's record and is not pruned automatically. If it ever needs
   to be, export before deleting — "who disabled this key" outliving the row is the point.
-
-Neither prune job is implemented yet; issue #49 tracks it. Until then both tables are
-append-only, which is safe but unbounded, so keep an eye on them on a busy instance.

@@ -2,12 +2,12 @@
 // ABOUTME: The first-ever sign-in creates the account; sessions are bearer tokens in storage.
 
 import { createContext, type ReactNode, useContext, useState } from 'react';
-import { AccentButton, BeanMark } from '../components/ui.js';
-import { clearToken, getToken, publicApi, setToken } from './api.js';
+import { AccentButton, BeanMark, InkButton } from '../components/ui.js';
+import { clearToken, getToken, publicApi, setAdminEmail, setToken } from './api.js';
 
 interface AuthState {
 	token: string | null;
-	signIn: (token: string) => void;
+	signIn: (token: string, email?: string) => void;
 	signOut: () => void;
 }
 
@@ -23,8 +23,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const [token, setTok] = useState<string | null>(getToken());
 	const value: AuthState = {
 		token,
-		signIn: (t) => {
+		signIn: (t, email) => {
 			setToken(t);
+			if (email) setAdminEmail(email);
 			setTok(t);
 		},
 		signOut: () => {
@@ -43,15 +44,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-const inputClass =
-	'w-full rounded-[10px] border border-ink/14 bg-fill-soft px-3.5 py-3 text-[14px] outline-none focus:border-positive focus:bg-card';
+const loginInput =
+	'w-full rounded-[9px] border border-ink/18 bg-card px-[13px] py-[11px] text-[14px] text-ink shadow-[0_1px_1px_rgba(26,26,25,0.03)] outline-none focus:border-positive focus:shadow-[0_0_0_3px_rgba(77,107,22,0.15)]';
 
 export function LoginScreen() {
 	const { signIn } = useAuth();
 	const [step, setStep] = useState<'email' | 'code'>('email');
 	const [email, setEmail] = useState('');
-	const [name, setName] = useState('');
 	const [code, setCode] = useState('');
+	const [adminToken, setAdminTokenInput] = useState('');
+	const [showTokenInput, setShowTokenInput] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -61,6 +63,7 @@ export function LoginScreen() {
 		try {
 			await publicApi('POST', '/auth/request-code', { email });
 			setStep('code');
+			setCode('');
 		} catch {
 			setError('That does not look like a valid email.');
 		} finally {
@@ -72,12 +75,8 @@ export function LoginScreen() {
 		setError(null);
 		setBusy(true);
 		try {
-			const res = await publicApi<{ token: string }>('POST', '/auth/verify', {
-				email,
-				code,
-				...(name ? { name } : {}),
-			});
-			signIn(res.token);
+			const res = await publicApi<{ token: string }>('POST', '/auth/verify', { email, code });
+			signIn(res.token, email);
 		} catch {
 			setError("That code didn't work. Check it, or request a fresh one.");
 		} finally {
@@ -86,99 +85,159 @@ export function LoginScreen() {
 	}
 
 	return (
-		<div className="flex h-screen items-center justify-center p-5">
-			<div className="cbin w-full max-w-[420px] rounded-2xl border border-ink/10 bg-card p-8 shadow-[0_4px_24px_rgba(26,26,25,0.06)]">
-				<div className="mb-4 flex items-center gap-2.5">
-					<BeanMark size={30} />
-					<span className="font-semibold text-[15px]">Cool Beans Console</span>
-				</div>
+		<div className="relative flex h-screen flex-col items-center justify-center overflow-y-auto bg-card px-6 py-10">
+			<div className="pointer-events-none absolute right-0 bottom-0 left-0 h-[32vh] bg-[linear-gradient(175deg,rgba(200,255,77,0)_0%,rgba(200,255,77,0.10)_45%,rgba(163,224,60,0.22)_100%)]" />
+			<div className="absolute top-[26px] left-8 flex items-center gap-[9px]">
+				<BeanMark size={30} />
+				<span className="font-semibold text-[15.5px] tracking-[-0.01em]">Cool Beans</span>
+			</div>
 
+			<div className="cbin relative w-full max-w-[440px] rounded-[14px] border border-ink/7 bg-card px-10 pt-10 pb-[34px] shadow-[0_15px_35px_rgba(56,60,50,0.09),0_5px_15px_rgba(0,0,0,0.06)]">
 				{step === 'email' ? (
-					<>
-						<h2 className="m-0 mb-1.5 font-semibold text-[20px] tracking-[-0.01em]">Sign in</h2>
-						<p className="m-0 mb-5 text-[13.5px] text-ink-muted">
-							We'll email you a six-digit code. No password to remember — first sign-in creates your
-							account.
+					<div>
+						<h1 className="m-0 mb-1.5 font-semibold text-[24px] text-ink-heading tracking-[-0.015em]">
+							Sign in to Cool Beans
+						</h1>
+						<p className="m-0 mb-6 text-[13.5px] text-ink-muted leading-normal">
+							We'll email you a six-digit code for a password-free sign in. First sign-in creates
+							your account.
 						</p>
-						<label className="mb-3 block">
-							<span className="mb-1.5 block font-semibold text-[11px] text-ink-muted uppercase tracking-[0.05em]">
-								Email
-							</span>
-							<input
-								type="email"
-								value={email}
-								onChange={(e) => setEmail(e.target.value)}
-								onKeyDown={(e) => e.key === 'Enter' && email && requestCode()}
-								placeholder="you@goldenberry.io"
-								className={inputClass}
-							/>
+						<label className="block font-medium text-[12.5px] text-ink-body" htmlFor="login-email">
+							Email
 						</label>
-						<label className="mb-1 block">
-							<span className="mb-1.5 block font-semibold text-[11px] text-ink-muted uppercase tracking-[0.05em]">
-								Name <span className="font-normal normal-case">(first sign-in only)</span>
-							</span>
-							<input
-								value={name}
-								onChange={(e) => setName(e.target.value)}
-								placeholder="Chris"
-								className={inputClass}
-							/>
-						</label>
+						<input
+							id="login-email"
+							type="email"
+							value={email}
+							onChange={(e) => setEmail(e.target.value)}
+							onKeyDown={(e) => e.key === 'Enter' && email && requestCode()}
+							placeholder="you@company.com"
+							className={`${loginInput} mt-[7px]`}
+						/>
 						{error ? <p className="mt-2 mb-0 text-[12.5px] text-danger">{error}</p> : null}
 						<AccentButton
-							className="mt-4 w-full justify-center"
+							className="mt-[18px] w-full justify-center py-[11px] text-[14px]"
 							onClick={() => email && requestCode()}
 						>
 							{busy ? 'Sending…' : 'Email me a code'}
 						</AccentButton>
-					</>
+						<div className="my-[22px] flex items-center gap-3">
+							<div className="h-px flex-1 bg-ink/9" />
+							<span className="text-[11.5px] text-[#a8a89f]">SELF-HOSTING?</span>
+							<div className="h-px flex-1 bg-ink/9" />
+						</div>
+						{showTokenInput ? (
+							<div>
+								<input
+									type="password"
+									value={adminToken}
+									onChange={(e) => setAdminTokenInput(e.target.value)}
+									onKeyDown={(e) => e.key === 'Enter' && adminToken && signIn(adminToken)}
+									placeholder="ADMIN_TOKEN"
+									className={`${loginInput} font-mono text-[13px]`}
+								/>
+								<InkButton
+									className="mt-2.5 w-full justify-center py-[11px] text-[14px]"
+									onClick={() => adminToken && signIn(adminToken)}
+								>
+									Sign in with token
+								</InkButton>
+							</div>
+						) : (
+							<p className="m-0 text-center text-[12.5px] text-ink-faint leading-[1.6]">
+								Running your own instance? Sign in with the{' '}
+								<button
+									type="button"
+									onClick={() => setShowTokenInput(true)}
+									className="cursor-pointer border-none bg-transparent p-0 font-mono text-[12.5px] text-ink-muted underline decoration-ink/20 hover:text-ink"
+								>
+									ADMIN_TOKEN
+								</button>{' '}
+								from your env instead.
+							</p>
+						)}
+					</div>
 				) : (
-					<>
-						<h2 className="m-0 mb-1.5 font-semibold text-[20px] tracking-[-0.01em]">
-							Check your email
-						</h2>
-						<p className="m-0 mb-5 text-[13.5px] text-ink-muted">
-							We sent a six-digit code to <span className="font-medium text-ink">{email}</span>. It
-							expires in 10 minutes.
+					<div className="cbin">
+						<span className="mb-[18px] inline-flex h-12 w-12 items-center justify-center rounded-[10px] bg-positive-tint">
+							<svg
+								width="26"
+								height="26"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="#4d6b16"
+								strokeWidth="1.9"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								aria-hidden="true"
+							>
+								<path d="M3 7l9 6 9-6" />
+								<rect x="3" y="5" width="18" height="14" rx="2" />
+							</svg>
+						</span>
+						<h1 className="m-0 mb-1.5 font-semibold text-[21px] tracking-[-0.015em]">
+							Check your inbox
+						</h1>
+						<p className="m-0 mb-5 text-[13.5px] text-ink-muted leading-[1.55]">
+							We sent a six-digit code to <strong className="text-ink">{email}</strong>. Enter it
+							below — it expires in 10 minutes.
 						</p>
-						<label className="mb-1 block">
-							<span className="mb-1.5 block font-semibold text-[11px] text-ink-muted uppercase tracking-[0.05em]">
-								Code
-							</span>
-							<input
-								inputMode="numeric"
-								autoComplete="one-time-code"
-								maxLength={6}
-								value={code}
-								onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-								onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && verify()}
-								placeholder="000000"
-								className={`${inputClass} text-center font-mono text-[24px] tracking-[8px]`}
-							/>
-						</label>
-						{error ? <p className="mt-2 mb-0 text-[12.5px] text-danger">{error}</p> : null}
-						<AccentButton
-							className="mt-4 w-full justify-center"
+						<input
+							inputMode="numeric"
+							autoComplete="one-time-code"
+							maxLength={6}
+							value={code}
+							onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+							onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && verify()}
+							placeholder="000000"
+							aria-label="Six-digit code"
+							className="mb-4 w-full rounded-[10px] border border-ink/9 bg-fill-soft px-[13px] py-[11px] text-center font-mono text-[24px] text-ink tracking-[8px] outline-none focus:border-positive"
+						/>
+						{error ? <p className="mt-0 mb-3 text-[12.5px] text-danger">{error}</p> : null}
+						<InkButton
+							className="w-full justify-center py-[11px] text-[14px]"
 							onClick={() => code.length === 6 && verify()}
 						>
 							{busy ? 'Verifying…' : 'Sign in'}
-						</AccentButton>
-						<div className="mt-4 text-center">
+						</InkButton>
+						<div className="mt-4 flex justify-center gap-[18px] text-[12.5px]">
 							<button
 								type="button"
-								className="cursor-pointer border-none bg-transparent text-[12.5px] text-ink-faint hover:text-ink"
+								onClick={() => requestCode()}
+								className="cursor-pointer border-none bg-transparent p-0 text-[12.5px] text-positive"
+							>
+								Resend code
+							</button>
+							<button
+								type="button"
 								onClick={() => {
 									setStep('email');
 									setCode('');
 									setError(null);
 								}}
+								className="cursor-pointer border-none bg-transparent p-0 text-[12.5px] text-ink-faint hover:text-ink"
 							>
 								Use a different email
 							</button>
 						</div>
-					</>
+					</div>
 				)}
 			</div>
+
+			<p className="relative m-0 mt-[22px] text-center text-[12px] text-ink-faint leading-[1.6]">
+				New to Cool Beans?{' '}
+				<a href="https://github.com/GoldenBerry-SO/coolbeans" target="_blank" rel="noreferrer">
+					Self-host it free
+				</a>{' '}
+				·{' '}
+				<a href="/docs" target="_blank" rel="noreferrer">
+					Docs
+				</a>
+				<br />
+				<span className="text-ink-ghost">
+					Protected by constant-time token checks. We never store passwords.
+				</span>
+			</p>
 		</div>
 	);
 }

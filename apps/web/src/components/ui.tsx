@@ -6,14 +6,7 @@ import type { ReactNode } from 'react';
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
 	return (
-		<div
-			className={clsx(
-				'rounded-[13px] border border-ink/10 bg-card shadow-[0_1px_2px_rgba(26,26,25,0.04)]',
-				className,
-			)}
-		>
-			{children}
-		</div>
+		<div className={clsx('rounded-[10px] border border-ink/10 bg-card', className)}>{children}</div>
 	);
 }
 
@@ -80,6 +73,29 @@ export function AccentButton({
 	);
 }
 
+export function InkButton({
+	children,
+	onClick,
+	className,
+}: {
+	children: ReactNode;
+	onClick?: () => void;
+	className?: string;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={clsx(
+				'flex cursor-pointer items-center gap-[7px] rounded-[9px] border-none bg-ink px-3.5 py-[9px] font-medium text-[13px] text-white hover:bg-black',
+				className,
+			)}
+		>
+			{children}
+		</button>
+	);
+}
+
 export function SecondaryButton({
 	children,
 	onClick,
@@ -107,18 +123,14 @@ export function SecondaryButton({
 }
 
 export function SectionLabel({ children }: { children: ReactNode }) {
-	return (
-		<div className="font-semibold text-[10px] text-ink-faint uppercase tracking-[0.09em]">
-			{children}
-		</div>
-	);
+	return <div className="font-medium text-[12.5px] text-ink-label">{children}</div>;
 }
 
 export function TableHead({ columns, gridClass }: { columns: string[]; gridClass: string }) {
 	return (
 		<div
 			className={clsx(
-				'grid gap-3.5 border-ink/8 border-b px-[18px] py-[11px] font-semibold text-[10.5px] text-ink-faint uppercase tracking-[0.05em]',
+				'grid gap-3.5 border-ink/8 border-b px-[18px] py-[11px] font-medium text-[12px] text-ink-muted',
 				gridClass,
 			)}
 		>
@@ -133,6 +145,23 @@ export function EmptyState({ children }: { children: ReactNode }) {
 	return <div className="p-11 text-center text-[13px] text-ink-faint">{children}</div>;
 }
 
+export function PlusIcon() {
+	return (
+		<svg
+			width="15"
+			height="15"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2.2"
+			strokeLinecap="round"
+			aria-hidden="true"
+		>
+			<path d="M12 5v14M5 12h14" />
+		</svg>
+	);
+}
+
 export function BeanMark({ size = 31 }: { size?: number }) {
 	return (
 		<span
@@ -140,19 +169,32 @@ export function BeanMark({ size = 31 }: { size?: number }) {
 			style={{ width: size, height: size }}
 		>
 			<svg
-				width={size * 0.61}
-				height={size * 0.61}
+				width={Math.round(size * 0.61)}
+				height={Math.round(size * 0.61)}
 				viewBox="0 0 24 24"
 				fill="none"
 				aria-hidden="true"
 			>
-				<ellipse cx="12" cy="12" rx="8.2" ry="6" transform="rotate(-38 12 12)" fill="#1a1a19" />
-				<path
-					d="M8.8 15.6C10.6 13.4 13.4 10.6 15.2 8.4"
-					stroke="#c8ff4d"
-					strokeWidth="1.8"
-					strokeLinecap="round"
-				/>
+				<g transform="rotate(-28 7.8 14.8)">
+					<ellipse cx="7.8" cy="14.8" rx="4.8" ry="3.4" fill="#1a1a19" />
+					<path
+						d="M5.3 15.3C6.4 14.3 9.2 15.3 10.3 14.3"
+						stroke="#c8ff4d"
+						strokeWidth="1"
+						strokeLinecap="round"
+						fill="none"
+					/>
+				</g>
+				<g transform="rotate(-28 16.2 9.2)">
+					<ellipse cx="16.2" cy="9.2" rx="4.8" ry="3.4" fill="#1a1a19" />
+					<path
+						d="M13.7 9.7C14.8 8.7 17.6 9.7 18.7 8.7"
+						stroke="#c8ff4d"
+						strokeWidth="1"
+						strokeLinecap="round"
+						fill="none"
+					/>
+				</g>
 			</svg>
 		</span>
 	);

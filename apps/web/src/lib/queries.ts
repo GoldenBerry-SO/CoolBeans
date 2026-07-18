@@ -1,7 +1,7 @@
 // ABOUTME: TanStack Query hooks for the console (PRD §16) — read paths and mutations over the admin API.
 // ABOUTME: Query keys are coarse; mutations invalidate the lists they affect.
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api.js';
 import type { AuditEntry, LicenseRow, Product, PurchaseRow } from './types.js';
 
@@ -22,6 +22,24 @@ export function useLicenses(productSlug: string | null, status: string) {
 				(r) => r.keys,
 			);
 		},
+	});
+}
+
+/** Keys across many products at once — the licenses page's "All products" view. */
+export function useLicensesAcross(productSlugs: string[], status: string) {
+	const q = status !== 'all' ? `?status=${status}` : '';
+	return useQueries({
+		queries: productSlugs.map((slug) => ({
+			queryKey: ['licenses', slug, status],
+			queryFn: () =>
+				api<{ keys: LicenseRow[] }>('GET', `/admin/products/${slug}/keys${q}`).then((r) =>
+					r.keys.map((k) => ({ ...k, product: slug })),
+				),
+		})),
+		combine: (results) => ({
+			isLoading: results.some((r) => r.isLoading),
+			data: results.flatMap((r) => r.data ?? []),
+		}),
 	});
 }
 
@@ -95,6 +113,31 @@ export function useCreateProduct() {
 	const qc = useQueryClient();
 	return useMutation({
 		mutationFn: (input: CreateProductInput) => api('POST', '/admin/products', input),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+	});
+}
+
+export function useUpdateProduct() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ slug, ...input }: Partial<CreateProductInput> & { slug: string }) =>
+			api('PATCH', `/admin/products/${slug}`, input),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+	});
+}
+
+export interface ConnectStripeInput {
+	slug: string;
+	webhook_url: string;
+	lifetime_amount: number;
+	yearly_amount: number;
+}
+
+export function useConnectStripe() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ slug, ...input }: ConnectStripeInput) =>
+			api('POST', `/admin/products/${slug}/stripe/connect`, input),
 		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
 	});
 }

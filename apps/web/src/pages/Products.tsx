@@ -1,76 +1,174 @@
-// ABOUTME: Products page (PRD §16, §29) — live product cards and the New product dialog.
-// ABOUTME: Cards show prefix, seats, and model; the dialog creates a product via the admin API.
+// ABOUTME: Products page (PRD §16, §29) — product cards with counts, edit, and Stripe connect.
+// ABOUTME: Slug and key prefix are immutable after creation; the edit dialog reflects that.
 
 import { useState } from 'react';
 import { Dialog, Field, inputClass } from '../components/Dialog.js';
-import { AccentButton, Card, EmptyState, SecondaryButton } from '../components/ui.js';
-import { useCreateProduct, useProducts } from '../lib/queries.js';
+import {
+	AccentButton,
+	Card,
+	EmptyState,
+	InkButton,
+	PlusIcon,
+	SecondaryButton,
+} from '../components/ui.js';
+import {
+	useConnectStripe,
+	useCreateProduct,
+	useProducts,
+	useUpdateProduct,
+} from '../lib/queries.js';
+import { productColor } from '../lib/scope.js';
+import type { Product } from '../lib/types.js';
+
+function MiniStat({ value, label }: { value: number | string; label: string }) {
+	return (
+		<div className="rounded-[9px] border border-ink/6 bg-fill-soft p-[11px]">
+			<div className="font-semibold text-[19px]">{value}</div>
+			<div className="text-[10.5px] text-ink-faint">{label}</div>
+		</div>
+	);
+}
+
+function Chip({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
+	return (
+		<span
+			className={`rounded-[20px] border border-ink/10 px-[9px] py-1 text-ink-secondary ${mono ? 'font-mono' : ''}`}
+		>
+			{children}
+		</span>
+	);
+}
 
 export function ProductsPage() {
 	const products = useProducts();
 	const [showNew, setShowNew] = useState(false);
+	const [editing, setEditing] = useState<Product | null>(null);
+	const [connecting, setConnecting] = useState<Product | null>(null);
 
 	return (
-		<div className="cbin max-w-[1180px]">
-			<div className="mb-4 flex items-center justify-between">
-				<div className="font-mono text-[12.5px] text-ink-faint">
-					{products.data?.length ?? 0} products
-				</div>
-				<AccentButton onClick={() => setShowNew(true)}>New product</AccentButton>
+		<div className="cbin">
+			<div className="mb-3.5 flex justify-end">
+				<InkButton onClick={() => setShowNew(true)}>
+					<PlusIcon />
+					New product
+				</InkButton>
 			</div>
 			{products.data?.length ? (
 				<div className="grid grid-cols-2 gap-4">
-					{products.data.map((p) => (
-						<Card key={p.slug} className="p-5">
-							<div className="mb-4 flex items-center gap-3">
-								<span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-fill font-semibold text-[15px] text-ink-muted">
-									{p.name.charAt(0)}
-								</span>
-								<div className="flex-1">
-									<div className="font-semibold text-[15px]">{p.name}</div>
-									<div className="font-mono text-[11.5px] text-ink-faint">{p.slug}</div>
+					{products.data.map((p, i) => {
+						const connected = Boolean(p.stripePriceLifetime || p.stripePriceYearly);
+						return (
+							<Card key={p.slug} className="p-5">
+								<div className="mb-4 flex items-center gap-3">
+									<span
+										className="inline-flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] font-semibold text-white"
+										style={{ background: productColor(i) }}
+									>
+										{p.name.charAt(0)}
+									</span>
+									<div className="flex-1">
+										<div className="font-semibold text-[15px]">{p.name}</div>
+										<div className="font-mono text-[11.5px] text-ink-faint">{p.slug}</div>
+									</div>
+									<span className="rounded-[6px] border border-ink/8 bg-fill px-2 py-[3px] font-medium font-mono text-[11px]">
+										{p.keyPrefix}-••••
+									</span>
 								</div>
-								<span className="rounded-[6px] border border-ink/8 bg-fill px-2 py-[3px] font-medium font-mono text-[11px]">
-									{p.keyPrefix}-••••
-								</span>
-							</div>
-							<div className="flex flex-wrap gap-2 text-[11.5px]">
-								<span className="rounded-full border border-ink/10 px-2.5 py-1 text-ink-secondary">
-									{p.activationModel === 'floating' ? 'Floating' : 'Node-locked'}
-								</span>
-								<span className="rounded-full border border-ink/10 px-2.5 py-1 text-ink-secondary">
-									{p.activationLimit} seats/key
-								</span>
-								<span className="rounded-full border border-ink/10 px-2.5 py-1 font-mono text-ink-secondary">
-									{p.emailFrom}
-								</span>
-							</div>
-						</Card>
-					))}
+								<div className="mb-4 grid grid-cols-3 gap-2.5">
+									<MiniStat value={p.keysTotal} label="keys" />
+									<MiniStat value={p.keysActive} label="active" />
+									<MiniStat value={p.activationLimit} label="seats/key" />
+								</div>
+								<div className="flex flex-wrap gap-2 text-[11.5px]">
+									<Chip>{p.activationModel === 'floating' ? 'Floating' : 'Node-locked'}</Chip>
+									<Chip>{p.activationLimit} seats/key</Chip>
+									<Chip mono>{p.emailFrom}</Chip>
+								</div>
+								<div className="mt-3.5 flex items-center gap-2 border-ink/6 border-t pt-3.5">
+									<SecondaryButton
+										className="px-3 py-[7px] text-[12.5px]"
+										onClick={() => setEditing(p)}
+									>
+										Edit
+									</SecondaryButton>
+									{connected ? (
+										<span className="rounded-[8px] border border-positive-border bg-positive-tint px-3 py-[7px] font-medium text-[12.5px] text-positive-deep">
+											Stripe connected
+										</span>
+									) : (
+										<button
+											type="button"
+											onClick={() => setConnecting(p)}
+											className="cursor-pointer rounded-[8px] border border-stripe bg-stripe px-3 py-[7px] font-semibold text-[12.5px] text-white"
+										>
+											Connect Stripe
+										</button>
+									)}
+								</div>
+							</Card>
+						);
+					})}
 				</div>
 			) : (
 				<Card>
 					<EmptyState>No products yet. Create one to start issuing keys.</EmptyState>
 				</Card>
 			)}
-			{showNew ? <NewProductDialog onClose={() => setShowNew(false)} /> : null}
+			{showNew ? <ProductDialog onClose={() => setShowNew(false)} /> : null}
+			{editing ? <ProductDialog product={editing} onClose={() => setEditing(null)} /> : null}
+			{connecting ? (
+				<ConnectStripeDialog product={connecting} onClose={() => setConnecting(null)} />
+			) : null}
 		</div>
 	);
 }
 
-function NewProductDialog({ onClose }: { onClose: () => void }) {
+function ProductDialog({ product, onClose }: { product?: Product; onClose: () => void }) {
 	const [form, setForm] = useState({
-		slug: '',
-		name: '',
-		key_prefix: '',
-		email_from: '',
-		activation_model: 'node_locked',
+		slug: product?.slug ?? '',
+		name: product?.name ?? '',
+		key_prefix: product?.keyPrefix ?? '',
+		email_from: product?.emailFrom ?? '',
+		activation_model: product?.activationModel ?? 'node_locked',
+		activation_limit: String(product?.activationLimit ?? 3),
 	});
 	const create = useCreateProduct();
+	const update = useUpdateProduct();
+	const pending = create.isPending || update.isPending;
+	const error = (create.error ?? update.error) as Error | null;
 	const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
+	function submit() {
+		const shared = {
+			name: form.name,
+			email_from: form.email_from,
+			activation_model: form.activation_model,
+			activation_limit: Number(form.activation_limit) || 3,
+		};
+		if (product) {
+			update.mutate({ slug: product.slug, ...shared }, { onSuccess: onClose });
+		} else {
+			create.mutate(
+				{ ...shared, slug: form.slug, key_prefix: form.key_prefix },
+				{ onSuccess: onClose },
+			);
+		}
+	}
+
 	return (
-		<Dialog title="New product" lede="Onboarding a product is an admin action." onClose={onClose}>
+		<Dialog
+			title={product ? 'Edit product' : 'New product'}
+			lede="Slug, prefix, seat model and email identity."
+			onClose={onClose}
+			footer={
+				<>
+					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+					<AccentButton onClick={submit}>
+						{pending ? 'Saving…' : product ? 'Save product' : 'Create product'}
+					</AccentButton>
+				</>
+			}
+		>
 			<Field label="Name">
 				<input
 					value={form.name}
@@ -79,49 +177,120 @@ function NewProductDialog({ onClose }: { onClose: () => void }) {
 					className={inputClass}
 				/>
 			</Field>
-			<Field label="Slug">
-				<input
-					value={form.slug}
-					onChange={(e) => set('slug', e.target.value)}
-					placeholder="clementine"
-					className={inputClass}
-				/>
-			</Field>
-			<Field label="Key prefix">
-				<input
-					value={form.key_prefix}
-					onChange={(e) => set('key_prefix', e.target.value.toUpperCase())}
-					placeholder="CLEM"
-					className={inputClass}
-				/>
-			</Field>
+			<div className="grid grid-cols-2 gap-3">
+				<Field label="Slug">
+					<input
+						value={form.slug}
+						onChange={(e) => set('slug', e.target.value)}
+						placeholder="clementine"
+						disabled={Boolean(product)}
+						className={`${inputClass} font-mono disabled:text-ink-faint`}
+					/>
+				</Field>
+				<Field label="Key prefix">
+					<input
+						value={form.key_prefix}
+						onChange={(e) => set('key_prefix', e.target.value.toUpperCase())}
+						placeholder="CLEM"
+						disabled={Boolean(product)}
+						className={`${inputClass} font-mono disabled:text-ink-faint`}
+					/>
+				</Field>
+			</div>
+			<div className="grid grid-cols-2 gap-3">
+				<Field label="Seat model">
+					<select
+						value={form.activation_model}
+						onChange={(e) => set('activation_model', e.target.value)}
+						className={inputClass}
+					>
+						<option value="node_locked">Node-locked</option>
+						<option value="floating">Floating</option>
+					</select>
+				</Field>
+				<Field label="Activation limit">
+					<input
+						value={form.activation_limit}
+						onChange={(e) => set('activation_limit', e.target.value.replace(/\D/g, ''))}
+						placeholder="3"
+						className={inputClass}
+					/>
+				</Field>
+			</div>
 			<Field label="Email from">
 				<input
 					value={form.email_from}
 					onChange={(e) => set('email_from', e.target.value)}
-					placeholder="Clementine <r@clementine.email>"
+					placeholder="receipts@clementine.email"
 					className={inputClass}
 				/>
 			</Field>
-			<Field label="Activation model">
-				<select
-					value={form.activation_model}
-					onChange={(e) => set('activation_model', e.target.value)}
-					className={inputClass}
-				>
-					<option value="node_locked">Node-locked</option>
-					<option value="floating">Floating</option>
-				</select>
+			{error ? <p className="m-0 text-[12.5px] text-danger">{error.message}</p> : null}
+		</Dialog>
+	);
+}
+
+function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: () => void }) {
+	const [webhookUrl, setWebhookUrl] = useState('');
+	const [lifetime, setLifetime] = useState('4900');
+	const [yearly, setYearly] = useState('2900');
+	const connect = useConnectStripe();
+
+	return (
+		<Dialog
+			title="Connect Stripe"
+			lede={`${product.name} · one call wires prices and the webhook, no dashboard wiring`}
+			onClose={onClose}
+			footer={
+				<>
+					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+					<button
+						type="button"
+						onClick={() =>
+							connect.mutate(
+								{
+									slug: product.slug,
+									webhook_url: webhookUrl,
+									lifetime_amount: Number(lifetime),
+									yearly_amount: Number(yearly),
+								},
+								{ onSuccess: onClose },
+							)
+						}
+						className="cursor-pointer rounded-[9px] border border-stripe bg-stripe px-4 py-[9px] font-semibold text-[13px] text-white"
+					>
+						{connect.isPending ? 'Connecting…' : 'Connect Stripe'}
+					</button>
+				</>
+			}
+		>
+			<Field label="Webhook URL">
+				<input
+					value={webhookUrl}
+					onChange={(e) => setWebhookUrl(e.target.value)}
+					placeholder="https://keys.example.com/v1/stripe/webhook"
+					className={`${inputClass} font-mono text-[13px]`}
+				/>
 			</Field>
-			{create.error ? (
-				<p className="mb-2 text-[12.5px] text-danger">{(create.error as Error).message}</p>
-			) : null}
-			<div className="mt-2 flex justify-end gap-2.5">
-				<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
-				<AccentButton onClick={() => create.mutate(form, { onSuccess: onClose })}>
-					{create.isPending ? 'Creating…' : 'Create product'}
-				</AccentButton>
+			<div className="grid grid-cols-2 gap-3">
+				<Field label="Price · lifetime (cents)">
+					<input
+						value={lifetime}
+						onChange={(e) => setLifetime(e.target.value.replace(/\D/g, ''))}
+						className={`${inputClass} font-mono`}
+					/>
+				</Field>
+				<Field label="Price · yearly (cents)">
+					<input
+						value={yearly}
+						onChange={(e) => setYearly(e.target.value.replace(/\D/g, ''))}
+						className={`${inputClass} font-mono`}
+					/>
+				</Field>
 			</div>
+			{connect.error ? (
+				<p className="m-0 text-[12.5px] text-danger">{(connect.error as Error).message}</p>
+			) : null}
 		</Dialog>
 	);
 }

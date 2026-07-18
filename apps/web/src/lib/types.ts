@@ -9,6 +9,10 @@ export interface Product {
 	activationLimit: number;
 	activationModel: 'node_locked' | 'floating';
 	emailFrom: string;
+	stripePriceLifetime: string | null;
+	stripePriceYearly: string | null;
+	keysTotal: number;
+	keysActive: number;
 }
 
 export interface LicenseRow {
@@ -24,6 +28,7 @@ export interface LicenseRow {
 	email_sent_at: string | null;
 	live_seats: number;
 	activation_limit: number;
+	customer_email: string | null;
 }
 
 export interface AuditEntry {

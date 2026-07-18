@@ -10,7 +10,7 @@ const PROVIDERS = [
 
 export function WebhooksPage() {
 	return (
-		<div className="cbin max-w-[1180px]">
+		<div className="cbin">
 			<div className="mb-4 flex gap-4">
 				{PROVIDERS.map((p) => (
 					<Card key={p.name} className="flex-1 px-[18px] py-4">

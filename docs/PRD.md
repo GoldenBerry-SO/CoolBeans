@@ -172,12 +172,13 @@ licensing service to third parties.
 ## 9. Public client API (frozen contract)
 
 All JSON. The key is the credential; the product is resolved from the key's prefix. Every response body
-carries `ok`. This is a superset-compatible drop-in for the Lemon Squeezy License API.
+carries `ok` — except the `/v1/licenses/*` compatibility routes below, which reproduce the Lemon
+Squeezy shape exactly and therefore omit it. This is a superset-compatible drop-in for the Lemon Squeezy License API.
 
 The `license` object is identical wherever it appears:
 
 ```json
-{ "key": "CLEM-A2B3-C4D5-E6F7", "status": "active", "tier": "yearly",
+{ "key": "CLEM-A2B3-C4D5-E6F7-H8JK", "status": "active", "tier": "yearly",
   "product": "clementine", "expires_at": "2027-07-17T09:14:00Z" }
 ```
 
@@ -237,14 +238,19 @@ Request: `{ "license_key": "CLEM-…", "instance_id": "<uuid>" }`
 
 - Renews a floating lease (`lease_expires_at`), keeping the seat held. An expired lease frees the seat
   automatically, so a crashed client never permanently consumes a floating seat. `200 { "ok": true,
-  "lease_expires_at": "…" }`. Node-locked (non-floating) products can ignore this endpoint.
+  "lease_expires_at": "…" }`. `lease_expires_at` is `null` when nothing was renewed — an unknown or
+  deactivated instance, a lapsed lease with no free seat, or a node-locked product — so a client can
+  tell "lease held" from "re-activate before continuing". Node-locked products can ignore this endpoint.
 
 ### Usage endpoints (metering)
 
 - `POST /v1/usage/increment` — `{ "license_key": "…", "instance_id": "…", "metric": "api_calls",
   "delta": 1 }` → `{ "ok": true, "current": 9847, "limit": 10000, "resets_at": "…" }`. Enforced
   atomically (§12); over-limit returns `429 quota_exceeded` with the same body shape.
-- `GET /v1/usage` — current counters for a key.
+- `GET /v1/usage?license_key=…` — current counters for a key:
+  `{ "ok": true, "usage": [ { "metric": "api_calls", "current": 9847, "limit": 10000,
+  "resets_at": "…" } ] }`. `limit` is `null` when the metric has no cap. Same `404 unknown_key` /
+  `422 invalid_key` resolution as the other endpoints.
 
 ### Lemon Squeezy compatibility routes (validated 2026-07-17)
 
@@ -356,7 +362,9 @@ onboarding" specifics: `beans stripe connect` (CLI) or an admin action creates t
 prices (one-time lifetime, recurring yearly) and **auto-registers the webhook endpoint via the Stripe
 API**, then stores the signing secret — no manual dashboard wiring.
 
-`POST /v1/stripe/webhook` handles exactly:
+`POST /v1/stripe/webhook` handles the table below, plus
+`checkout.session.async_payment_succeeded` and `charge.dispute.created` per the integration notes
+that follow:
 
 | Event | Action |
 | --- | --- |
@@ -439,7 +447,8 @@ Bearer-token authed (global admin token, or per-product token). **CLI-first (`be
 dashboard.**
 
 - Create/update a product (slug, prefix, activation limit + model, email-from, Stripe/PayPal price ids,
-  metrics).
+  metrics). Slug and key prefix are immutable after creation — issued keys embed the prefix and clients
+  match on the slug. Prefixes are 2–12 letters, matching the public format gate.
 - Issue a key manually for a product + email (reissues, comps, testing).
 - Disable a key (`reason=manual`) and re-enable one.
 - List a product's keys; list a key's activations & usage; look up a purchase by email or provider id.
@@ -499,7 +508,7 @@ CREATE TABLE licenses (
   status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','disabled')),
   expires_at      TEXT,                          -- yearly: period_end (advisory); trial: enforced; lifetime: NULL
   disabled_at     TEXT,
-  disabled_reason TEXT,                          -- 'refund' | 'subscription_canceled' | 'manual' | 'trial_expired'
+  disabled_reason TEXT,                          -- 'refund' | 'subscription_canceled' | 'manual' | 'trial_expired' | 'chargeback'
   email_sent_at   TEXT,                          -- NULL lets webhook retries resend the key
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );

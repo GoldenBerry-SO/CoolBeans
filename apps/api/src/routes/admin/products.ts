@@ -18,9 +18,12 @@ const createProductBody = z.object({
 		.min(1)
 		.regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, numbers, and dashes'),
 	name: z.string().min(1),
+	// Bounds match the public format gate (looksLikeKey, PRD §10): a prefix outside
+	// 2–12 letters would issue keys every public endpoint rejects as invalid_key.
 	key_prefix: z
 		.string()
-		.min(1)
+		.min(2, 'key_prefix must be 2-12 letters')
+		.max(12, 'key_prefix must be 2-12 letters')
 		.regex(/^[A-Za-z]+$/, 'key_prefix must be letters only'),
 	activation_limit: z.number().int().positive().optional(),
 	activation_model: z.enum(['node_locked', 'floating']).optional(),

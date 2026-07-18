@@ -29,7 +29,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
 }
 
 /** Per-product identity color, matched to the design's palette by stable index. */
-const PRODUCT_COLORS = ['#e8863a', '#7b6cf0', '#2fa89b', '#d4a017', '#c05299', '#3e7cb1'];
+const PRODUCT_COLORS = ['#e8863a', '#7b6cf0', '#2fa89b', '#d4a017', '#c05299', '#b5651d'];
 
 export function productColor(index: number): string {
 	return PRODUCT_COLORS[index % PRODUCT_COLORS.length];

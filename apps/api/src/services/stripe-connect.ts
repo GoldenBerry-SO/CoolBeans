@@ -8,6 +8,7 @@ import type { AppDeps } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
 
 export interface ConnectArgs {
+	actor?: string;
 	product: Product;
 	webhookUrl: string;
 	lifetimeAmount: number;
@@ -42,7 +43,7 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 		.run();
 	writeAudit(deps.db, {
 		action: 'product.stripe_connected',
-		actor: 'admin',
+		actor: args.actor ?? 'admin',
 		productId: args.product.id,
 		detail: { lifetime: result.lifetimePriceId, yearly: result.yearlyPriceId },
 	});

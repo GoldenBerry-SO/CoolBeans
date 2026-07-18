@@ -13,7 +13,7 @@ export function hashProductToken(token: string): string {
 }
 
 /** Generate and store a fresh token for a product, returning the plaintext ONCE. */
-export function issueProductToken(deps: AppDeps, product: Product): string {
+export function issueProductToken(deps: AppDeps, product: Product, actor = 'admin'): string {
 	const token = `cbp_${randomBytes(24).toString('hex')}`;
 	deps.db
 		.update(products)
@@ -22,7 +22,7 @@ export function issueProductToken(deps: AppDeps, product: Product): string {
 		.run();
 	writeAudit(deps.db, {
 		action: 'product.token_rotated',
-		actor: 'admin',
+		actor,
 		productId: product.id,
 	});
 	return token;

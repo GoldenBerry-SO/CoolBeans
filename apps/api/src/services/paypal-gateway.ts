@@ -53,6 +53,14 @@ export function createPayPalGateway(config: PayPalConfig): PayPalGateway {
 	};
 	return {
 		async verify(input) {
+			// §19: reject an unverifiable body before it reaches the verification call,
+			// so malformed JSON is a clean rejection rather than a thrown 500.
+			let webhookEvent: unknown;
+			try {
+				webhookEvent = JSON.parse(input.body);
+			} catch {
+				return false;
+			}
 			const token = await accessToken(cfg);
 			const res = await fetch(`${cfg.baseUrl}/v1/notifications/verify-webhook-signature`, {
 				method: 'POST',
@@ -64,7 +72,7 @@ export function createPayPalGateway(config: PayPalConfig): PayPalGateway {
 					auth_algo: input.authAlgo,
 					transmission_sig: input.transmissionSig,
 					webhook_id: input.webhookId,
-					webhook_event: JSON.parse(input.body),
+					webhook_event: webhookEvent,
 				}),
 			});
 			if (!res.ok) return false;

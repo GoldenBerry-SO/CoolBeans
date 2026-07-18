@@ -12,14 +12,45 @@ async function process(
 	signature: string | undefined,
 	secret: string | undefined,
 ): Promise<{ status: number; body: unknown }> {
-	if (!deps.stripe) return { status: 503, body: { ok: false, error: 'stripe_not_configured' } };
-	if (!secret) return { status: 503, body: { ok: false, error: 'stripe_not_configured' } };
-	if (!signature) return { status: 400, body: { ok: false, error: 'missing_signature' } };
+	if (!deps.stripe)
+		return {
+			status: 503,
+			body: {
+				ok: false,
+				error: 'stripe_not_configured',
+				message: 'Stripe is not configured on this server.',
+			},
+		};
+	if (!secret)
+		return {
+			status: 503,
+			body: {
+				ok: false,
+				error: 'stripe_not_configured',
+				message: 'Stripe is not configured on this server.',
+			},
+		};
+	if (!signature)
+		return {
+			status: 400,
+			body: {
+				ok: false,
+				error: 'missing_signature',
+				message: 'A Stripe signature header is required.',
+			},
+		};
 	let event: ReturnType<NonNullable<AppDeps['stripe']>['constructEvent']>;
 	try {
 		event = deps.stripe.constructEvent(rawBody, signature, secret);
 	} catch {
-		return { status: 400, body: { ok: false, error: 'invalid_signature' } };
+		return {
+			status: 400,
+			body: {
+				ok: false,
+				error: 'invalid_signature',
+				message: 'The Stripe signature did not verify.',
+			},
+		};
 	}
 	// A thrown error here (e.g. email send failure) becomes a 500 so Stripe retries.
 	await handleStripeEvent(deps, event);

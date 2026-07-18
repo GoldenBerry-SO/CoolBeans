@@ -13,13 +13,17 @@ pnpm workspaces + Turborepo. `apps/api` is the Hono service; `apps/web` is the R
 admin dashboard (Vite + TanStack Router, mirroring pleasehold's `apps/web`; in production the API
 serves its built assets); `apps/worker` is the BullMQ background-job processor (mirroring
 pleasehold's worker); `packages/db` holds the Drizzle schema and storage adapter; `packages/auth`
-wraps Better Auth for dashboard admin sessions; `packages/email` holds the React Email templates
+wraps Better Auth (unused for now — see below); `packages/email` holds the React Email templates
 and the Resend/SMTP sender seam; `packages/logger` is our own small structured logger (zero deps);
 `packages/cli` is the `beans` admin CLI; `packages/sdk` is the publishable client. Conventions carried over wholesale:
 
 - **Biome** (tabs, single quotes, lineWidth 100), per-package `lint`/`format`/`typecheck`/`test`
   scripts, husky pre-commit running `pnpm run check`.
 - **ABOUTME headers**: every source file opens with two `// ABOUTME:` comment lines.
+- **Console auth is a bespoke email magic-code flow**, not Better Auth: six digits, hashed at rest,
+  10-minute TTL, 5-attempt cap, first sign-in bootstraps the account. It is simpler than a full auth
+  library for a passwordless admin surface and matches the approved design. `packages/auth` stays in
+  the tree for the day we need SSO or organizations.
 - **Response envelope**: success bodies carry `ok: true` (the PRD §9 contract shape); errors are
   `{ "ok": false, "error": "<code>", "message": "<human sentence>" }`. One shared helper, uniform
   everywhere.

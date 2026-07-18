@@ -47,7 +47,9 @@ export function CustomersPage() {
 		<div className="cbin">
 			<Card className="overflow-hidden">
 				<TableHead gridClass={GRID} columns={['Customer', 'Products', 'Keys', 'Status', 'Since']} />
-				{customers.length ? (
+				{products.isLoading || licenses.isLoading ? (
+					<EmptyState>Loading…</EmptyState>
+				) : customers.length ? (
 					customers.map((c) => {
 						const label = c.allDisabled ? 'Disabled' : c.anyDisabled ? 'Mixed' : 'Active';
 						const pillClass =

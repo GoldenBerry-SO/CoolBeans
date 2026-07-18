@@ -131,6 +131,14 @@ function ScopeSwitcher() {
 				<span className="flex-none text-[11px] text-ink-faint">▾</span>
 			</button>
 			{open ? (
+				<button
+					type="button"
+					aria-label="Close product switcher"
+					className="fixed inset-0 z-10 cursor-default border-none bg-transparent"
+					onClick={() => setOpen(false)}
+				/>
+			) : null}
+			{open ? (
 				<div className="cbin absolute top-[52px] right-4 left-4 z-20 rounded-[11px] border border-ink/12 bg-card p-[5px] shadow-[0_12px_34px_rgba(26,26,25,0.16)]">
 					{items.map((i) => (
 						<button

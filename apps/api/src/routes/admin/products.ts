@@ -136,13 +136,17 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			if (row.status === 'active') entry.active += 1;
 			counts.set(row.productId, entry);
 		}
+		// List rows go to the console/CLI; secrets stay server-side (the :slug endpoint
+		// still returns the full row for operational tooling).
 		return c.json({
 			ok: true,
-			products: listProducts(deps.db).map((p) => ({
-				...p,
-				keysTotal: counts.get(p.id)?.total ?? 0,
-				keysActive: counts.get(p.id)?.active ?? 0,
-			})),
+			products: listProducts(deps.db).map(
+				({ stripeWebhookSecret: _secret, productTokenHash: _hash, ...p }) => ({
+					...p,
+					keysTotal: counts.get(p.id)?.total ?? 0,
+					keysActive: counts.get(p.id)?.active ?? 0,
+				}),
+			),
 		});
 	});
 

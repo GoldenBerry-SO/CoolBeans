@@ -50,7 +50,9 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 			footer={
 				<>
 					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
-					<AccentButton onClick={() => email && issue.mutate({ product: slug, email, tier })}>
+					<AccentButton
+						onClick={() => email && slug && issue.mutate({ product: slug, email, tier })}
+					>
 						{issue.isPending ? 'Issuing…' : 'Issue key'}
 					</AccentButton>
 				</>

@@ -29,6 +29,8 @@ export function LicensesPage() {
 		.filter((s) => effective === 'all' || s === effective);
 	const licenses = useLicensesAcross(slugs, filter);
 	const setStatus = useSetLicenseStatus();
+	const loading = products.isLoading || licenses.isLoading;
+	const rows = [...licenses.data].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
 	const byProduct = new Map(
 		(products.data ?? []).map((p, i) => [p.slug, { name: p.name, color: productColor(i) }]),
@@ -69,7 +71,7 @@ export function LicensesPage() {
 					</select>
 				) : null}
 				<div className="flex-1" />
-				<div className="font-mono text-[12.5px] text-ink-faint">{licenses.data.length} keys</div>
+				<div className="font-mono text-[12.5px] text-ink-faint">{rows.length} keys</div>
 			</div>
 
 			<Card className="overflow-hidden">
@@ -77,10 +79,10 @@ export function LicensesPage() {
 					gridClass={GRID}
 					columns={['License key', 'Product', 'Tier', 'Status', 'Seats', 'Customer', '']}
 				/>
-				{licenses.isLoading ? (
+				{loading ? (
 					<EmptyState>Loading…</EmptyState>
-				) : licenses.data.length ? (
-					licenses.data.map((l) => {
+				) : rows.length ? (
+					rows.map((l) => {
 						const p = byProduct.get(l.product);
 						return (
 							<div

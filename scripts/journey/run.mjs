@@ -6,7 +6,7 @@ import { CoolBeans } from '@coolbeans/sdk';
 import { sendStripeWebhook } from './stripe-sign.mjs';
 
 const API = process.env.JOURNEY_API ?? 'http://localhost:3098';
-const MAIL = process.env.JOURNEY_MAIL ?? 'http://localhost:8025/api/v1';
+const MAIL = process.env.JOURNEY_MAIL ?? 'http://localhost:12112';
 const STRIPE_MOCK = process.env.JOURNEY_STRIPE_MOCK ?? 'http://localhost:12111';
 const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_journey';
 const ADMIN = {
@@ -41,9 +41,12 @@ const seedStripe = (seed) =>
 		body: JSON.stringify(seed),
 	});
 
-const inbox = async () => (await (await fetch(`${MAIL}/messages`)).json()).messages;
-const readMessage = async (id) => (await fetch(`${MAIL}/message/${id}`)).json();
-const clearInbox = () => fetch(`${MAIL}/messages`, { method: 'DELETE' });
+/**
+ * Emails are read back from the Resend stand-in — the provider we actually ship (§14) —
+ * so these journeys exercise the Resend adapter rather than the self-host SMTP one.
+ */
+const inbox = async () => (await (await fetch(`${MAIL}/__sent`)).json()).messages;
+const clearInbox = () => fetch(`${MAIL}/__sent`, { method: 'DELETE' });
 
 /** In-memory device storage: each CoolBeans instance is one machine. */
 const machine = () => {
@@ -114,20 +117,15 @@ let licenseKey;
 await step(
 	'the buyer receives an email carrying the key, download link and product identity',
 	async () => {
-		const messages = await inbox();
-		const mine = messages.filter((m) => m.To.some((t) => t.Address === 'buyer@example.com'));
+		const mine = (await inbox()).filter((m) => m.to === 'buyer@example.com');
 		assert.equal(mine.length, 1, `expected exactly one key email, got ${mine.length}`);
 
-		const message = await readMessage(mine[0].ID);
-		assert.equal(
-			message.From.Address,
-			'receipts@clementine.email',
-			'sent as the product, not as us',
-		);
-		assert.match(message.Subject, /Clementine/);
-		const found = message.HTML.match(KEY_RE);
+		const message = mine[0];
+		assert.match(message.from, /receipts@clementine\.email/, 'sent as the product, not as us');
+		assert.match(message.subject, /Clementine/);
+		const found = message.html.match(KEY_RE);
 		assert.ok(found, 'the email must contain the license key');
-		assert.ok(message.HTML.includes('clementine.email/download'), 'and the download link');
+		assert.ok(message.html.includes('clementine.email/download'), 'and the download link');
 		licenseKey = found[0];
 	},
 )();
@@ -346,8 +344,7 @@ await step('key recovery emails the keys and never returns them in the response'
 	await new Promise((r) => setTimeout(r, 1500));
 	const messages = await inbox();
 	assert.equal(messages.length, 1, 'the buyer gets their keys by email');
-	const message = await readMessage(messages[0].ID);
-	assert.match(message.HTML, KEY_RE);
+	assert.match(messages[0].html, KEY_RE);
 })();
 
 await step('an unknown address gets the identical answer and no email', async () => {

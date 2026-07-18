@@ -27,3 +27,34 @@ describe('STRIPE_API_BASE (journey tests, stripe-mock)', () => {
 		expect(config.stripe?.apiBase).toBeUndefined();
 	});
 });
+
+describe('RESEND_BASE_URL (journey tests, mirrors STRIPE_API_BASE)', () => {
+	it('is carried into config so the Resend client can be pointed at a local mock', () => {
+		const config = loadConfig({
+			...base,
+			EMAIL_PROVIDER: 'resend',
+			RESEND_API_KEY: 're_test_123',
+			RESEND_BASE_URL: 'http://localhost:12112',
+		} as NodeJS.ProcessEnv);
+		assertResend(config);
+		expect(config.email.baseUrl).toBe('http://localhost:12112');
+	});
+
+	it('is absent by default, so production always talks to the real Resend', () => {
+		const config = loadConfig({
+			...base,
+			EMAIL_PROVIDER: 'resend',
+			RESEND_API_KEY: 're_test_123',
+		} as NodeJS.ProcessEnv);
+		assertResend(config);
+		expect(config.email.baseUrl).toBeUndefined();
+	});
+});
+
+function assertResend(config: ReturnType<typeof loadConfig>): asserts config is ReturnType<
+	typeof loadConfig
+> & {
+	email: { provider: 'resend'; apiKey: string; baseUrl?: string };
+} {
+	expect(config.email?.provider).toBe('resend');
+}

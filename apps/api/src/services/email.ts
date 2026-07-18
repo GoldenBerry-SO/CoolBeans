@@ -23,7 +23,9 @@ export function resolveEmailSender(config: Config, logger: Logger): EmailSender 
 		logger.info('Email disabled: no EMAIL_PROVIDER configured');
 		return undefined;
 	}
-	if (config.email.provider === 'resend') return createResendSender(config.email.apiKey);
+	if (config.email.provider === 'resend') {
+		return createResendSender(config.email.apiKey, config.email.baseUrl);
+	}
 	return createSmtpSender({
 		host: config.email.host,
 		port: config.email.port,

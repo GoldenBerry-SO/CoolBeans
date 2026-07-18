@@ -5,9 +5,12 @@ import nodemailer from 'nodemailer';
 import { Resend } from 'resend';
 import type { EmailSender, OutgoingEmail } from './index.js';
 
-/** Resend adapter — a single API call, works anywhere fetch does. */
-export function createResendSender(apiKey: string): EmailSender {
-	const resend = new Resend(apiKey);
+/**
+ * Resend adapter — a single API call, works anywhere fetch does. baseUrl points the
+ * client at a local stand-in for journey tests; unset in production.
+ */
+export function createResendSender(apiKey: string, baseUrl?: string): EmailSender {
+	const resend = new Resend(apiKey, baseUrl ? { baseUrl } : undefined);
 	return {
 		async send(email: OutgoingEmail): Promise<void> {
 			const { error } = await resend.emails.send({

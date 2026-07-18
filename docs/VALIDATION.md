@@ -1,7 +1,7 @@
 # Cool Beans — PRD validation
 
 A section-by-section check of the v1 build against `docs/PRD.md`. Every row names where the behavior
-lives and how it's verified. Test totals at time of writing: **216 automated tests** (183 API, 16 SDK,
+lives and how it's verified. Test totals at time of writing: **220 automated tests** (187 API, 16 SDK,
 4 DB, 4 web, 4 logger, 3 CLI, 2 email) plus a **Docker Compose smoke test** that boots the stack and
 issues a first key.
 
@@ -152,8 +152,9 @@ One command stands up the whole world and tears it down again:
 ./scripts/journey/journey.sh
 ```
 
-It runs Mailpit (a real SMTP sink, web UI on :8025), a small Stripe stand-in, and the API
-wired to both, then walks four journeys with hard assertions:
+It runs stand-ins for **both** paid dependencies — Stripe and Resend — and the API wired
+to them, then walks four journeys with hard assertions. No containers and nothing to
+install: `node` is enough.
 
 1. **Buy a lifetime licence and run it on three machines.** A signature-valid
    `checkout.session.completed` issues the key; the buyer's email is asserted to carry the
@@ -175,6 +176,10 @@ Two deliberate choices worth knowing:
 - **Real signatures, not a bypass.** `stripe-sign.mjs` builds the same HMAC Stripe does, so
   the server's real `constructEvent` verifies it. A suite that skipped signatures would not
   have caught connect blanking a stored webhook secret.
+- **Resend is mocked, not SMTP.** Resend is the production sender (§14), so the journeys
+  drive that adapter. An earlier version used a Mailpit container over SMTP, which proved
+  the self-host path worked while leaving the path we actually ship untested.
+  `RESEND_BASE_URL` points the client at the stand-in and is unset in production.
 - **Our own Stripe stand-in, not `stripe-mock`.** The official mock serves canned fixtures,
   so a session's line items would never carry the price id our product is configured with —
   which is exactly the assertion that catches issuance resolving to the wrong product.

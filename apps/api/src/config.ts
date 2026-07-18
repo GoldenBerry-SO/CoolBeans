@@ -20,7 +20,15 @@ export interface Config {
 	};
 	paypal?: { clientId: string; secret: string; webhookId: string };
 	email?:
-		| { provider: 'resend'; apiKey: string }
+		| {
+				provider: 'resend';
+				apiKey: string;
+				/**
+				 * Point the Resend client somewhere other than api.resend.com. Only for
+				 * local journey tests against a mock — unset in production.
+				 */
+				baseUrl?: string;
+		  }
 		| { provider: 'smtp'; host: string; port: number; user?: string; pass?: string };
 	redisUrl?: string;
 	/** Where the console/portal are served from, for building portal/billing links. */
@@ -96,7 +104,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		};
 	}
 	if (env.EMAIL_PROVIDER === 'resend' && env.RESEND_API_KEY) {
-		config.email = { provider: 'resend', apiKey: env.RESEND_API_KEY };
+		config.email = {
+			provider: 'resend',
+			apiKey: env.RESEND_API_KEY,
+			...(env.RESEND_BASE_URL ? { baseUrl: env.RESEND_BASE_URL } : {}),
+		};
 	} else if (env.EMAIL_PROVIDER === 'smtp' && env.SMTP_HOST) {
 		config.email = {
 			provider: 'smtp',

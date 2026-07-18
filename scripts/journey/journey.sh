@@ -8,8 +8,7 @@ ROOT=$(pwd)
 WORK=$(mktemp -d)
 API_PORT=${API_PORT:-3098}
 MOCK_PORT=${MOCK_PORT:-12111}
-MAIL_SMTP=${MAIL_SMTP:-1025}
-MAIL_HTTP=${MAIL_HTTP:-8025}
+RESEND_PORT=${RESEND_PORT:-12112}
 
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
@@ -29,13 +28,13 @@ wait_for() {
 # port. A leftover server then answers the next run's health check while the new one
 # fails to bind — which looked like a flaky assertion rather than a stale process.
 free_ports() {
-  fuser -k "$API_PORT/tcp" "$MOCK_PORT/tcp" >/dev/null 2>&1 || true
+  fuser -k "$API_PORT/tcp" "$MOCK_PORT/tcp" "$RESEND_PORT/tcp" >/dev/null 2>&1 || true
 }
 cleanup() {
   [ -n "${API_PID:-}" ] && kill "$API_PID" 2>/dev/null || true
   [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true
+  [ -n "${RESEND_PID:-}" ] && kill "$RESEND_PID" 2>/dev/null || true
   free_ports
-  docker rm -f cb-journey-mail >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -44,10 +43,13 @@ trap cleanup EXIT
 free_ports
 sleep 1
 
-say "Mail sink (Mailpit): SMTP :$MAIL_SMTP, web UI http://localhost:$MAIL_HTTP"
-docker rm -f cb-journey-mail >/dev/null 2>&1 || true
-docker run -d --name cb-journey-mail -p "$MAIL_SMTP:1025" -p "$MAIL_HTTP:8025" axllent/mailpit >/dev/null
-wait_for "Mailpit" "http://localhost:$MAIL_HTTP/api/v1/messages"
+say "Resend stand-in on :$RESEND_PORT"
+# Resend is the production sender (§14), so the journeys exercise THAT adapter rather
+# than the self-host SMTP one. Mocking it the same way as Stripe also means no
+# container and nothing to install.
+PORT=$RESEND_PORT node scripts/journey/resend-mock.mjs >"$WORK/resend.log" 2>&1 &
+RESEND_PID=$!
+wait_for "Resend stand-in" "http://localhost:$RESEND_PORT/__sent"
 
 say "Stripe stand-in on :$MOCK_PORT"
 # The official stripe-mock serves canned fixtures, so a session's line items would never
@@ -57,7 +59,7 @@ PORT=$MOCK_PORT node scripts/journey/stripe-mock.mjs >"$WORK/mock.log" 2>&1 &
 MOCK_PID=$!
 wait_for "Stripe stand-in" "http://localhost:$MOCK_PORT/v1/checkout/sessions/none/line_items"
 
-say "API on :$API_PORT (real SMTP delivery, real signature verification)"
+say "API on :$API_PORT (Resend adapter, real signature verification)"
 LOG_MAGIC_CODES=true \
 PORT=$API_PORT \
 ADMIN_TOKEN=journey-admin-token-0123456789 \
@@ -66,7 +68,8 @@ DATABASE_URL="$WORK/journey.sqlite" \
 STRIPE_SECRET_KEY=sk_test_journey \
 STRIPE_API_BASE="http://localhost:$MOCK_PORT" \
 STRIPE_WEBHOOK_SECRET=whsec_journey \
-EMAIL_PROVIDER=smtp SMTP_HOST=localhost SMTP_PORT=$MAIL_SMTP \
+EMAIL_PROVIDER=resend RESEND_API_KEY=re_journey_key \
+RESEND_BASE_URL="http://localhost:$RESEND_PORT" \
 PUBLIC_URL="http://localhost:$API_PORT" \
   npx tsx apps/api/src/node.ts >"$WORK/api.log" 2>&1 &
 API_PID=$!
@@ -78,7 +81,7 @@ wait_for "API" "http://localhost:$API_PORT/health" || {
 
 say "Journeys"
 if JOURNEY_API="http://localhost:$API_PORT" \
-   JOURNEY_MAIL="http://localhost:$MAIL_HTTP/api/v1" \
+   JOURNEY_MAIL="http://localhost:$RESEND_PORT" \
    JOURNEY_STRIPE_MOCK="http://localhost:$MOCK_PORT" \
    STRIPE_WEBHOOK_SECRET=whsec_journey \
    ADMIN_TOKEN=journey-admin-token-0123456789 \

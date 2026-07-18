@@ -247,6 +247,12 @@ Request: `{ "license_key": "CLEM-…", "instance_id": "<uuid>" }`
 - `POST /v1/usage/increment` — `{ "license_key": "…", "instance_id": "…", "metric": "api_calls",
   "delta": 1 }` → `{ "ok": true, "current": 9847, "limit": 10000, "resets_at": "…" }`. Enforced
   atomically (§12); over-limit returns `429 quota_exceeded` with the same body shape.
+  Metering is bound to a live seat: `instance_id` must name an activation on this license that has
+  not been deactivated, otherwise `404 unknown_instance`. Deactivating a device therefore stops its
+  metering along with its seat, and unknown and deactivated instances answer identically so the
+  endpoint never confirms an instance id once existed. A lapsed floating lease is deliberately not
+  rejected — that seat frees itself without telling the client, and failing a running client's
+  metering mid-session would be a surprise; re-activation is the client's signal.
 - `GET /v1/usage?license_key=…` — current counters for a key:
   `{ "ok": true, "usage": [ { "metric": "api_calls", "current": 9847, "limit": 10000,
   "resets_at": "…" } ] }`. `limit` is `null` when the metric has no cap. Same `404 unknown_key` /

@@ -28,6 +28,16 @@ export const unknownKey = () =>
 	new ApiError(404, 'unknown_key', 'We could not find that license key.');
 export const licenseDisabled = () =>
 	new ApiError(403, 'license_disabled', 'This license has been disabled.');
+/**
+ * Metering is bound to a live seat (§9). Unknown and deactivated instances answer
+ * identically so the endpoint never confirms that some instance id once existed.
+ */
+export const unknownInstance = () =>
+	new ApiError(
+		404,
+		'unknown_instance',
+		'That instance is not activated on this license. Activate the device before recording usage.',
+	);
 export const activationLimitReached = (limit: number) =>
 	new ApiError(
 		409,

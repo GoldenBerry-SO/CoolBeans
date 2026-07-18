@@ -37,12 +37,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		throw new ConfigError('SIGNING_KEY_SECRET must be at least 16 characters');
 	}
 
+	const port = Number(env.PORT ?? 3000);
+	if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+		throw new ConfigError(`PORT must be a valid port number, got "${env.PORT}"`);
+	}
+	const tokenTtlDays = Number(env.OFFLINE_TOKEN_TTL_DAYS ?? 7);
+	if (!Number.isFinite(tokenTtlDays) || tokenTtlDays <= 0) {
+		throw new ConfigError(
+			`OFFLINE_TOKEN_TTL_DAYS must be a positive number, got "${env.OFFLINE_TOKEN_TTL_DAYS}"`,
+		);
+	}
+
 	const config: Config = {
 		databaseUrl: env.DATABASE_URL ?? './data/coolbeans.sqlite',
-		port: Number(env.PORT ?? 3000),
+		port,
 		adminToken,
 		signingKeySecret,
-		tokenTtlDays: Number(env.OFFLINE_TOKEN_TTL_DAYS ?? 7),
+		tokenTtlDays,
 		publicUrl: env.PUBLIC_URL ?? `http://localhost:${env.PORT ?? 3000}`,
 		redisUrl: env.REDIS_URL,
 	};

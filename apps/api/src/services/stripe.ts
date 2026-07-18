@@ -2,7 +2,7 @@
 // ABOUTME: Idempotent two ways; event ids are recorded only on full success so email retries work.
 
 import type { AppDeps } from '../deps.js';
-import { getProductBySlug } from '../store/products.js';
+import { getProductBySlug, getProductByStripePrice } from '../store/products.js';
 import { disableLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
@@ -32,19 +32,32 @@ export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Prom
 
 	switch (event.type) {
 		case 'checkout.session.completed': {
+			// Resolve the product: metadata.product / client_reference_id first, then the
+			// session's line-item price id against the product price columns (PRD §13).
 			const metadata = (obj.metadata as Record<string, unknown> | undefined) ?? {};
-			const slug = typeof metadata.product === 'string' ? metadata.product : null;
-			if (!slug) {
-				deps.logger.error('Stripe checkout missing metadata.product', { event: event.id });
-				break;
+			const slug =
+				(typeof metadata.product === 'string' ? metadata.product : null) ??
+				str(obj, 'client_reference_id');
+			let product = slug ? getProductBySlug(deps.db, slug) : undefined;
+			let priceTier: 'lifetime' | 'yearly' | null = null;
+			if (!product && deps.stripe) {
+				const sessionId = str(obj, 'id');
+				const priceIds = sessionId ? await deps.stripe.sessionPriceIds(sessionId) : [];
+				for (const priceId of priceIds) {
+					const match = getProductByStripePrice(deps.db, priceId);
+					if (match) {
+						product = match.product;
+						priceTier = match.tier;
+						break;
+					}
+				}
 			}
-			const product = getProductBySlug(deps.db, slug);
 			if (!product) {
-				deps.logger.error('Stripe checkout for unknown product', { slug, event: event.id });
+				deps.logger.error('Stripe checkout resolves to no product', { slug, event: event.id });
 				break;
 			}
 			const mode = str(obj, 'mode');
-			const tier = mode === 'subscription' ? 'yearly' : 'lifetime';
+			const tier = priceTier ?? (mode === 'subscription' ? 'yearly' : 'lifetime');
 			const subscriptionId = str(obj, 'subscription');
 			let expiresAt: string | null = null;
 			if (tier === 'yearly' && subscriptionId && deps.stripe) {

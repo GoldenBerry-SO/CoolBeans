@@ -127,6 +127,9 @@ export class CoolBeans {
 			token?: string;
 		};
 		if (data.token) this.storage.setItem(TOKEN_KEY, data.token);
+		// The definitive revocation signal: drop the cached token so verifyOffline
+		// stops unlocking. (404/network stay inconclusive and leave the cache alone.)
+		if (data.license?.status === 'disabled') this.storage.setItem(TOKEN_KEY, '');
 		return {
 			valid: !!data.valid,
 			license: data.license ?? null,

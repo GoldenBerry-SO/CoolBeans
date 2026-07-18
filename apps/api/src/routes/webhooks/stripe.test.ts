@@ -179,6 +179,36 @@ describe('Stripe webhook', () => {
 		expect(keys[0]?.disabled_reason).toBe('chargeback');
 	});
 
+	it('resolves the product from the line-item price id when metadata is absent', async () => {
+		// Wire the product's price ids (as beans stripe connect would), then send a
+		// checkout with no metadata — e.g. a dashboard Payment Link.
+		await h.app.request('/admin/products/clementine', {
+			method: 'PATCH',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				stripe_price_lifetime: 'price_life_1',
+				stripe_price_yearly: 'price_year_1',
+			}),
+		});
+		h.deps.stripe = fakeStripeGateway({}, { cs_nometa: ['price_life_1'] });
+		const r = await webhook(h.app, {
+			id: 'evt_nometa',
+			type: 'checkout.session.completed',
+			data: {
+				object: {
+					id: 'cs_nometa',
+					mode: 'payment',
+					customer_email: 'link@example.com',
+					metadata: {},
+				},
+			},
+		});
+		expect(r.status).toBe(200);
+		const keys = await keysForEmail(h, 'link@example.com');
+		expect(keys).toHaveLength(1);
+		expect(keys[0]?.tier).toBe('lifetime');
+	});
+
 	it('retries only the email when the first send fails (email_sent_at stays NULL)', async () => {
 		h.email.failNext = true;
 		const first = await webhook(h.app, checkout());

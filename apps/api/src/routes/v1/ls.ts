@@ -1,7 +1,6 @@
 // ABOUTME: Lemon Squeezy parity alias routes (PRD §9) — POST /v1/licenses/activate|validate|deactivate.
 // ABOUTME: Emulates the LS License API response shape exactly so a base-URL swap migrates clients.
 
-import { randomUUID } from 'node:crypto';
 import type { License, Product } from '@coolbeans/db';
 import { activations } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
@@ -97,8 +96,19 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 	app.post('/v1/licenses/validate', async (c) => {
 		const params = await readParams(c);
 		try {
-			const instanceId = params.instance_id ?? randomUUID();
-			const result = validate(deps, params.license_key ?? '', instanceId);
+			// LS semantics: without an instance_id, validate the key alone (instance: null).
+			if (!params.instance_id) {
+				const resolved = resolveLicense(deps, params.license_key ?? '');
+				const valid = resolved.status === 'active';
+				return c.json({
+					valid,
+					error: valid ? null : 'This license key has been disabled.',
+					license_key: lsLicenseKey(deps, resolved.license, resolved.product),
+					instance: null,
+					meta: lsMeta(resolved.product, null),
+				});
+			}
+			const result = validate(deps, params.license_key ?? '', params.instance_id);
 			return c.json({
 				valid: result.valid,
 				error: result.valid ? null : 'License is not valid for this instance.',

@@ -82,6 +82,18 @@ describe('LS parity: /v1/licenses/*', () => {
 		expect((r.body.license_key as { status: string }).status).toBe('expired');
 	});
 
+	it('validate without instance_id reports key validity alone (LS semantics)', async () => {
+		const active = await ls('/v1/licenses/validate', { license_key: key });
+		expect(active.status).toBe(200);
+		expect(active.body.valid).toBe(true);
+		expect(active.body.instance).toBeNull();
+
+		await h.app.request(`/admin/keys/${key}/disable`, { method: 'POST', headers: h.adminHeaders });
+		const disabled = await ls('/v1/licenses/validate', { license_key: key });
+		expect(disabled.body.valid).toBe(false);
+		expect((disabled.body.license_key as { status: string }).status).toBe('disabled');
+	});
+
 	it('unknown key returns 404 (never disabled)', async () => {
 		const r = await ls('/v1/licenses/activate', {
 			license_key: 'CLEM-Z9Y8-X7W6-V5T4-S3R2',

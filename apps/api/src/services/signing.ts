@@ -76,7 +76,12 @@ export function mintToken(
 	const key = getOrCreateActiveKey(deps, args.product.id);
 	const privateKey = decryptSecret(key.privateKey, deps.config.signingKeySecret);
 	const iat = Math.floor(nowDate(deps).getTime() / 1000);
-	const exp = iat + deps.config.tokenTtlDays * 86_400;
+	let exp = iat + deps.config.tokenTtlDays * 86_400;
+	// Trial expiry is enforced (§9): the offline token must not outlive the trial itself,
+	// or verifyOffline would keep unlocking after the trial ends.
+	if (args.license.tier === 'trial' && args.license.expiresAt) {
+		exp = Math.min(exp, Math.floor(new Date(args.license.expiresAt).getTime() / 1000));
+	}
 	const payload: TokenPayload = {
 		key: args.displayKey,
 		status: 'active',

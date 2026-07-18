@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "tsx watch src/node.ts",
-		"build": "tsup src/node.ts src/runtime.ts --format esm --dts",
+		"build": "tsup src/node.ts src/runtime.ts --format esm && tsc -p tsconfig.build.json",
 		"lint": "biome check src/",
 		"format": "biome format --write src/",
 		"typecheck": "tsc --noEmit",
@@ -34,7 +34,7 @@
 		"@types/node": "^24.0.0",
 		"tsup": "^8.5.1",
 		"tsx": "^4.23.1",
-		"typescript": "~5.9.3",
+		"typescript": "~7.0.2",
 		"vitest": "^4.1.10"
 	},
 	"exports": {

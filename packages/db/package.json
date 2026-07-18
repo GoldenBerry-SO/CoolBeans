@@ -17,7 +17,7 @@
 	],
 	"scripts": {
 		"dev": "tsup src/index.ts --format esm --watch --no-dts",
-		"build": "tsup src/index.ts --format esm --dts",
+		"build": "tsup src/index.ts --format esm && tsc -p tsconfig.build.json",
 		"lint": "biome check src/",
 		"format": "biome format --write src/",
 		"typecheck": "tsc --noEmit",
@@ -35,7 +35,7 @@
 		"better-sqlite3": "^12.11.1",
 		"drizzle-kit": "^0.31.10",
 		"tsup": "^8.5.1",
-		"typescript": "~5.9.3",
+		"typescript": "~7.0.2",
 		"vitest": "^4.1.10"
 	},
 	"peerDependencies": {

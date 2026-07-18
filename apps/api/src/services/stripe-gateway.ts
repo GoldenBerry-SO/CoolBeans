@@ -159,6 +159,8 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 					'checkout.session.async_payment_succeeded',
 					'charge.refunded',
 					'charge.dispute.created',
+					// Without the close event a dispute we win never gives access back.
+					'charge.dispute.closed',
 					'customer.subscription.updated',
 					'customer.subscription.deleted',
 				],

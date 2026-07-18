@@ -38,6 +38,40 @@ export function disableLicense(
 	return { ...args.license, status: 'disabled', disabledAt, disabledReason: args.reason };
 }
 
+/**
+ * What made a payment provider take access back. A trigger only undoes the disable it
+ * caused, so a recovered subscription cannot resurrect a refunded key.
+ */
+export type RestoreTrigger = 'subscription_recovered' | 'dispute_won';
+
+/**
+ * May this trigger restore a license disabled for this reason?
+ *
+ * Pure so the policy can be tested directly: getting it wrong either locks out a paying
+ * customer or hands access back to someone who took their money back, and neither shows
+ * up in a happy-path test.
+ */
+export function restoreAllowed(reason: string | null, trigger: RestoreTrigger): boolean {
+	if (reason === 'subscription_canceled') return trigger === 'subscription_recovered';
+	if (reason === 'chargeback') return trigger === 'dispute_won';
+	// A refund, a manual admin disable, and an expired trial are all decisions no
+	// payment event should quietly reverse.
+	return false;
+}
+
+/**
+ * Undo a disable when the cause of it goes away — a subscriber pays up, or we win a
+ * dispute. Does nothing unless the recorded reason matches the trigger.
+ */
+export function restoreLicense(
+	deps: AppDeps,
+	args: { license: License; trigger: RestoreTrigger; actor: string },
+): License {
+	if (args.license.status !== 'disabled') return args.license;
+	if (!restoreAllowed(args.license.disabledReason, args.trigger)) return args.license;
+	return enableLicense(deps, { license: args.license, actor: args.actor });
+}
+
 /** Re-enable a disabled license, clearing the disabled fields. */
 export function enableLicense(deps: AppDeps, args: { license: License; actor: string }): License {
 	const { db } = deps;

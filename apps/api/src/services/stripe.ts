@@ -5,7 +5,7 @@ import type { License, Product } from '@coolbeans/db';
 import type { AppDeps } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
 import { getProductBySlug, getProductByStripePrice } from '../store/products.js';
-import { disableLicense } from './lifecycle.js';
+import { disableLicense, restoreLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
 	claimEventStatus,
@@ -14,6 +14,7 @@ import {
 	findLicenseByProviderId,
 	releaseEvent,
 } from './payments.js';
+import { applyPendingRevocation, recordPendingRevocation } from './reconcile.js';
 import type { StripeEvent } from './stripe-gateway.js';
 
 function str(obj: Record<string, unknown>, key: string): string | null {
@@ -89,6 +90,21 @@ export async function ensureLicenseForSession(
 			slug,
 			event: actorEventId,
 		});
+		// We answer 200 so Stripe stops retrying (a retry cannot fix a price id that
+		// points nowhere), which means a log line is the only trace unless we write one.
+		// Someone paid: record it so the money can be reconciled against a real person.
+		writeAudit(deps.db, {
+			action: 'payment.unfulfilled',
+			actor: `stripe:${actorEventId}`,
+			detail: {
+				reason: 'no_product_for_checkout',
+				checkout_id: str(obj, 'id'),
+				email: str(obj, 'customer_email'),
+				amount_total: num(obj, 'amount_total'),
+				currency: str(obj, 'currency'),
+				slug,
+			},
+		});
 		return null;
 	}
 
@@ -117,7 +133,13 @@ export async function ensureLicenseForSession(
 		amountTotal: num(obj, 'amount_total'),
 		currency: str(obj, 'currency'),
 	});
-	return { license: result.license, product };
+	// A refund or dispute for this payment may have arrived before the checkout did.
+	const license = applyPendingRevocation(deps, {
+		license: result.license,
+		provider: 'stripe',
+		references: [str(obj, 'payment_intent'), subscriptionId],
+	});
+	return { license, product };
 }
 
 /**
@@ -159,22 +181,35 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			const refunded = num(obj, 'amount_refunded') ?? 0;
 			const captured = num(obj, 'amount_captured') ?? num(obj, 'amount') ?? 0;
 			const found = await findLicenseForCharge(deps, obj);
-			if (found) {
-				if (captured > 0 && refunded >= captured) {
-					disableLicense(deps, {
-						license: found.license,
+			const isFull = captured > 0 && refunded >= captured;
+			if (!found) {
+				// The checkout has not landed yet. Remember it so issuance revokes on
+				// arrival instead of handing out a key for refunded money.
+				const reference = str(obj, 'payment_intent') ?? resolveSubscriptionFromCharge(obj);
+				if (isFull && reference) {
+					recordPendingRevocation(deps, {
+						provider: 'stripe',
+						reference,
 						reason: 'refund',
-						actor: `stripe:${event.id}`,
-					});
-				} else {
-					writeAudit(deps.db, {
-						action: 'license.partial_refund',
-						actor: `stripe:${event.id}`,
-						productId: found.license.productId,
-						licenseId: found.license.id,
-						detail: { refunded, captured },
+						eventId: event.id,
 					});
 				}
+				break;
+			}
+			if (isFull) {
+				disableLicense(deps, {
+					license: found.license,
+					reason: 'refund',
+					actor: `stripe:${event.id}`,
+				});
+			} else {
+				writeAudit(deps.db, {
+					action: 'license.partial_refund',
+					actor: `stripe:${event.id}`,
+					productId: found.license.productId,
+					licenseId: found.license.id,
+					detail: { refunded, captured },
+				});
 			}
 			break;
 		}
@@ -194,6 +229,17 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 					});
 				}
 			} else {
+				// The subscription is paying again (active/trialing). If we disabled it for
+				// falling behind, give access back: Stripe says they are current, so
+				// refusing them means billing someone we will not serve.
+				const found = findLicenseByProviderId(deps, subId);
+				if (found) {
+					restoreLicense(deps, {
+						license: found.license,
+						trigger: 'subscription_recovered',
+						actor: `stripe:${event.id}`,
+					});
+				}
 				const periodEnd = subscriptionPeriodEnd(obj);
 				if (periodEnd) advanceSubscriptionExpiry(deps, subId, periodEnd, `stripe:${event.id}`);
 			}
@@ -217,20 +263,37 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 
 		case 'charge.dispute.created': {
 			// A lost dispute never fires charge.refunded, so revoke on the dispute itself.
-			const paymentIntent = str(obj, 'payment_intent');
-			let found = paymentIntent ? findLicenseByProviderId(deps, paymentIntent) : undefined;
-			if (!found) {
-				// A renewal-invoice dispute carries a payment intent we never stored:
-				// resolve charge -> invoice -> subscription via the gateway.
-				const chargeId = str(obj, 'charge');
-				const subId =
-					chargeId && deps.stripe ? await deps.stripe.subscriptionForCharge(chargeId) : null;
-				found = subId ? findLicenseByProviderId(deps, subId) : undefined;
-			}
+			const found = await findLicenseForDispute(deps, obj);
 			if (found) {
 				disableLicense(deps, {
 					license: found.license,
 					reason: 'chargeback',
+					actor: `stripe:${event.id}`,
+				});
+			} else {
+				// Same out-of-order problem as a refund: revoke on arrival.
+				const reference = str(obj, 'payment_intent');
+				if (reference) {
+					recordPendingRevocation(deps, {
+						provider: 'stripe',
+						reference,
+						reason: 'chargeback',
+						eventId: event.id,
+					});
+				}
+			}
+			break;
+		}
+
+		case 'charge.dispute.closed': {
+			// 'won' means the bank sided with us and we keep the money, so the customer
+			// paid after all and must get their access back. 'lost' stays revoked.
+			if (str(obj, 'status') !== 'won') break;
+			const found = await findLicenseForDispute(deps, obj);
+			if (found) {
+				restoreLicense(deps, {
+					license: found.license,
+					trigger: 'dispute_won',
 					actor: `stripe:${event.id}`,
 				});
 			}
@@ -241,6 +304,19 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// Unhandled event types are acknowledged and recorded so Stripe stops retrying.
 			break;
 	}
+}
+
+/**
+ * Find the license a dispute refers to. A renewal-invoice dispute carries a payment intent
+ * we never stored, so fall back to charge -> invoice -> subscription via the gateway.
+ */
+async function findLicenseForDispute(deps: AppDeps, dispute: Record<string, unknown>) {
+	const paymentIntent = str(dispute, 'payment_intent');
+	const direct = paymentIntent ? findLicenseByProviderId(deps, paymentIntent) : undefined;
+	if (direct) return direct;
+	const chargeId = str(dispute, 'charge');
+	const subId = chargeId && deps.stripe ? await deps.stripe.subscriptionForCharge(chargeId) : null;
+	return subId ? findLicenseByProviderId(deps, subId) : undefined;
 }
 
 /** Find the license behind a refunded charge: payment intent, then invoice -> subscription. */

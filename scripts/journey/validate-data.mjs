@@ -111,6 +111,18 @@ check('a finished webhook releases its claim, so a retry is a clean no-op', () =
 	assert.equal(stuck.length, 0, `done events still holding a claim: ${JSON.stringify(stuck)}`);
 });
 
+check('no parked revocation is left unapplied once its payment exists', () => {
+	// A refund that arrived early parks itself here. If the matching purchase then shows
+	// up and the row is still unconsumed, someone is holding a key we already refunded.
+	const stranded = all(`
+		SELECT r.reference FROM pending_revocations r
+		JOIN purchases p
+			ON p.provider_payment_id = r.reference OR p.provider_subscription_id = r.reference
+		WHERE r.consumed_at IS NULL
+	`);
+	assert.equal(stranded.length, 0, `unapplied revocations: ${JSON.stringify(stranded)}`);
+});
+
 check('every issued licence is attributed in the audit log', () => {
 	const issued = one("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'license.issued'");
 	const licences = one('SELECT COUNT(*) AS n FROM licenses');

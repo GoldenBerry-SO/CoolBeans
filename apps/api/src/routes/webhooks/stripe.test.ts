@@ -251,6 +251,144 @@ describe('Stripe webhook', () => {
 		expect(keys[0]?.disabled_reason).toBe('refund');
 	});
 
+	// A disable has to be reversible when the thing that caused it goes away, or we bill
+	// people we refuse to serve. Each of these was reproduced against a live server.
+
+	it('restores access when a subscriber pays up after a failed payment', async () => {
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		await webhook(h.app, {
+			id: 'evt_unpaid',
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_1', status: 'unpaid' } },
+		});
+		expect((await keysForEmail(h, 'buyer@example.com'))[0]?.status).toBe('disabled');
+
+		// They update their card; Stripe recovers the subscription.
+		const next = '2028-07-17T00:00:00.000Z';
+		await webhook(h.app, {
+			id: 'evt_recovered',
+			type: 'customer.subscription.updated',
+			data: {
+				object: {
+					id: 'sub_1',
+					status: 'active',
+					items: { data: [{ current_period_end: Math.floor(new Date(next).getTime() / 1000) }] },
+				},
+			},
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status).toBe('active');
+		expect(keys[0]?.disabled_reason).toBeNull();
+		expect(keys[0]?.expires_at).toBe(next);
+	});
+
+	it('does not resurrect a refunded key just because the subscription reports active', async () => {
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		await webhook(h.app, {
+			id: 'evt_refund',
+			type: 'charge.refunded',
+			data: {
+				object: {
+					id: 'ch_1',
+					payment_intent: 'pi_1',
+					amount_captured: 4900,
+					amount_refunded: 4900,
+				},
+			},
+		});
+		await webhook(h.app, {
+			id: 'evt_still_active',
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_1', status: 'active' } },
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status).toBe('disabled');
+		expect(keys[0]?.disabled_reason).toBe('refund');
+	});
+
+	it('restores access when we win the dispute (the money stays with us)', async () => {
+		await webhook(h.app, checkout());
+		await webhook(h.app, {
+			id: 'evt_dispute',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_dispute_won',
+			type: 'charge.dispute.closed',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1', status: 'won' } },
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status).toBe('active');
+		expect(keys[0]?.disabled_reason).toBeNull();
+	});
+
+	it('keeps access revoked when we lose the dispute', async () => {
+		await webhook(h.app, checkout());
+		await webhook(h.app, {
+			id: 'evt_dispute',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_dispute_lost',
+			type: 'charge.dispute.closed',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1', status: 'lost' } },
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status).toBe('disabled');
+		expect(keys[0]?.disabled_reason).toBe('chargeback');
+	});
+
+	it('does not issue an active key when the refund arrived before the purchase', async () => {
+		// Stripe does not guarantee delivery order. A refund naming a charge we have not
+		// seen yet must not be forgotten, or the checkout behind it issues a free licence.
+		await webhook(h.app, {
+			id: 'evt_early_refund',
+			type: 'charge.refunded',
+			data: {
+				object: {
+					id: 'ch_1',
+					payment_intent: 'pi_1',
+					amount_captured: 4900,
+					amount_refunded: 4900,
+				},
+			},
+		});
+		await webhook(h.app, checkout());
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys).toHaveLength(1);
+		expect(keys[0]?.status).toBe('disabled');
+		expect(keys[0]?.disabled_reason).toBe('refund');
+	});
+
+	it('records a payment it cannot fulfil instead of silently dropping it', async () => {
+		// A price nobody configured (someone edited it in Stripe). We answer 200 so Stripe
+		// stops retrying, so the only way anyone finds out is a durable record.
+		h.deps.stripe = fakeStripeGateway({}, { cs_unknown: ['price_not_configured'] });
+		const r = await webhook(h.app, {
+			id: 'evt_unresolved',
+			type: 'checkout.session.completed',
+			data: {
+				object: {
+					id: 'cs_unknown',
+					mode: 'payment',
+					payment_status: 'paid',
+					customer_email: 'lost@example.com',
+					metadata: {},
+				},
+			},
+		});
+		expect(r.status).toBe(200);
+		expect(await keysForEmail(h, 'lost@example.com')).toHaveLength(0);
+
+		const audit = await h.app.request('/admin/audit', { headers: h.adminHeaders });
+		const rows = ((await audit.json()) as { audit: Array<Record<string, unknown>> }).audit;
+		const unfulfilled = rows.find((e) => e.action === 'payment.unfulfilled');
+		expect(unfulfilled, 'an unfulfillable payment must leave a trail').toBeDefined();
+		expect(JSON.stringify(unfulfilled?.detail)).toContain('cs_unknown');
+	});
+
 	it('retries only the email when the first send fails (email_sent_at stays NULL)', async () => {
 		h.email.failNext = true;
 		const first = await webhook(h.app, checkout());

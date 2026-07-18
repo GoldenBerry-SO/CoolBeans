@@ -132,5 +132,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		};
 	}
 
+	// An instance with no sender still issues keys and still answers 200 to Stripe. It
+	// looks healthy while every buyer waits for an email that was never sent, and key
+	// recovery cannot rescue them either, because that needs a sender too.
+	if (!config.email && env.NODE_ENV === 'production') {
+		throw new ConfigError(
+			'No EMAIL_PROVIDER configured: this instance would issue license keys and never deliver them. Set EMAIL_PROVIDER to resend or smtp.',
+		);
+	}
+
 	return config;
 }

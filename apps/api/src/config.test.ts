@@ -75,3 +75,28 @@ describe('EMAIL_PROVIDER=console (development)', () => {
 		).toThrow(/console/i);
 	});
 });
+
+describe('no email sender at all', () => {
+	it('is fine in development, where most work does not involve email', () => {
+		const config = loadConfig(base);
+		expect(config.email).toBeUndefined();
+	});
+
+	it('refuses to start in production: issuing keys nobody receives looks healthy', () => {
+		// Without a sender the buyer gets no key email AND recovery cannot help them,
+		// so the instance takes money and delivers nothing while reporting success.
+		expect(() => loadConfig({ ...base, NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toThrow(
+			/EMAIL_PROVIDER/,
+		);
+	});
+
+	it('starts in production once a real sender is configured', () => {
+		const config = loadConfig({
+			...base,
+			NODE_ENV: 'production',
+			EMAIL_PROVIDER: 'resend',
+			RESEND_API_KEY: 're_live_123',
+		} as NodeJS.ProcessEnv);
+		expect(config.email?.provider).toBe('resend');
+	});
+});

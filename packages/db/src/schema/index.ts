@@ -7,6 +7,7 @@ export * from './events.js';
 export * from './licenses.js';
 export * from './metrics.js';
 export * from './outbox.js';
+export * from './pending-revocations.js';
 export * from './products.js';
 export * from './purchases.js';
 export * from './signing-keys.js';

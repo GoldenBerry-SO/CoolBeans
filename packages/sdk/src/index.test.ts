@@ -26,6 +26,21 @@ async function signToken(payload: TokenPayload, kid: string) {
 	return { token: `${header}.${body}.${base64url(sig)}`, publicKeys: { [kid]: base64url(rawPub) } };
 }
 
+function payloadOf(overrides: Partial<TokenPayload> = {}): TokenPayload {
+	const now = Math.floor(Date.now() / 1000);
+	return {
+		key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
+		status: 'active',
+		tier: 'yearly',
+		product: 'clementine',
+		expires_at: null,
+		instance_id: 'i',
+		iat: now,
+		exp: now + 3600,
+		...overrides,
+	};
+}
+
 function memStorage() {
 	const m = new Map<string, string>();
 	return {
@@ -35,7 +50,7 @@ function memStorage() {
 }
 
 function cannedFetch(handler: (path: string, body: unknown) => { status: number; json: unknown }) {
-	return async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+	return (async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
 		const path = new URL(String(url)).pathname;
 		const body = init?.body ? JSON.parse(String(init.body)) : undefined;
 		const { status, json } = handler(path, body);
@@ -43,7 +58,7 @@ function cannedFetch(handler: (path: string, body: unknown) => { status: number;
 			status,
 			headers: { 'Content-Type': 'application/json' },
 		});
-	};
+	}) as typeof fetch;
 }
 
 describe('CoolBeans SDK', () => {
@@ -99,20 +114,7 @@ describe('CoolBeans SDK', () => {
 
 	it('drops the cached offline token when the server says disabled', async () => {
 		const storage = memStorage();
-		const now = Math.floor(Date.now() / 1000);
-		const cached = await signToken(
-			{
-				key: 'CLEM',
-				status: 'active',
-				tier: 'yearly',
-				product: 'clementine',
-				expires_at: null,
-				instance_id: 'i',
-				iat: now,
-				exp: now + 3600,
-			},
-			'1',
-		);
+		const cached = await signToken(payloadOf(), '1');
 		storage.setItem('coolbeans.token', cached.token);
 		const cb = new CoolBeans({
 			product: 'clementine',
@@ -137,57 +139,59 @@ describe('CoolBeans SDK', () => {
 		expect(await cb.verifyOffline()).toBe(true); // cached token still unlocks pre-verify
 		const res = await cb.verify('CLEM-A2B3-C4D5-E6F7-G8H9', { instanceId: 'i' });
 		expect(res.valid).toBe(false);
+		expect(res.inconclusive).toBe(false);
 		// The definitive disabled signal cleared the cache: offline no longer unlocks.
 		expect(await cb.verifyOffline()).toBe(false);
 	});
 
-	it('verify never hard-locks on a network error (offline:true)', async () => {
+	it('verify never hard-locks on a network error (offline + inconclusive)', async () => {
 		const cb = new CoolBeans({
 			product: 'clementine',
 			storage: memStorage(),
-			fetch: async () => {
+			fetch: (async () => {
 				throw new Error('network down');
-			},
+			}) as unknown as typeof fetch,
 		});
 		const res = await cb.verify('CLEM-A2B3-C4D5-E6F7-G8H9', { instanceId: 'inst_1' });
 		expect(res.offline).toBe(true);
-		expect(res.valid).toBe(false);
+		expect(res.inconclusive).toBe(true);
 	});
 
-	it('verifyOffline reports valid within TTL, grace past TTL, expired when disabled', async () => {
+	it('404/5xx are inconclusive and leave the cached token alone', async () => {
 		const storage = memStorage();
-		const now = Math.floor(Date.now() / 1000);
-		const active = await signToken(
-			{
-				key: 'CLEM',
-				status: 'active',
-				tier: 'yearly',
-				product: 'clementine',
-				expires_at: null,
-				instance_id: 'i',
-				iat: now,
-				exp: now + 3600,
-			},
-			'1',
-		);
-		const cb = new CoolBeans({ product: 'clementine', storage, publicKeys: active.publicKeys });
-		storage.setItem('coolbeans.token', active.token);
-		expect(await cb.offlineState()).toBe('valid');
+		const cached = await signToken(payloadOf(), '1');
+		storage.setItem('coolbeans.token', cached.token);
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage,
+			publicKeys: cached.publicKeys,
+			fetch: cannedFetch(() => ({
+				status: 404,
+				json: { ok: false, error: 'unknown_key', message: 'nope' },
+			})),
+		});
+		const res = await cb.verify('CLEM-A2B3-C4D5-E6F7-G8H9', { instanceId: 'i' });
+		expect(res.inconclusive).toBe(true);
+		expect(res.offline).toBe(false);
+		// Inconclusive is never a lockout: the cached token still unlocks offline.
 		expect(await cb.verifyOffline()).toBe(true);
+	});
 
-		const expired = await signToken(
-			{
-				key: 'CLEM',
-				status: 'active',
-				tier: 'yearly',
-				product: 'clementine',
-				expires_at: null,
-				instance_id: 'i',
-				iat: now - 7200,
-				exp: now - 3600,
-			},
-			'2',
+	it('verifyOffline reports valid within TTL, grace past TTL for non-trial', async () => {
+		const now = Math.floor(Date.now() / 1000);
+		const active = await signToken(payloadOf(), '1');
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			publicKeys: active.publicKeys,
+		});
+		(cb as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
+			'coolbeans.token',
+			active.token,
 		);
+		expect(await cb.offlineState()).toBe('valid');
+
+		const expired = await signToken(payloadOf({ iat: now - 7200, exp: now - 3600 }), '2');
 		const cb2 = new CoolBeans({
 			product: 'clementine',
 			storage: memStorage(),
@@ -198,29 +202,106 @@ describe('CoolBeans SDK', () => {
 			expired.token,
 		);
 		expect(await cb2.offlineState()).toBe('grace');
+	});
 
-		const disabled = await signToken(
-			{
-				key: 'CLEM',
-				status: 'disabled',
-				tier: 'yearly',
-				product: 'clementine',
-				expires_at: null,
-				instance_id: 'i',
-				iat: now,
-				exp: now + 3600,
-			},
-			'3',
-		);
-		const cb3 = new CoolBeans({
+	it('offline treats a disabled-status token as expired', async () => {
+		const disabled = await signToken(payloadOf({ status: 'disabled' }), '3');
+		const cb = new CoolBeans({
 			product: 'clementine',
 			storage: memStorage(),
 			publicKeys: disabled.publicKeys,
 		});
-		(cb3 as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
+		(cb as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
 			'coolbeans.token',
 			disabled.token,
 		);
-		expect(await cb3.offlineState()).toBe('expired');
+		expect(await cb.offlineState()).toBe('expired');
+	});
+
+	it('a trial token past its trial expiry gets NO grace (enforced expiry)', async () => {
+		const now = Math.floor(Date.now() / 1000);
+		const trial = await signToken(
+			payloadOf({
+				tier: 'trial',
+				expires_at: new Date((now - 60) * 1000).toISOString(),
+				iat: now - 7200,
+				exp: now - 60,
+			}),
+			'1',
+		);
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			publicKeys: trial.publicKeys,
+		});
+		(cb as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
+			'coolbeans.token',
+			trial.token,
+		);
+		expect(await cb.offlineState()).toBe('expired');
+		expect(await cb.verifyOffline()).toBe(false);
+	});
+
+	it('fails closed offline when no trusted keys exist (no unsigned fallback)', async () => {
+		const forged = await signToken(payloadOf(), '1');
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			// No embedded keys, and key fetch fails (offline).
+			fetch: (async () => {
+				throw new Error('offline');
+			}) as unknown as typeof fetch,
+		});
+		(cb as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
+			'coolbeans.token',
+			forged.token,
+		);
+		expect(await cb.offlineState()).toBe('expired');
+	});
+
+	it('rejects a token bound to a different instance (copied-token defense)', async () => {
+		const stolen = await signToken(payloadOf({ instance_id: 'someone-elses-device' }), '1');
+		const storage = memStorage();
+		storage.setItem('coolbeans.token', stolen.token);
+		storage.setItem('coolbeans.instance_id', 'my-device');
+		const cb = new CoolBeans({ product: 'clementine', storage, publicKeys: stolen.publicKeys });
+		expect(await cb.offlineState()).toBe('expired');
+	});
+
+	it('rejects a token for a different product', async () => {
+		const other = await signToken(payloadOf({ product: 'hexis' }), '1');
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			publicKeys: other.publicKeys,
+		});
+		(cb as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
+			'coolbeans.token',
+			other.token,
+		);
+		expect(await cb.offlineState()).toBe('expired');
+	});
+
+	it('refetches the keyset once on unknown kid (rotation)', async () => {
+		const rotated = await signToken(payloadOf(), 'new-kid');
+		const storage = memStorage();
+		storage.setItem('coolbeans.token', rotated.token);
+		let fetches = 0;
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage,
+			fetch: cannedFetch((path) => {
+				if (path === '/v1/pubkey') {
+					fetches++;
+					return { status: 200, json: { ok: true, keys: rotated.publicKeys } };
+				}
+				return { status: 404, json: { ok: false } };
+			}),
+		});
+		expect(await cb.offlineState()).toBe('valid');
+		expect(fetches).toBe(1);
+		// Keys persisted: a second check needs no further fetch.
+		expect(await cb.offlineState()).toBe('valid');
+		expect(fetches).toBe(1);
 	});
 });

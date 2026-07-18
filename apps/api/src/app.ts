@@ -3,9 +3,11 @@
 
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { Scalar } from '@scalar/hono-api-reference';
+import { cors } from 'hono/cors';
 import { logger as requestLogger } from 'hono/logger';
 import type { AppDeps } from './deps.js';
 import { toErrorResponse } from './http/errors.js';
+import { redactLogLine } from './http/redact.js';
 import { registerAdminRoutes } from './routes/admin/index.js';
 import { registerPublicRoutes } from './routes/v1/index.js';
 import { registerWebhookRoutes } from './routes/webhooks/index.js';
@@ -13,7 +15,11 @@ import { registerWebhookRoutes } from './routes/webhooks/index.js';
 export function createApp(deps: AppDeps) {
 	const app = new OpenAPIHono();
 
-	app.use(requestLogger((message) => deps.logger.info(message)));
+	// The key is the credential (§19): redact it before any request line hits the logs.
+	app.use(requestLogger((message) => deps.logger.info(redactLogLine(message))));
+
+	// The public client API is called from browsers and desktop webviews (§11).
+	app.use('/v1/*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'OPTIONS'] }));
 
 	app.onError((err, c) => {
 		if (!(err instanceof Error) || err.name !== 'ApiError') {

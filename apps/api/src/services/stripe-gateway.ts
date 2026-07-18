@@ -22,10 +22,16 @@ export interface StripeGateway {
 	subscriptionPeriodEnd(subscriptionId: string): Promise<string | null>;
 	/** Price ids of a checkout session's line items (for product resolution, PRD §13). */
 	sessionPriceIds(sessionId: string): Promise<string[]>;
+	/** The subscription id an invoice belongs to (Basil: parent.subscription_details). */
+	invoiceSubscription(invoiceId: string): Promise<string | null>;
+	/** The subscription id behind a charge, via its invoice. Null for one-time charges. */
+	subscriptionForCharge(chargeId: string): Promise<string | null>;
+	/** Retrieve a checkout session (success-page ensure path, PRD §13/§14). */
+	getCheckoutSession(sessionId: string): Promise<Record<string, unknown> | null>;
 	/**
 	 * Onboard a product: create the two prices (one-time lifetime + recurring yearly) and
-	 * register the webhook endpoint, returning the ids and signing secret. Idempotent by
-	 * product/lookup so re-running does not duplicate prices or endpoints (PRD §13).
+	 * register the webhook endpoint, returning the ids and signing secret. Idempotent:
+	 * re-running finds the existing Stripe product/webhook by the coolbeans_slug metadata.
 	 */
 	connect(args: {
 		productName: string;
@@ -35,6 +41,17 @@ export interface StripeGateway {
 		yearlyAmount: number;
 		currency: string;
 	}): Promise<StripeConnectResult>;
+}
+
+/** Basil moved invoice.subscription under parent.subscription_details. Support both. */
+function invoiceSubId(invoice: {
+	subscription?: unknown;
+	parent?: { subscription_details?: { subscription?: unknown } };
+}): string | null {
+	const direct = invoice.subscription;
+	if (typeof direct === 'string') return direct;
+	const nested = invoice.parent?.subscription_details?.subscription;
+	return typeof nested === 'string' ? nested : null;
 }
 
 /** Production gateway backed by the official stripe SDK. */
@@ -55,26 +72,65 @@ export function createStripeGateway(secretKey: string): StripeGateway {
 			const items = await stripe.checkout.sessions.listLineItems(sessionId, { limit: 10 });
 			return items.data.map((li) => li.price?.id).filter((id): id is string => !!id);
 		},
+		async invoiceSubscription(invoiceId) {
+			const invoice = (await stripe.invoices.retrieve(invoiceId)) as unknown as Parameters<
+				typeof invoiceSubId
+			>[0];
+			return invoiceSubId(invoice);
+		},
+		async subscriptionForCharge(chargeId) {
+			const charge = (await stripe.charges.retrieve(chargeId, {
+				expand: ['invoice'],
+			})) as unknown as { invoice?: unknown };
+			const invoice = charge.invoice;
+			if (invoice && typeof invoice === 'object') {
+				return invoiceSubId(invoice as Parameters<typeof invoiceSubId>[0]);
+			}
+			if (typeof invoice === 'string') return this.invoiceSubscription(invoice);
+			return null;
+		},
+		async getCheckoutSession(sessionId) {
+			try {
+				const session = await stripe.checkout.sessions.retrieve(sessionId);
+				return session as unknown as Record<string, unknown>;
+			} catch {
+				return null;
+			}
+		},
 		async connect(args) {
-			const product = await stripe.products.create({
+			// Idempotent by coolbeans_slug metadata: reuse the existing Stripe product,
+			// its prices, and the webhook endpoint if a previous run created them.
+			const existingProducts = await stripe.products.list({ limit: 100, active: true });
+			let product = existingProducts.data.find(
+				(p) => p.metadata?.coolbeans_slug === args.productSlug,
+			);
+			product ??= await stripe.products.create({
 				name: args.productName,
 				metadata: { coolbeans_slug: args.productSlug },
 			});
-			const lifetime = await stripe.prices.create({
+
+			const prices = await stripe.prices.list({ product: product.id, active: true, limit: 100 });
+			let lifetime = prices.data.find((p) => !p.recurring);
+			lifetime ??= await stripe.prices.create({
 				product: product.id,
 				currency: args.currency,
 				unit_amount: args.lifetimeAmount,
 			});
-			const yearly = await stripe.prices.create({
+			let yearly = prices.data.find((p) => p.recurring?.interval === 'year');
+			yearly ??= await stripe.prices.create({
 				product: product.id,
 				currency: args.currency,
 				unit_amount: args.yearlyAmount,
 				recurring: { interval: 'year' },
 			});
-			const endpoint = await stripe.webhookEndpoints.create({
+
+			const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
+			let endpoint = endpoints.data.find((e) => e.url === args.webhookUrl);
+			endpoint ??= await stripe.webhookEndpoints.create({
 				url: args.webhookUrl,
 				enabled_events: [
 					'checkout.session.completed',
+					'checkout.session.async_payment_succeeded',
 					'charge.refunded',
 					'charge.dispute.created',
 					'customer.subscription.updated',
@@ -85,6 +141,7 @@ export function createStripeGateway(secretKey: string): StripeGateway {
 			return {
 				lifetimePriceId: lifetime.id,
 				yearlyPriceId: yearly.id,
+				// The secret is only returned at creation; a reused endpoint keeps its stored secret.
 				webhookSecret: endpoint.secret ?? '',
 			};
 		},

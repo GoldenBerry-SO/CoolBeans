@@ -1,7 +1,9 @@
 // ABOUTME: Stripe event handling (PRD §13) — the four events, with Basil/dispute/partial-refund care.
 // ABOUTME: Idempotent two ways; event ids are recorded only on full success so email retries work.
 
+import type { License, Product } from '@coolbeans/db';
 import type { AppDeps } from '../deps.js';
+import { writeAudit } from '../store/audit.js';
 import { getProductBySlug, getProductByStripePrice } from '../store/products.js';
 import { disableLicense } from './lifecycle.js';
 import {
@@ -22,6 +24,88 @@ function num(obj: Record<string, unknown>, key: string): number | null {
 	return typeof v === 'number' ? v : null;
 }
 
+/** A checkout session is only worth a key if Stripe says it was actually paid. */
+function sessionIsPaid(obj: Record<string, unknown>): boolean {
+	const status = str(obj, 'payment_status');
+	return status === 'paid' || status === 'no_payment_required';
+}
+
+/**
+ * Resolve the product for a checkout session and run the shared idempotent issuance.
+ * Used by the webhook (checkout.session.completed / async_payment_succeeded) AND the
+ * success-page ensure path (PRD §13/§14), so both channels behave identically.
+ * Returns null when the session resolves to no configured product or is unpaid.
+ */
+export async function ensureLicenseForSession(
+	deps: AppDeps,
+	obj: Record<string, unknown>,
+	actorEventId: string,
+): Promise<{ license: License; product: Product } | null> {
+	if (!sessionIsPaid(obj)) {
+		// Async payment methods complete the session before the money settles; the
+		// checkout.session.async_payment_succeeded event re-enters this path later.
+		deps.logger.info('Stripe session not paid yet; skipping issuance', {
+			session: str(obj, 'id'),
+			payment_status: str(obj, 'payment_status'),
+		});
+		return null;
+	}
+
+	// Resolve the product: metadata.product / client_reference_id first, then the
+	// session's line-item price id against the product price columns (PRD §13).
+	const metadata = (obj.metadata as Record<string, unknown> | undefined) ?? {};
+	const slug =
+		(typeof metadata.product === 'string' ? metadata.product : null) ??
+		str(obj, 'client_reference_id');
+	let product = slug ? getProductBySlug(deps.db, slug) : undefined;
+	let priceTier: 'lifetime' | 'yearly' | null = null;
+	if (!product && deps.stripe) {
+		const sessionId = str(obj, 'id');
+		const priceIds = sessionId ? await deps.stripe.sessionPriceIds(sessionId) : [];
+		for (const priceId of priceIds) {
+			const match = getProductByStripePrice(deps.db, priceId);
+			if (match) {
+				product = match.product;
+				priceTier = match.tier;
+				break;
+			}
+		}
+	}
+	if (!product) {
+		deps.logger.error('Stripe checkout resolves to no product', {
+			slug,
+			event: actorEventId,
+		});
+		return null;
+	}
+
+	const mode = str(obj, 'mode');
+	const tier = priceTier ?? (mode === 'subscription' ? 'yearly' : 'lifetime');
+	const subscriptionId = str(obj, 'subscription');
+	let expiresAt: string | null = null;
+	if (tier === 'yearly' && subscriptionId && deps.stripe) {
+		expiresAt = await deps.stripe.subscriptionPeriodEnd(subscriptionId);
+	}
+	const email =
+		str(obj, 'customer_email') ??
+		str((obj.customer_details as Record<string, unknown>) ?? {}, 'email') ??
+		'';
+	const result = await ensureLicense(deps, {
+		product,
+		provider: 'stripe',
+		checkoutId: str(obj, 'id') ?? actorEventId,
+		tier,
+		email,
+		expiresAt,
+		customerId: str(obj, 'customer'),
+		subscriptionId,
+		paymentId: str(obj, 'payment_intent'),
+		amountTotal: num(obj, 'amount_total'),
+		currency: str(obj, 'currency'),
+	});
+	return { license: result.license, product };
+}
+
 /**
  * Process a verified Stripe event. Throws to force a 500 + provider retry (e.g. email failure);
  * records the event id only on full success so a retry re-enters the idempotent path.
@@ -31,55 +115,9 @@ export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Prom
 	const obj = event.data.object;
 
 	switch (event.type) {
-		case 'checkout.session.completed': {
-			// Resolve the product: metadata.product / client_reference_id first, then the
-			// session's line-item price id against the product price columns (PRD §13).
-			const metadata = (obj.metadata as Record<string, unknown> | undefined) ?? {};
-			const slug =
-				(typeof metadata.product === 'string' ? metadata.product : null) ??
-				str(obj, 'client_reference_id');
-			let product = slug ? getProductBySlug(deps.db, slug) : undefined;
-			let priceTier: 'lifetime' | 'yearly' | null = null;
-			if (!product && deps.stripe) {
-				const sessionId = str(obj, 'id');
-				const priceIds = sessionId ? await deps.stripe.sessionPriceIds(sessionId) : [];
-				for (const priceId of priceIds) {
-					const match = getProductByStripePrice(deps.db, priceId);
-					if (match) {
-						product = match.product;
-						priceTier = match.tier;
-						break;
-					}
-				}
-			}
-			if (!product) {
-				deps.logger.error('Stripe checkout resolves to no product', { slug, event: event.id });
-				break;
-			}
-			const mode = str(obj, 'mode');
-			const tier = priceTier ?? (mode === 'subscription' ? 'yearly' : 'lifetime');
-			const subscriptionId = str(obj, 'subscription');
-			let expiresAt: string | null = null;
-			if (tier === 'yearly' && subscriptionId && deps.stripe) {
-				expiresAt = await deps.stripe.subscriptionPeriodEnd(subscriptionId);
-			}
-			const email =
-				str(obj, 'customer_email') ??
-				str((obj.customer_details as Record<string, unknown>) ?? {}, 'email') ??
-				'';
-			await ensureLicense(deps, {
-				product,
-				provider: 'stripe',
-				checkoutId: str(obj, 'id') ?? event.id,
-				tier,
-				email,
-				expiresAt,
-				customerId: str(obj, 'customer'),
-				subscriptionId,
-				paymentId: str(obj, 'payment_intent'),
-				amountTotal: num(obj, 'amount_total'),
-				currency: str(obj, 'currency'),
-			});
+		case 'checkout.session.completed':
+		case 'checkout.session.async_payment_succeeded': {
+			await ensureLicenseForSession(deps, obj, event.id);
 			break;
 		}
 
@@ -87,11 +125,7 @@ export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Prom
 			// Only a FULL refund disables; partials are recorded but leave the license active.
 			const refunded = num(obj, 'amount_refunded') ?? 0;
 			const captured = num(obj, 'amount_captured') ?? num(obj, 'amount') ?? 0;
-			const paymentIntent = str(obj, 'payment_intent');
-			const invoiceSub = resolveSubscriptionFromCharge(obj);
-			const found =
-				(paymentIntent && findLicenseByProviderId(deps, paymentIntent)) ||
-				(invoiceSub && findLicenseByProviderId(deps, invoiceSub));
+			const found = await findLicenseForCharge(deps, obj);
 			if (found) {
 				if (captured > 0 && refunded >= captured) {
 					disableLicense(deps, {
@@ -100,9 +134,12 @@ export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Prom
 						actor: `stripe:${event.id}`,
 					});
 				} else {
-					deps.logger.info('Partial refund recorded, license kept active', {
-						event: event.id,
+					writeAudit(deps.db, {
+						action: 'license.partial_refund',
+						actor: `stripe:${event.id}`,
+						productId: found.license.productId,
 						licenseId: found.license.id,
+						detail: { refunded, captured },
 					});
 				}
 			}
@@ -125,7 +162,7 @@ export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Prom
 				}
 			} else {
 				const periodEnd = subscriptionPeriodEnd(obj);
-				if (periodEnd) advanceSubscriptionExpiry(deps, subId, periodEnd);
+				if (periodEnd) advanceSubscriptionExpiry(deps, subId, periodEnd, `stripe:${event.id}`);
 			}
 			break;
 		}
@@ -148,10 +185,15 @@ export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Prom
 		case 'charge.dispute.created': {
 			// A lost dispute never fires charge.refunded, so revoke on the dispute itself.
 			const paymentIntent = str(obj, 'payment_intent');
-			const charge = str(obj, 'charge');
-			const found =
-				(paymentIntent && findLicenseByProviderId(deps, paymentIntent)) ||
-				(charge && findLicenseByProviderId(deps, charge));
+			let found = paymentIntent ? findLicenseByProviderId(deps, paymentIntent) : undefined;
+			if (!found) {
+				// A renewal-invoice dispute carries a payment intent we never stored:
+				// resolve charge -> invoice -> subscription via the gateway.
+				const chargeId = str(obj, 'charge');
+				const subId =
+					chargeId && deps.stripe ? await deps.stripe.subscriptionForCharge(chargeId) : null;
+				found = subId ? findLicenseByProviderId(deps, subId) : undefined;
+			}
 			if (found) {
 				disableLicense(deps, {
 					license: found.license,
@@ -170,6 +212,22 @@ export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Prom
 	recordEvent(deps, { id: event.id, provider: 'stripe', type: event.type });
 }
 
+/** Find the license behind a refunded charge: payment intent, then invoice -> subscription. */
+async function findLicenseForCharge(deps: AppDeps, charge: Record<string, unknown>) {
+	const paymentIntent = str(charge, 'payment_intent');
+	if (paymentIntent) {
+		const found = findLicenseByProviderId(deps, paymentIntent);
+		if (found) return found;
+	}
+	// Renewal invoices carry a different payment intent than the checkout: resolve the
+	// subscription. The invoice may be inline (expanded object) or a plain string id.
+	let subId = resolveSubscriptionFromCharge(charge);
+	if (!subId && typeof charge.invoice === 'string' && deps.stripe) {
+		subId = await deps.stripe.invoiceSubscription(charge.invoice);
+	}
+	return subId ? findLicenseByProviderId(deps, subId) : undefined;
+}
+
 /** Read current_period_end off a subscription object (Basil: read from the first item). */
 function subscriptionPeriodEnd(sub: Record<string, unknown>): string | null {
 	const items = sub.items as { data?: Array<{ current_period_end?: number }> } | undefined;
@@ -177,13 +235,18 @@ function subscriptionPeriodEnd(sub: Record<string, unknown>): string | null {
 	return end ? new Date(end * 1000).toISOString() : null;
 }
 
-/** A refunded renewal invoice carries a different payment_intent — resolve via its subscription. */
+/** Inline (expanded) subscription hints on a charge object, when the event carries them. */
 function resolveSubscriptionFromCharge(charge: Record<string, unknown>): string | null {
 	const sub = charge.subscription;
 	if (typeof sub === 'string') return sub;
 	const invoice = charge.invoice as Record<string, unknown> | string | undefined;
-	if (invoice && typeof invoice === 'object' && typeof invoice.subscription === 'string') {
-		return invoice.subscription;
+	if (invoice && typeof invoice === 'object') {
+		if (typeof invoice.subscription === 'string') return invoice.subscription;
+		const parent = invoice.parent as
+			| { subscription_details?: { subscription?: unknown } }
+			| undefined;
+		const nested = parent?.subscription_details?.subscription;
+		if (typeof nested === 'string') return nested;
 	}
 	return null;
 }

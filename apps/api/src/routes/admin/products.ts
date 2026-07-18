@@ -7,6 +7,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { badRequest, conflict, notFound } from '../../http/errors.js';
+import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug, listProducts } from '../../store/products.js';
 import { readBody } from './util.js';
@@ -72,7 +73,9 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 				productId: product.id,
 				detail: { slug: product.slug, prefix: product.keyPrefix },
 			});
-			return c.json({ ok: true, product });
+			// The per-product token (success-page scope) is returned ONCE; only its hash is stored.
+			const productToken = issueProductToken(deps, product);
+			return c.json({ ok: true, product, product_token: productToken });
 		} catch (err) {
 			if (err instanceof Error && /UNIQUE/i.test(err.message)) {
 				throw conflict('prefix_taken', 'That slug or key prefix is already in use.');
@@ -85,6 +88,11 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
 		const body = await readBody(c, createProductBody.partial());
+		// slug and key_prefix are immutable: issued keys embed the prefix and clients
+		// resolve products by it. Reject rather than silently ignoring.
+		if (body.slug !== undefined || body.key_prefix !== undefined) {
+			throw badRequest('slug and key_prefix cannot be changed after creation.');
+		}
 		const patch: Record<string, unknown> = {};
 		if (body.name !== undefined) patch.name = body.name;
 		if (body.activation_limit !== undefined) patch.activationLimit = body.activation_limit;
@@ -147,6 +155,12 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			})
 			.returning()
 			.get();
+		writeAudit(deps.db, {
+			action: 'metric.created',
+			actor: 'admin',
+			productId: product.id,
+			detail: { key: metric.key, default_limit: metric.defaultLimit },
+		});
 		return c.json({ ok: true, metric });
 	});
 }

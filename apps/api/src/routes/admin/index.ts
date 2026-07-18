@@ -8,8 +8,10 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { notFound } from '../../http/errors.js';
 import { adminAuth } from '../../middleware/admin-auth.js';
+import { issueProductToken } from '../../services/product-tokens.js';
 import { rotateKey } from '../../services/signing.js';
 import { connectStripe } from '../../services/stripe-connect.js';
+import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug } from '../../store/products.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
@@ -56,7 +58,20 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
 		const key = rotateKey(deps, product.id);
+		writeAudit(deps.db, {
+			action: 'signing_key.rotated',
+			actor: 'admin',
+			productId: product.id,
+			detail: { kid: String(key.id) },
+		});
 		return c.json({ ok: true, signing_key: { kid: String(key.id), public_key: key.publicKey } });
+	});
+
+	// Rotate the per-product token (success-page scope). The plaintext is returned ONCE.
+	admin.post('/products/:slug/token/rotate', (c) => {
+		const product = getProductBySlug(deps.db, c.req.param('slug'));
+		if (!product) throw notFound('No product with that slug.');
+		return c.json({ ok: true, product_token: issueProductToken(deps, product) });
 	});
 
 	const connectBody = z.object({

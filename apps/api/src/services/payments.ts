@@ -5,6 +5,7 @@ import type { License, Product } from '@coolbeans/db';
 import { licenses, providerEvents, purchases } from '@coolbeans/db';
 import { and, eq, or } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
+import { writeAudit } from '../store/audit.js';
 import { getProductById } from '../store/products.js';
 import { sendKeyEmail } from './email.js';
 import { createPurchase, issueLicense, type Tier } from './issuance.js';
@@ -147,10 +148,18 @@ export function advanceSubscriptionExpiry(
 	deps: AppDeps,
 	subscriptionId: string,
 	expiresAt: string,
+	actor: string,
 ): void {
 	const found = findLicenseByProviderId(deps, subscriptionId);
-	if (!found) return;
+	if (!found || found.license.expiresAt === expiresAt) return;
 	deps.db.update(licenses).set({ expiresAt }).where(eq(licenses.id, found.license.id)).run();
+	writeAudit(deps.db, {
+		action: 'license.expiry_advanced',
+		actor,
+		productId: found.license.productId,
+		licenseId: found.license.id,
+		detail: { from: found.license.expiresAt, to: expiresAt },
+	});
 }
 
 /** Look up a purchase's license for the success-page endpoint. */

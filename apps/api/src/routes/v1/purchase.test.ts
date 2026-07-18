@@ -19,6 +19,26 @@ beforeEach(async () => {
 	});
 });
 
+async function fireCheckoutFor(sessionId: string, email: string) {
+	await h.app.request('/v1/stripe/webhook', {
+		method: 'POST',
+		headers: { 'stripe-signature': 'valid', 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			id: `evt_${sessionId}`,
+			type: 'checkout.session.completed',
+			data: {
+				object: {
+					id: sessionId,
+					mode: 'payment',
+					payment_status: 'paid',
+					customer_email: email,
+					metadata: { product: 'clementine' },
+				},
+			},
+		}),
+	});
+}
+
 async function fireCheckout() {
 	await h.app.request('/v1/stripe/webhook', {
 		method: 'POST',
@@ -30,6 +50,7 @@ async function fireCheckout() {
 				object: {
 					id: 'cs_race',
 					mode: 'payment',
+					payment_status: 'paid',
 					customer_email: 'buyer@example.com',
 					payment_intent: 'pi_1',
 					metadata: { product: 'clementine' },
@@ -57,5 +78,55 @@ describe('GET /v1/purchase/session/:id', () => {
 		const body = (await res.json()) as { license: { key: string }; email: string };
 		expect(body.email).toBe('buyer@example.com');
 		expect(body.license.key).toMatch(/^CLEM-/);
+	});
+
+	it('ENSURES via the idempotent path when the webhook has not landed (success-page race)', async () => {
+		// The paid session exists at Stripe but no webhook has arrived yet.
+		h.deps.stripe = fakeStripeGateway(
+			{},
+			{},
+			{
+				sessions: {
+					cs_early: {
+						id: 'cs_early',
+						mode: 'payment',
+						payment_status: 'paid',
+						customer_email: 'early@example.com',
+						payment_intent: 'pi_early',
+						metadata: { product: 'clementine' },
+					},
+				},
+			},
+		);
+		const res = await h.app.request('/v1/purchase/session/cs_early', { headers: h.adminHeaders });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { license: { key: string }; email: string };
+		expect(body.email).toBe('early@example.com');
+		// The later webhook redelivery does not double-issue.
+		await fireCheckoutFor('cs_early', 'early@example.com');
+		const listed = await h.app.request('/admin/products/clementine/keys?email=early@example.com', {
+			headers: h.adminHeaders,
+		});
+		expect(((await listed.json()) as { keys: unknown[] }).keys).toHaveLength(1);
+	});
+
+	it('a product token reads only its own product', async () => {
+		// Rotate a token for clementine and create a second product with its own purchase.
+		const rotated = await h.app.request('/admin/products/clementine/token/rotate', {
+			method: 'POST',
+			headers: h.adminHeaders,
+		});
+		const token = ((await rotated.json()) as { product_token: string }).product_token;
+		await fireCheckout();
+		// The clementine token can read the clementine purchase…
+		const ok = await h.app.request('/v1/purchase/session/cs_race', {
+			headers: { Authorization: `Bearer ${token}` },
+		});
+		expect(ok.status).toBe(200);
+		// …a bogus token cannot read anything…
+		const bad = await h.app.request('/v1/purchase/session/cs_race', {
+			headers: { Authorization: 'Bearer cbp_wrong' },
+		});
+		expect(bad.status).toBe(401);
 	});
 });

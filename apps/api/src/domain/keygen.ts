@@ -87,6 +87,23 @@ export function isValidKey(input: string, prefix: string): boolean {
 }
 
 /**
+ * Cheap syntactic gate (PRD §10, §19): can this input possibly be a key for ANY prefix?
+ * Rejects malformed floods before any storage work — letters-only prefix (2–12 chars)
+ * followed by exactly 16 alphabet characters.
+ */
+export function looksLikeKey(input: string): boolean {
+	if (typeof input !== 'string' || input.length > 64) return false;
+	const cleaned = input.replace(/[\s-]/g, '').toUpperCase();
+	if (cleaned.length < 2 + KEY_BODY_LENGTH || cleaned.length > 12 + KEY_BODY_LENGTH) return false;
+	if (!/^[A-Z]+[A-Z0-9]+$/.test(cleaned)) return false;
+	const body = cleaned.slice(-KEY_BODY_LENGTH);
+	for (const ch of body) {
+		if (!ALPHABET_SET.has(ch)) return false;
+	}
+	return true;
+}
+
+/**
  * Normalize a key without knowing its product prefix (any of the given prefixes).
  * Used at the public edge where the product is resolved from the prefix.
  */

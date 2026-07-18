@@ -1,10 +1,11 @@
 // ABOUTME: PayPal event handling (PRD §13) — a parallel adapter over the shared issuance core.
-// ABOUTME: checkout completed -> ensureLicense; refund/cancel -> disable. Only the adapter differs.
+// ABOUTME: Issues only on completed captures; refund/cancel disable. Only the adapter differs.
 
 import type { AppDeps } from '../deps.js';
 import { getProductBySlug } from '../store/products.js';
 import { disableLicense } from './lifecycle.js';
 import {
+	advanceSubscriptionExpiry,
 	ensureLicense,
 	eventAlreadyProcessed,
 	findLicenseByProviderId,
@@ -56,8 +57,10 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 	const resource = event.resource;
 
 	switch (event.event_type) {
-		case 'PAYMENT.CAPTURE.COMPLETED':
-		case 'CHECKOUT.ORDER.APPROVED': {
+		case 'PAYMENT.CAPTURE.COMPLETED': {
+			// Order approval is NOT payment: only a COMPLETED capture issues a key.
+			const captureStatus = pickString(resource, ['status']);
+			if (captureStatus && captureStatus !== 'COMPLETED') break;
 			// custom_id carries the product slug + tier set at checkout creation.
 			const custom =
 				pickString(resource, ['custom_id']) ??
@@ -73,14 +76,21 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 				pickString(resource, ['payer', 'email_address']) ??
 				pickString(resource, ['subscriber', 'email_address']) ??
 				'';
+			const captureId = pickString(resource, ['id']);
+			// One canonical checkout id per ORDER so a redelivered/duplicate capture event
+			// can never issue a second key; the capture itself is stored as the payment id.
+			const orderId =
+				pickString(resource, ['supplementary_data', 'related_ids', 'order_id']) ?? captureId;
 			await ensureLicense(deps, {
 				product,
 				provider: 'paypal',
-				checkoutId: pickString(resource, ['id']) ?? event.id,
+				checkoutId: orderId ?? event.id,
 				tier,
 				email,
 				subscriptionId: pickString(resource, ['billing_agreement_id']),
-				paymentId: pickString(resource, ['id']),
+				paymentId: captureId,
+				amountTotal: parseAmount(resource),
+				currency: pickString(resource, ['amount', 'currency_code']),
 			});
 			break;
 		}
@@ -102,6 +112,17 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 				expiresAt,
 				subscriptionId: subId,
 			});
+			break;
+		}
+
+		case 'PAYMENT.SALE.COMPLETED': {
+			// Subscription renewals arrive as sales tied to the billing agreement:
+			// advance the license's renewal date to the next billing time.
+			const subId = pickString(resource, ['billing_agreement_id']);
+			if (subId && deps.paypal) {
+				const next = await deps.paypal.subscriptionNextBilling(subId);
+				if (next) advanceSubscriptionExpiry(deps, subId, next, `paypal:${event.id}`);
+			}
 			break;
 		}
 
@@ -142,4 +163,12 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 	}
 
 	recordEvent(deps, { id: event.id, provider: 'paypal', type: event.event_type });
+}
+
+/** Capture amount in minor units, when present (value is a decimal string like "49.00"). */
+function parseAmount(resource: Record<string, unknown>): number | null {
+	const value = pickString(resource, ['amount', 'value']);
+	if (!value) return null;
+	const parsed = Number.parseFloat(value);
+	return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
 }

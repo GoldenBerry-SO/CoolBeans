@@ -15,6 +15,7 @@ export const outbox = sqliteTable(
 			.default('pending'),
 		attempts: integer('attempts').notNull().default(0),
 		lastError: text('last_error'),
+		claimedAt: text('claimed_at'),
 		runAfter: text('run_after').notNull().default(sql`(datetime('now'))`),
 		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 		processedAt: text('processed_at'),

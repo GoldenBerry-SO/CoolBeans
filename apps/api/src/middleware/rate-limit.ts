@@ -1,26 +1,20 @@
-// ABOUTME: API rate limiting (PRD §18, §19) — Redis-backed so limits hold across k8s replicas.
-// ABOUTME: Keyed per license key when present, else per IP; webhooks are never limited.
+// ABOUTME: API rate limiting (PRD §18, §19) — per-IP fixed window, Redis-backed across replicas.
+// ABOUTME: Keyed by the connection IP (never by attacker-supplied body fields); 429 uses the §9 envelope.
 
 import type { Logger } from '@coolbeans/logger';
 import type { MiddlewareHandler } from 'hono';
 import { rateLimiter, type Store } from 'hono-rate-limiter';
 import type { Config } from '../config.js';
 
-/** Prefer x-real-ip, fall back to x-forwarded-for, then a constant (single-instance dev). */
+/**
+ * The client bucket key. x-real-ip is set by our ingress (k8s) or compose proxy; the
+ * x-forwarded-for fallback takes the FIRST hop, which is only trustworthy behind a
+ * proxy that overwrites the header. Direct deployments fall back to a single bucket.
+ */
 function clientKey(headers: Headers): string {
 	return (
 		headers.get('x-real-ip') ?? headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local'
 	);
-}
-
-async function bodyLicenseKey(c: { req: { raw: Request } }): Promise<string | null> {
-	try {
-		const clone = c.req.raw.clone();
-		const data = (await clone.json()) as { license_key?: string };
-		return data.license_key ?? null;
-	} catch {
-		return null;
-	}
 }
 
 export interface RateLimitOptions {
@@ -28,20 +22,26 @@ export interface RateLimitOptions {
 	logger: Logger;
 	/** Optional shared store (RedisStore). Defaults to in-memory (fine for single-instance/dev). */
 	store?: Store;
-	/** Requests per minute per key. PRD §18 suggests 30/min on /v1/*. */
+	/** Requests per minute per IP. PRD §18 suggests 30/min on /v1/*. */
 	perMinute?: number;
 }
 
-/** A rate limiter for the public /v1 surface, keyed per license key or IP. */
+/** A rate limiter for the public /v1 surface, keyed per client IP. */
 export function publicRateLimiter(opts: RateLimitOptions): MiddlewareHandler {
 	return rateLimiter({
 		windowMs: 60_000,
 		limit: opts.perMinute ?? 30,
 		standardHeaders: 'draft-6',
 		store: opts.store,
-		keyGenerator: async (c) => {
-			const licenseKey = await bodyLicenseKey(c);
-			return licenseKey ?? clientKey(c.req.raw.headers);
-		},
+		keyGenerator: (c) => clientKey(c.req.raw.headers),
+		handler: (c) =>
+			c.json(
+				{
+					ok: false,
+					error: 'rate_limited',
+					message: 'Too many requests. Slow down and try again shortly.',
+				},
+				429,
+			),
 	});
 }

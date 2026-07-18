@@ -6,7 +6,7 @@ import { metrics, usageCounters } from '@coolbeans/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
-import { licenseDisabled, notFound, quotaExceeded } from '../http/errors.js';
+import { licenseDisabled, notFound } from '../http/errors.js';
 import { resolveLicense } from './licensing.js';
 
 export interface UsageState {
@@ -15,11 +15,31 @@ export interface UsageState {
 	resetsAt: string | null;
 }
 
+/** Increment outcome: §9 requires the 429 body to carry the same counter fields as success. */
+export type IncrementResult =
+	| { exceeded: false; state: UsageState }
+	| { exceeded: true; state: UsageState };
+
 function nextReset(from: Date, period: 'daily' | 'monthly'): Date {
-	const d = new Date(from);
-	if (period === 'daily') d.setUTCDate(d.getUTCDate() + 1);
-	else d.setUTCMonth(d.getUTCMonth() + 1);
-	return d;
+	if (period === 'daily') {
+		const d = new Date(from);
+		d.setUTCDate(d.getUTCDate() + 1);
+		return d;
+	}
+	// Monthly, with the day clamped so Jan 31 + 1 month lands on Feb 28/29, not Mar 2/3.
+	const year = from.getUTCFullYear();
+	const month = from.getUTCMonth() + 1;
+	const daysInTarget = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+	return new Date(
+		Date.UTC(
+			year,
+			month,
+			Math.min(from.getUTCDate(), daysInTarget),
+			from.getUTCHours(),
+			from.getUTCMinutes(),
+			from.getUTCSeconds(),
+		),
+	);
 }
 
 function getMetric(deps: AppDeps, productId: number, key: string): Metric {
@@ -68,19 +88,22 @@ function applyResetIfDue(deps: AppDeps, counter: UsageCounter, metric: Metric): 
 	return { ...counter, current: 0, periodStart: now.toISOString(), resetsAt };
 }
 
-/** Increment a metric atomically, enforcing its quota. Throws 429 quota_exceeded when over. */
+/**
+ * Increment a metric atomically, enforcing its quota. Over-limit returns exceeded:true
+ * with the unchanged counter state — §9 requires the 429 body to carry current/limit/resets_at.
+ */
 export function incrementUsage(
 	deps: AppDeps,
 	keyInput: string,
 	metricKey: string,
 	delta: number,
-): UsageState {
+): IncrementResult {
 	const resolved = resolveLicense(deps, keyInput);
 	// Fail closed: a disabled (or lazily-expired trial) license cannot consume quota.
 	if (resolved.status === 'disabled') throw licenseDisabled();
 	const metric = getMetric(deps, resolved.product.id, metricKey);
 
-	return deps.db.transaction((): UsageState => {
+	return deps.db.transaction((): IncrementResult => {
 		let counter = getOrCreateCounter(deps, resolved.license.id, metric);
 		counter = applyResetIfDue(deps, counter, metric);
 		const limit = counter.limitOverride ?? metric.defaultLimit ?? null;
@@ -93,9 +116,12 @@ export function incrementUsage(
 				.returning({ current: usageCounters.current })
 				.get();
 			return {
-				current: row?.current ?? counter.current + delta,
-				limit: null,
-				resetsAt: counter.resetsAt,
+				exceeded: false,
+				state: {
+					current: row?.current ?? counter.current + delta,
+					limit: null,
+					resetsAt: counter.resetsAt,
+				},
 			};
 		}
 
@@ -106,8 +132,13 @@ export function incrementUsage(
 			.where(and(eq(usageCounters.id, counter.id), sql`current + ${delta} <= ${limit}`))
 			.returning({ current: usageCounters.current })
 			.get();
-		if (!row) throw quotaExceeded();
-		return { current: row.current, limit, resetsAt: counter.resetsAt };
+		if (!row) {
+			return {
+				exceeded: true,
+				state: { current: counter.current, limit, resetsAt: counter.resetsAt },
+			};
+		}
+		return { exceeded: false, state: { current: row.current, limit, resetsAt: counter.resetsAt } };
 	});
 }
 
@@ -118,25 +149,22 @@ export interface UsageCounterView {
 	resetsAt: string | null;
 }
 
-/** Current counters for a key (PRD §9 GET /v1/usage). */
+/** Current counters for a key (PRD §9 GET /v1/usage). Overdue resets apply on read too. */
 export function getUsage(deps: AppDeps, keyInput: string): UsageCounterView[] {
 	const resolved = resolveLicense(deps, keyInput);
 	const rows = deps.db
-		.select({
-			key: metrics.key,
-			current: usageCounters.current,
-			limitOverride: usageCounters.limitOverride,
-			defaultLimit: metrics.defaultLimit,
-			resetsAt: usageCounters.resetsAt,
-		})
+		.select({ counter: usageCounters, metric: metrics })
 		.from(usageCounters)
 		.innerJoin(metrics, eq(metrics.id, usageCounters.metricId))
 		.where(eq(usageCounters.licenseId, resolved.license.id))
 		.all();
-	return rows.map((r) => ({
-		metric: r.key,
-		current: r.current,
-		limit: r.limitOverride ?? r.defaultLimit ?? null,
-		resetsAt: r.resetsAt,
-	}));
+	return rows.map((r) => {
+		const counter = applyResetIfDue(deps, r.counter, r.metric);
+		return {
+			metric: r.metric.key,
+			current: counter.current,
+			limit: counter.limitOverride ?? r.metric.defaultLimit ?? null,
+			resetsAt: counter.resetsAt,
+		};
+	});
 }

@@ -47,6 +47,7 @@ function checkout(overrides: Record<string, unknown> = {}) {
 			object: {
 				id: 'cs_1',
 				mode: 'payment',
+				payment_status: 'paid',
 				customer_email: 'buyer@example.com',
 				payment_intent: 'pi_1',
 				metadata: { product: 'clementine' },
@@ -198,6 +199,7 @@ describe('Stripe webhook', () => {
 				object: {
 					id: 'cs_nometa',
 					mode: 'payment',
+					payment_status: 'paid',
 					customer_email: 'link@example.com',
 					metadata: {},
 				},
@@ -207,6 +209,46 @@ describe('Stripe webhook', () => {
 		const keys = await keysForEmail(h, 'link@example.com');
 		expect(keys).toHaveLength(1);
 		expect(keys[0]?.tier).toBe('lifetime');
+	});
+
+	it('does NOT issue for an unpaid session; async settle issues later', async () => {
+		// SEPA/ACH-style async payment: the session completes before the money settles.
+		const r = await webhook(h.app, checkout({ id: 'cs_async', payment_status: 'unpaid' }));
+		expect(r.status).toBe(200);
+		expect(await keysForEmail(h, 'buyer@example.com')).toHaveLength(0);
+		// The settle event re-enters the same path and issues exactly one key.
+		await webhook(h.app, {
+			...checkout({ id: 'cs_async', payment_status: 'paid' }),
+			id: 'evt_async_ok',
+			type: 'checkout.session.async_payment_succeeded',
+		});
+		expect(await keysForEmail(h, 'buyer@example.com')).toHaveLength(1);
+	});
+
+	it('disables on a renewal-invoice refund resolved via invoice -> subscription', async () => {
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		// A renewal charge: unknown payment intent, invoice as a plain string id.
+		h.deps.stripe = fakeStripeGateway(
+			{ sub_1: PERIOD_END },
+			{},
+			{ invoiceSubscriptions: { in_renewal_1: 'sub_1' } },
+		);
+		await webhook(h.app, {
+			id: 'evt_renewal_refund',
+			type: 'charge.refunded',
+			data: {
+				object: {
+					id: 'ch_renewal',
+					payment_intent: 'pi_renewal_unknown',
+					invoice: 'in_renewal_1',
+					amount_captured: 2900,
+					amount_refunded: 2900,
+				},
+			},
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status).toBe('disabled');
+		expect(keys[0]?.disabled_reason).toBe('refund');
 	});
 
 	it('retries only the email when the first send fails (email_sent_at stays NULL)', async () => {

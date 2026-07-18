@@ -33,6 +33,7 @@ describe('usage metering', () => {
 	it('increments and reports current/limit/resets_at', async () => {
 		const r = await post(h.app, '/v1/usage/increment', {
 			license_key: key,
+			instance_id: 'inst-test',
 			metric: 'api_calls',
 			delta: 3,
 		});
@@ -43,9 +44,15 @@ describe('usage metering', () => {
 	});
 
 	it('returns 429 quota_exceeded when over the limit, with the same body shape', async () => {
-		await post(h.app, '/v1/usage/increment', { license_key: key, metric: 'api_calls', delta: 10 });
+		await post(h.app, '/v1/usage/increment', {
+			license_key: key,
+			instance_id: 'inst-test',
+			metric: 'api_calls',
+			delta: 10,
+		});
 		const over = await post(h.app, '/v1/usage/increment', {
 			license_key: key,
+			instance_id: 'inst-test',
 			metric: 'api_calls',
 			delta: 1,
 		});
@@ -58,6 +65,7 @@ describe('usage metering', () => {
 		for (let i = 0; i < 20; i++) {
 			const r = await post(h.app, '/v1/usage/increment', {
 				license_key: key,
+				instance_id: 'inst-test',
 				metric: 'api_calls',
 				delta: 1,
 			});
@@ -67,10 +75,16 @@ describe('usage metering', () => {
 	});
 
 	it('resets after the period rolls over', async () => {
-		await post(h.app, '/v1/usage/increment', { license_key: key, metric: 'api_calls', delta: 10 });
+		await post(h.app, '/v1/usage/increment', {
+			license_key: key,
+			instance_id: 'inst-test',
+			metric: 'api_calls',
+			delta: 10,
+		});
 		h.clock.advance(25 * 3_600_000);
 		const r = await post(h.app, '/v1/usage/increment', {
 			license_key: key,
+			instance_id: 'inst-test',
 			metric: 'api_calls',
 			delta: 1,
 		});
@@ -81,6 +95,7 @@ describe('usage metering', () => {
 	it('rejects an unknown metric with 404', async () => {
 		const r = await post(h.app, '/v1/usage/increment', {
 			license_key: key,
+			instance_id: 'inst-test',
 			metric: 'nope',
 			delta: 1,
 		});
@@ -91,6 +106,7 @@ describe('usage metering', () => {
 		await h.app.request(`/admin/keys/${key}/disable`, { method: 'POST', headers: h.adminHeaders });
 		const r = await post(h.app, '/v1/usage/increment', {
 			license_key: key,
+			instance_id: 'inst-test',
 			metric: 'api_calls',
 			delta: 1,
 		});
@@ -99,7 +115,12 @@ describe('usage metering', () => {
 	});
 
 	it('GET /v1/usage lists counters for a key', async () => {
-		await post(h.app, '/v1/usage/increment', { license_key: key, metric: 'api_calls', delta: 4 });
+		await post(h.app, '/v1/usage/increment', {
+			license_key: key,
+			instance_id: 'inst-test',
+			metric: 'api_calls',
+			delta: 4,
+		});
 		const res = await h.app.request(`/v1/usage?license_key=${encodeURIComponent(key)}`);
 		const body = (await res.json()) as { usage: Array<{ metric: string; current: number }> };
 		expect(body.usage[0]?.metric).toBe('api_calls');

@@ -19,15 +19,23 @@ const beans = new CoolBeans({
 	product: 'clementine',
 	baseUrl: 'https://keys.clementine.email',
 	storage: {
-		getItem: (k) => read()[k] ?? null,
-		setItem: (k, v) => {
+		getItem: (k: string) => read()[k] ?? null,
+		setItem: (k: string, v: string) => {
 			writeFileSync(file, JSON.stringify({ ...read(), [k]: v }), { mode: 0o600 });
 		},
 	},
 });
 
+export async function activate(licenseKey: string): Promise<void> {
+	await beans.activate(licenseKey, { name: 'Desktop app' });
+}
+
 export async function checkLicenseOnBoot(licenseKey: string): Promise<boolean> {
 	if (await beans.verifyOffline()) return true;
-	const result = await beans.verify(licenseKey);
+
+	const instanceId = beans.instanceId();
+	if (!instanceId) return false;
+
+	const result = await beans.verify(licenseKey, { instanceId });
 	return result.inconclusive ? true : result.valid;
 }

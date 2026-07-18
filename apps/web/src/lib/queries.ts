@@ -206,10 +206,13 @@ export function useSetLicenseStatus() {
 	return useMutation({
 		mutationFn: ({ key, action }: { key: string; action: 'disable' | 'enable' }) =>
 			api('POST', `/admin/keys/${encodeURIComponent(key)}/${action}`),
-		onSuccess: () => {
+		onSuccess: (_data, variables) => {
 			qc.invalidateQueries({ queryKey: ['licenses'] });
 			qc.invalidateQueries({ queryKey: ['products'] });
 			qc.invalidateQueries({ queryKey: ['stats'] });
+			// The detail page reads its own query; without this it keeps showing the old
+			// status and the wrong action button until a reload.
+			qc.invalidateQueries({ queryKey: ['license', variables.key] });
 		},
 	});
 }

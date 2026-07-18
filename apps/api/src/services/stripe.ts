@@ -8,7 +8,7 @@ import { getProductBySlug, getProductByStripePrice } from '../store/products.js'
 import { disableLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
-	claimEvent,
+	claimEventStatus,
 	completeEvent,
 	ensureLicense,
 	findLicenseByProviderId,
@@ -127,14 +127,21 @@ export async function ensureLicenseForSession(
  * event cannot both run the handler (issue #34).
  */
 export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Promise<void> {
-	if (!claimEvent(deps, { id: event.id, provider: 'stripe', type: event.type })) return;
+	const claim = claimEventStatus(deps, { id: event.id, provider: 'stripe', type: event.type });
+	// Already finished: acknowledge so the provider stops retrying.
+	if (claim.result === 'done') return;
+	// Someone else is mid-flight. Answering 200 would end the retries, and if that
+	// worker died the issuance or refund would never happen — so fail retryably.
+	if (claim.result === 'in_flight') {
+		throw new Error(`Event ${event.id} is already being processed; retry shortly.`);
+	}
 	try {
 		await processStripeEvent(deps, event);
 	} catch (err) {
-		releaseEvent(deps, event.id);
+		releaseEvent(deps, event.id, claim.token);
 		throw err;
 	}
-	completeEvent(deps, event.id);
+	completeEvent(deps, event.id, claim.token);
 }
 
 async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<void> {

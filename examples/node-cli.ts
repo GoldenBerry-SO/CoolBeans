@@ -32,16 +32,17 @@ const beans = new CoolBeans({
 	storage: fileStorage(join(homedir(), '.config', 'clementine', 'license.json')),
 });
 
-export async function unlock(licenseKey: string): Promise<boolean> {
-	// Offline first: no network round trip on a normal start.
-	if (await beans.verifyOffline()) return true;
-
-	const result = await beans.verify(licenseKey);
-	// Network trouble is inconclusive, never a lockout (§8).
-	if (result.inconclusive) return true;
-	return result.valid;
+export async function activate(licenseKey: string): Promise<void> {
+	await beans.activate(licenseKey, { name: `${process.platform} CLI` });
 }
 
-export async function activateOnce(licenseKey: string) {
-	return beans.activate(licenseKey, { instanceName: `${process.platform} CLI` });
+export async function unlock(licenseKey: string): Promise<boolean> {
+	if (await beans.verifyOffline()) return true;
+
+	const instanceId = beans.instanceId();
+	if (!instanceId) return false;
+
+	const result = await beans.verify(licenseKey, { instanceId });
+	// Network trouble is inconclusive, never a lockout (§8).
+	return result.inconclusive ? true : result.valid;
 }

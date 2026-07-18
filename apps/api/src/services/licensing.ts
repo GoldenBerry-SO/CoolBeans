@@ -33,13 +33,15 @@ export interface ResolvedLicense {
  * Lazily disables an expired trial and records the reason.
  */
 /**
- * Resolve with the per-key brute-force throttle applied (issue #39). Public endpoints
- * use this; internal callers that already hold a license row do not need it.
+ * Resolve a raw key from a public request, with the per-key brute-force throttle
+ * applied (issue #39). Every public path funnels through here — activate, validate,
+ * deactivate, heartbeat, usage, portal and the LS aliases — so the limit cannot be
+ * sidestepped by probing a different endpoint.
  */
-export function resolveLicenseThrottled(deps: AppDeps, keyInput: string): ResolvedLicense {
+export function resolveLicense(deps: AppDeps, keyInput: string): ResolvedLicense {
 	assertKeyNotThrottled(deps, keyInput);
 	try {
-		const resolved = resolveLicense(deps, keyInput);
+		const resolved = resolveLicenseUnthrottled(deps, keyInput);
 		clearKeyFailures(keyInput);
 		return resolved;
 	} catch (err) {
@@ -51,7 +53,8 @@ export function resolveLicenseThrottled(deps: AppDeps, keyInput: string): Resolv
 	}
 }
 
-export function resolveLicense(deps: AppDeps, keyInput: string): ResolvedLicense {
+/** The raw lookup, without throttling — for callers that already passed through it. */
+export function resolveLicenseUnthrottled(deps: AppDeps, keyInput: string): ResolvedLicense {
 	const { db } = deps;
 	// Format check before any storage hit (§10, §19): malformed input never reaches the DB.
 	if (!looksLikeKey(keyInput)) throw invalidKey();
@@ -109,7 +112,7 @@ export interface ActivateResult {
 /** POST /v1/activate — enforce the seat limit atomically; reuse a device by name (PRD §9). */
 export function activate(deps: AppDeps, keyInput: string, instanceName: string): ActivateResult {
 	const { db } = deps;
-	const resolved = resolveLicenseThrottled(deps, keyInput);
+	const resolved = resolveLicense(deps, keyInput);
 	if (resolved.status === 'disabled') throw licenseDisabled();
 	const { license, product } = resolved;
 	const now = nowDate(deps);

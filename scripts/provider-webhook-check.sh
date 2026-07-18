@@ -23,12 +23,16 @@ read -r -p "Press enter once 'stripe listen' is running and the API has that sec
 # §20 names exactly these three. Each is triggered and then asserted against the API,
 # because a 200 from the webhook only proves we accepted it, not that we acted on it.
 say "1/3 checkout.session.completed — should issue a key"
-before=$(curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN:?set ADMIN_TOKEN}" \
-  "${BASE_URL}/admin/products/${PRODUCT}/keys" | grep -o '"key"' | wc -l)
+# grep exits 1 on no match, which under `set -e -o pipefail` would abort here — and a
+# product with zero keys is exactly the case worth testing. `|| true` keeps the count at 0.
+count_keys() {
+  curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN:?set ADMIN_TOKEN}" \
+    "${BASE_URL}/admin/products/${PRODUCT}/keys" | { grep -o '"key"' || true; } | wc -l
+}
+before=$(count_keys)
 stripe trigger checkout.session.completed
 sleep 4
-after=$(curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-  "${BASE_URL}/admin/products/${PRODUCT}/keys" | grep -o '"key"' | wc -l)
+after=$(count_keys)
 if [ "$after" -le "$before" ]; then
   echo "FAIL: no key was issued (before=$before after=$after)." >&2
   echo "Check that the product's stripe_price_lifetime matches the triggered price." >&2

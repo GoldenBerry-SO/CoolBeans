@@ -1,8 +1,8 @@
 {
 	"version": "6",
 	"dialect": "sqlite",
-	"id": "889aed32-7667-4e53-ad0d-96c1a21d64fb",
-	"prevId": "4932c447-44fd-4c6a-88df-c7f951394538",
+	"id": "0235739d-8fe7-4313-87a0-b98c80ba4bde",
+	"prevId": "889aed32-7667-4e53-ad0d-96c1a21d64fb",
 	"tables": {
 		"activations": {
 			"name": "activations",
@@ -361,6 +361,21 @@
 					"type": "text",
 					"primaryKey": false,
 					"notNull": true,
+					"autoincrement": false
+				},
+				"status": {
+					"name": "status",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": true,
+					"autoincrement": false,
+					"default": "'done'"
+				},
+				"claimed_at": {
+					"name": "claimed_at",
+					"type": "text",
+					"primaryKey": false,
+					"notNull": false,
 					"autoincrement": false
 				},
 				"received_at": {

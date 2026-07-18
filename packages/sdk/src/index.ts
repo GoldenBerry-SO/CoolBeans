@@ -115,6 +115,11 @@ export class CoolBeans {
 		return id;
 	}
 
+	/** The instance id from the last successful activate on this device, if any. */
+	instanceId(): string | null {
+		return this.storage.getItem(INSTANCE_KEY);
+	}
+
 	/** Activate this device. Fails closed if the returned product does not match. */
 	async activate(licenseKey: string, opts: { name?: string } = {}): Promise<ActivateResult> {
 		const body = { license_key: licenseKey, instance_name: opts.name ?? this.fingerprint() };

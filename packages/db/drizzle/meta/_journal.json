@@ -1,41 +1,41 @@
 {
-  "version": "7",
-  "dialect": "sqlite",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1784332794818,
-      "tag": "0000_clean_peter_quill",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1784357809888,
-      "tag": "0001_steep_madame_masque",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1784359282710,
-      "tag": "0002_large_malice",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1784359283710,
-      "tag": "0003_event_claims",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1784359284710,
-      "tag": "0004_product_archive",
-      "breakpoints": true
-    }
-  ]
+	"version": "7",
+	"dialect": "sqlite",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "6",
+			"when": 1784332794818,
+			"tag": "0000_clean_peter_quill",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "6",
+			"when": 1784357809888,
+			"tag": "0001_steep_madame_masque",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "6",
+			"when": 1784359282710,
+			"tag": "0002_large_malice",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "6",
+			"when": 1784359283710,
+			"tag": "0003_event_claims",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "6",
+			"when": 1784359284710,
+			"tag": "0004_product_archive",
+			"breakpoints": true
+		}
+	]
 }

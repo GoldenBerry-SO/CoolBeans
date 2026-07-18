@@ -107,17 +107,19 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 				})),
 			}),
 		);
-		try {
-			await deps.email.send({
+		// Deliberately NOT awaited: an unknown address returns immediately, so blocking a
+		// known one on an external send would make response time a buyer oracle. Failures
+		// are logged rather than surfaced, for the same reason.
+		void deps.email
+			.send({
 				from: rows[0].product.emailFrom,
 				to: body.email,
 				subject: 'Your Cool Beans license keys',
 				html,
+			})
+			.catch((err: Error) => {
+				deps.logger.error('Portal recovery email failed', { message: err.message });
 			});
-		} catch (err) {
-			// Never leak delivery failure into the uniform response.
-			deps.logger.error('Portal recovery email failed', { message: (err as Error).message });
-		}
 		return c.json(uniform);
 	});
 
@@ -131,7 +133,18 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			.where(eq(purchases.id, resolved.license.purchaseId))
 			.get();
 		const customerId = purchase?.providerCustomerId;
-		if (!purchase || !customerId || purchase.provider !== 'stripe' || !deps.stripe) {
+		// A lifetime Stripe checkout also has a customer id, so the customer alone is not
+		// enough: without a subscription there is genuinely nothing to manage, and sending
+		// them to a billing portal would be a dead end.
+		const hasSubscription =
+			Boolean(purchase?.providerSubscriptionId) || resolved.license.tier === 'yearly';
+		if (
+			!purchase ||
+			!customerId ||
+			!hasSubscription ||
+			purchase.provider !== 'stripe' ||
+			!deps.stripe
+		) {
 			// Lifetime and manually issued keys have nothing to manage; say so plainly.
 			throw new ApiError(
 				404,

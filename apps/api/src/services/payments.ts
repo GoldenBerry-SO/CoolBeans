@@ -42,6 +42,21 @@ export interface EnsureResult {
  * email send fails so the caller returns 500 and the provider retry re-attempts only email.
  */
 export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<EnsureResult> {
+	// A payment for an archived product should not happen (archiving is meant to stop
+	// sales), but if a checkout link was still live we must not take the money and
+	// deliver nothing. Issue, and make it loud enough that an operator notices.
+	if (args.product.archivedAt) {
+		deps.logger.error('Paid checkout for an archived product; issuing anyway', {
+			product: args.product.slug,
+			checkout: args.checkoutId,
+		});
+		writeAudit(deps.db, {
+			action: 'license.issued_for_archived_product',
+			actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
+			productId: args.product.id,
+			detail: { checkout: args.checkoutId, email: args.email },
+		});
+	}
 	const { db } = deps;
 	let created = false;
 
@@ -139,6 +154,31 @@ const CLAIM_STALE_MS = 5 * 60_000;
  * A claim older than CLAIM_STALE_MS is reclaimable so a crash mid-handler cannot
  * wedge an event forever.
  */
+export type ClaimResult = 'claimed' | 'done' | 'in_flight';
+
+export interface Claim {
+	result: ClaimResult;
+	/** The claimed_at stamp that identifies this claimant, for fencing completion. */
+	token?: string;
+}
+
+/**
+ * As claimEvent, but distinguishing an event that already finished from one another
+ * worker is holding. The difference matters: acknowledging an in-flight event tells the
+ * provider to stop retrying, and if that worker crashed the work is lost forever.
+ */
+export function claimEventStatus(
+	deps: AppDeps,
+	event: { id: string; provider: string; type: string },
+): Claim {
+	if (claimEvent(deps, event)) {
+		const row = deps.db.select().from(providerEvents).where(eq(providerEvents.id, event.id)).get();
+		return { result: 'claimed', token: row?.claimedAt ?? undefined };
+	}
+	const row = deps.db.select().from(providerEvents).where(eq(providerEvents.id, event.id)).get();
+	return { result: row?.status === 'processing' ? 'in_flight' : 'done' };
+}
+
 export function claimEvent(
 	deps: AppDeps,
 	event: { id: string; provider: string; type: string },
@@ -156,22 +196,26 @@ export function claimEvent(
 }
 
 /** Mark a claimed event fully processed (including its email). */
-export function completeEvent(deps: AppDeps, eventId: string): void {
-	deps.db
-		.update(providerEvents)
-		.set({ status: 'done', claimedAt: null })
-		.where(eq(providerEvents.id, eventId))
-		.run();
+export function completeEvent(deps: AppDeps, eventId: string, claimToken?: string): void {
+	// Fenced by the claim stamp: if a stale takeover happened, the original worker's
+	// late completion must not mark the successor's work done.
+	const where = claimToken
+		? and(eq(providerEvents.id, eventId), eq(providerEvents.claimedAt, claimToken))
+		: eq(providerEvents.id, eventId);
+	deps.db.update(providerEvents).set({ status: 'done', claimedAt: null }).where(where).run();
 }
 
 /**
  * Give up a claim after a failed handler, so the provider's retry re-enters the
  * idempotent path rather than being deduped away with the work half-done.
  */
-export function releaseEvent(deps: AppDeps, eventId: string): void {
+export function releaseEvent(deps: AppDeps, eventId: string, claimToken?: string): void {
+	// Same fence: only the current claimant may hand the event back.
+	const conditions = [eq(providerEvents.id, eventId), eq(providerEvents.status, 'processing')];
+	if (claimToken) conditions.push(eq(providerEvents.claimedAt, claimToken));
 	deps.db
 		.delete(providerEvents)
-		.where(and(eq(providerEvents.id, eventId), eq(providerEvents.status, 'processing')))
+		.where(and(...conditions))
 		.run();
 }
 

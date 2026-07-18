@@ -6,7 +6,7 @@ import { getProductBySlug } from '../store/products.js';
 import { disableLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
-	claimEvent,
+	claimEventStatus,
 	completeEvent,
 	ensureLicense,
 	findLicenseByProviderId,
@@ -57,14 +57,25 @@ function findLicenseByAnyId(deps: AppDeps, candidates: Array<string | null>) {
  * provider's retry re-enters, and marked done only on full success (issue #34).
  */
 export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<void> {
-	if (!claimEvent(deps, { id: event.id, provider: 'paypal', type: event.event_type })) return;
+	const claim = claimEventStatus(deps, {
+		id: event.id,
+		provider: 'paypal',
+		type: event.event_type,
+	});
+	// Already finished: acknowledge so the provider stops retrying.
+	if (claim.result === 'done') return;
+	// Someone else is mid-flight. Answering 200 would end the retries, and if that
+	// worker died the issuance or refund would never happen — so fail retryably.
+	if (claim.result === 'in_flight') {
+		throw new Error(`Event ${event.id} is already being processed; retry shortly.`);
+	}
 	try {
 		await processPayPalEvent(deps, event);
 	} catch (err) {
-		releaseEvent(deps, event.id);
+		releaseEvent(deps, event.id, claim.token);
 		throw err;
 	}
-	completeEvent(deps, event.id);
+	completeEvent(deps, event.id, claim.token);
 }
 
 async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<void> {
@@ -222,11 +233,15 @@ export async function ensureLicenseForOrder(
 		return false;
 	}
 
-	const email =
-		pickString(order, ['payer', 'email_address']) ??
-		pickString(order, ['purchase_units', '0', 'payee', 'email_address']) ??
-		'';
-	if (!email) return false;
+	// payee is the MERCHANT receiving the money, never the buyer: falling back to it
+	// would store the seller as the customer and email them their own product's key.
+	const email = pickString(order, ['payer', 'email_address']) ?? '';
+	if (!email) {
+		deps.logger.error('PayPal order has no payer email; refusing to guess a recipient', {
+			order: orderId,
+		});
+		return false;
+	}
 
 	await ensureLicense(deps, {
 		product,

@@ -27,6 +27,8 @@ export interface EnsureArgs {
 	paymentId?: string | null;
 	amountTotal?: number | null;
 	currency?: string | null;
+	/** The provider event that caused this issuance, for the audit trail (§16). */
+	eventId?: string | null;
 }
 
 export interface EnsureResult {
@@ -71,7 +73,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 					purchaseId: purchase.id,
 					tier: args.tier,
 					expiresAt: args.expiresAt,
-					actor: `${args.provider}:${args.checkoutId}`,
+					actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
 				});
 				// Durable backstop: if inline send and provider retries all fail, the worker sends later.
 				enqueue(

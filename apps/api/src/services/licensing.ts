@@ -8,9 +8,16 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { looksLikeKey, normalizeAgainst, toDisplayKey } from '../domain/keygen.js';
-import { activationLimitReached, invalidKey, licenseDisabled, unknownKey } from '../http/errors.js';
+import {
+	ApiError,
+	activationLimitReached,
+	invalidKey,
+	licenseDisabled,
+	unknownKey,
+} from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
 import { getProductById, listPrefixes } from '../store/products.js';
+import { assertKeyNotThrottled, clearKeyFailures, recordKeyFailure } from './key-throttle.js';
 import { mintToken } from './signing.js';
 
 export interface ResolvedLicense {
@@ -25,6 +32,25 @@ export interface ResolvedLicense {
  * Throws invalid_key (422) if the format fails, unknown_key (404) if not found.
  * Lazily disables an expired trial and records the reason.
  */
+/**
+ * Resolve with the per-key brute-force throttle applied (issue #39). Public endpoints
+ * use this; internal callers that already hold a license row do not need it.
+ */
+export function resolveLicenseThrottled(deps: AppDeps, keyInput: string): ResolvedLicense {
+	assertKeyNotThrottled(deps, keyInput);
+	try {
+		const resolved = resolveLicense(deps, keyInput);
+		clearKeyFailures(deps, keyInput);
+		return resolved;
+	} catch (err) {
+		// Only a failed *lookup* counts: a disabled key is a definitive answer, not a probe.
+		if (err instanceof ApiError && (err.code === 'unknown_key' || err.code === 'invalid_key')) {
+			recordKeyFailure(deps, keyInput);
+		}
+		throw err;
+	}
+}
+
 export function resolveLicense(deps: AppDeps, keyInput: string): ResolvedLicense {
 	const { db } = deps;
 	// Format check before any storage hit (§10, §19): malformed input never reaches the DB.
@@ -83,7 +109,7 @@ export interface ActivateResult {
 /** POST /v1/activate — enforce the seat limit atomically; reuse a device by name (PRD §9). */
 export function activate(deps: AppDeps, keyInput: string, instanceName: string): ActivateResult {
 	const { db } = deps;
-	const resolved = resolveLicense(deps, keyInput);
+	const resolved = resolveLicenseThrottled(deps, keyInput);
 	if (resolved.status === 'disabled') throw licenseDisabled();
 	const { license, product } = resolved;
 	const now = nowDate(deps);

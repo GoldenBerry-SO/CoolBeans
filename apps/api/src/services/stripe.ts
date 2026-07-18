@@ -106,6 +106,7 @@ export async function ensureLicenseForSession(
 	const result = await ensureLicense(deps, {
 		product,
 		provider: 'stripe',
+		eventId: actorEventId,
 		checkoutId: str(obj, 'id') ?? actorEventId,
 		tier,
 		email,

@@ -7,6 +7,7 @@ import { createLogger } from '@coolbeans/logger';
 import { createApp } from '../app.js';
 import type { Config } from '../config.js';
 import type { AppDeps } from '../deps.js';
+import { resetKeyThrottle } from '../services/key-throttle.js';
 
 export interface FakeClock {
 	now(): Date;
@@ -138,6 +139,8 @@ export interface TestHarness {
 export function makeHarness(
 	overrides: { config?: Partial<Config>; rateLimit?: AppDeps['rateLimit'] } = {},
 ): TestHarness {
+	// Throttle state is module-level, so each harness starts from a clean slate.
+	resetKeyThrottle();
 	const db = createDb(openSqlite(':memory:'));
 	migrate(db);
 	const clock = fakeClock();

@@ -98,6 +98,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			await ensureLicense(deps, {
 				product,
 				provider: 'paypal',
+				eventId: event.id,
 				checkoutId: orderId ?? event.id,
 				tier,
 				email,
@@ -120,6 +121,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			await ensureLicense(deps, {
 				product,
 				provider: 'paypal',
+				eventId: event.id,
 				checkoutId: subId,
 				tier: 'yearly',
 				email,

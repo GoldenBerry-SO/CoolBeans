@@ -21,3 +21,45 @@ describe('createApp', () => {
 		expect(doc.info.title).toBe('Cool Beans API');
 	});
 });
+
+describe('OpenAPI document (issue #48)', () => {
+	it('describes the frozen public contract instead of advertising nothing', async () => {
+		const h = makeHarness();
+		const res = await h.app.request('/doc');
+		const doc = (await res.json()) as { paths: Record<string, unknown> };
+		expect(Object.keys(doc.paths ?? {}).sort()).toEqual([
+			'/v1/activate',
+			'/v1/deactivate',
+			'/v1/heartbeat',
+			'/v1/pubkey',
+			'/v1/usage',
+			'/v1/usage/increment',
+			'/v1/validate',
+		]);
+	});
+
+	it('never documents a path that is not actually served', async () => {
+		const h = makeHarness();
+		const res = await h.app.request('/doc');
+		const doc = (await res.json()) as {
+			paths: Record<string, Record<string, unknown>>;
+		};
+		for (const [path, methods] of Object.entries(doc.paths)) {
+			for (const method of Object.keys(methods)) {
+				const probe = await h.app.request(path, {
+					method: method.toUpperCase(),
+					headers: { 'Content-Type': 'application/json' },
+					...(method === 'get' ? {} : { body: '{}' }),
+				});
+				// A documented path must be served. The request itself is expected to be
+				// rejected for missing fields, so any handled status proves the route exists;
+				// an unrouted path would fall through to Hono's bare 404 with no envelope.
+				expect([200, 400, 401, 404, 422, 429]).toContain(probe.status);
+				if (probe.status === 404) {
+					const body = (await probe.json()) as { error?: string };
+					expect(body.error).toBeTruthy();
+				}
+			}
+		}
+	});
+});

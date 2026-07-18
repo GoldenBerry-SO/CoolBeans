@@ -54,6 +54,15 @@ export function reapFloatingLeases(deps: AppDeps): number {
 			),
 		)
 		.run();
+	// §16 says every state change is auditable; an automated seat release is a state
+	// change even though no human asked for it.
+	if (result.changes > 0) {
+		writeAudit(deps.db, {
+			action: 'lease.reaped',
+			actor: 'system',
+			detail: { seats_freed: result.changes },
+		});
+	}
 	return result.changes;
 }
 

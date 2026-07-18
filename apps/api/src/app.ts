@@ -7,6 +7,7 @@ import { cors } from 'hono/cors';
 import { logger as requestLogger } from 'hono/logger';
 import type { AppDeps } from './deps.js';
 import { toErrorResponse } from './http/errors.js';
+import { publicPaths } from './http/openapi.js';
 import { redactLogLine } from './http/redact.js';
 import { registerAdminRoutes } from './routes/admin/index.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -46,15 +47,21 @@ export function createApp(deps: AppDeps) {
 	registerAuthRoutes(app, deps);
 	registerAdminRoutes(app, deps);
 
-	app.doc('/doc', {
-		openapi: '3.1.0',
-		info: {
-			title: 'Cool Beans API',
-			version: '0.0.0',
-			description:
-				'The open-source license layer. Issue a key, activate it, check it is still good.',
-		},
-	});
+	// Served directly rather than through app.doc(): that helper only collects routes
+	// declared via app.openapi(), and ours are plain handlers, so it would publish an
+	// empty document. The frozen §9 surface is described explicitly and pinned by a test.
+	app.get('/doc', (c) =>
+		c.json({
+			openapi: '3.1.0',
+			info: {
+				title: 'Cool Beans API',
+				version: '0.0.0',
+				description:
+					'The open-source license layer. Issue a key, activate it, check it is still good. This document covers the frozen public contract (PRD §9) that products build against; the admin surface is described in docs/PRD.md §16.',
+			},
+			paths: publicPaths,
+		}),
+	);
 	app.get('/docs', Scalar({ url: '/doc' }));
 
 	return app;

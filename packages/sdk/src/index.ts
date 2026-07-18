@@ -79,9 +79,15 @@ function memoryStorage(): Storage {
 }
 
 function defaultStorage(): Storage {
-	// Browsers get durable storage automatically; Node/Electron callers should inject their own.
+	// Browsers get durable storage automatically; Node/Electron callers should inject
+	// their own. Falling back to memory silently would mint a new device id on every
+	// restart and burn a seat each time, so say so loudly once.
 	const ls = (globalThis as { localStorage?: Storage }).localStorage;
-	return ls ?? memoryStorage();
+	if (ls) return ls;
+	console.warn(
+		'[coolbeans] No localStorage found and no storage option was passed, so this client is using in-memory storage. The device id and cached token will be lost on restart, and each restart consumes another activation seat. Pass a durable `storage` (for example one backed by a file or Electron store).',
+	);
+	return memoryStorage();
 }
 
 export class CoolBeans {
@@ -228,7 +234,16 @@ export class CoolBeans {
 
 	/** Free a seat. Idempotent server-side. */
 	async deactivate(licenseKey: string, opts: { instanceId: string }): Promise<void> {
-		await this.post('/v1/deactivate', { license_key: licenseKey, instance_id: opts.instanceId });
+		const res = await this.post('/v1/deactivate', {
+			license_key: licenseKey,
+			instance_id: opts.instanceId,
+		});
+		// The server is idempotent about already-freed seats, so a non-2xx here means the
+		// call genuinely did not happen. Resolving anyway would tell the caller a seat was
+		// freed when it was not, and they would stop retrying.
+		if (!res.ok) {
+			throw new CoolBeansError(res.status, await res.json().catch(() => null));
+		}
 	}
 
 	/** Embedded keys merged with any keyset persisted from a previous fetch. */

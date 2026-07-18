@@ -1,14 +1,42 @@
-// ABOUTME: Node (self-host) entrypoint — serves the app with @hono/node-server.
+// ABOUTME: Node (self-host / k8s) entrypoint — loads config, opens the DB, migrates, and serves.
 // ABOUTME: Reads configuration from process.env; see .env.example at the repo root.
 
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { createDb, migrate, openSqlite } from '@coolbeans/db';
 import { createLogger } from '@coolbeans/logger';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.js';
+import { loadConfig } from './config.js';
+import type { AppDeps } from './deps.js';
+import { resolveEmailSender } from './services/email.js';
 
 const logger = createLogger();
-const app = createApp({ logger });
-const port = Number(process.env.PORT ?? 3000);
 
-serve({ fetch: app.fetch, port }, (info) => {
+let config: ReturnType<typeof loadConfig>;
+try {
+	config = loadConfig();
+} catch (err) {
+	logger.error('Configuration error', { message: (err as Error).message });
+	process.exit(1);
+}
+
+if (!config.databaseUrl.startsWith('postgres')) {
+	// Ensure the SQLite directory exists before opening the file.
+	if (config.databaseUrl !== ':memory:')
+		mkdirSync(dirname(config.databaseUrl), { recursive: true });
+}
+const db = createDb(openSqlite(config.databaseUrl));
+migrate(db);
+
+const deps: AppDeps = {
+	db,
+	config,
+	logger,
+	email: resolveEmailSender(config, logger),
+};
+
+const app = createApp(deps);
+serve({ fetch: app.fetch, port: config.port }, (info) => {
 	logger.info('Cool Beans listening', { port: info.port });
 });

@@ -2,6 +2,7 @@
 // ABOUTME: Senders (Resend for the cloud, SMTP for self-host) implement the EmailSender interface.
 
 export { render } from '@react-email/render';
+export { createResendSender, createSmtpSender, type SmtpOptions } from './senders.js';
 export { LicenseKeyEmail, type LicenseKeyEmailProps } from './templates/license-key.js';
 
 export interface OutgoingEmail {

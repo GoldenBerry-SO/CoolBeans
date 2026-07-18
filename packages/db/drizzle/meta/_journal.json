@@ -43,6 +43,13 @@
       "when": 1784396057855,
       "tag": "0005_pending_revocations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1784396420729,
+      "tag": "0006_validation_counters",
+      "breakpoints": true
     }
   ]
 }

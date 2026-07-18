@@ -1,11 +1,42 @@
-// ABOUTME: Overview page (PRD §16) — stat columns, recent activity, and an audit preview.
-// ABOUTME: Stats from GET /admin/stats; activity and the preview from GET /admin/audit.
+// ABOUTME: Overview page (PRD §16) — stat columns, validation traffic, recent activity, audit preview.
+// ABOUTME: Stats from GET /admin/stats; the chart from GET /admin/validations; activity from /admin/audit.
 
 import { Link } from '@tanstack/react-router';
 import { Card, EmptyState } from '../components/ui.js';
 import { actionVerb, detailHighlight, formatDetail } from '../lib/audit-format.js';
-import { useAudit, useStats } from '../lib/queries.js';
+import { useAudit, useStats, useValidations, type ValidationDay } from '../lib/queries.js';
 import type { AuditEntry } from '../lib/types.js';
+
+/** Bars for the 16-day validation window. A day with no traffic still gets a slot. */
+function ValidationChart({ days }: { days: ValidationDay[] }) {
+	const peak = Math.max(...days.map((d) => d.count), 1);
+	const total = days.reduce((sum, d) => sum + d.count, 0);
+	if (total === 0) {
+		return (
+			<div className="flex h-[150px] items-center justify-center text-[12.5px] text-ink-faint">
+				No validations yet. This fills in as customers run your software.
+			</div>
+		);
+	}
+	return (
+		<div className="flex h-[150px] items-end gap-[6px]">
+			{days.map((d) => (
+				// h-full matters: without it the column is content-height and a
+				// percentage bar resolves against zero, so nothing draws.
+				<div key={d.day} className="group relative flex h-full flex-1 flex-col justify-end">
+					<div
+						className="w-full rounded-[3px] bg-meter-ok transition-[height]"
+						// A day with traffic keeps a visible sliver rather than vanishing.
+						style={{ height: `${d.count === 0 ? 0 : Math.max((d.count / peak) * 100, 4)}%` }}
+					/>
+					<div className="-translate-x-1/2 pointer-events-none absolute bottom-full left-1/2 mb-1 hidden whitespace-nowrap rounded-[5px] bg-ink px-2 py-1 font-mono text-[11px] text-white group-hover:block">
+						{d.day} · {d.count}
+					</div>
+				</div>
+			))}
+		</div>
+	);
+}
 
 function actionColor(action: string): string {
 	if (action.startsWith('license.issued') || action.startsWith('license.enabled'))
@@ -41,6 +72,7 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
 export function OverviewPage() {
 	const stats = useStats();
 	const audit = useAudit();
+	const validations = useValidations();
 	const tiles = [
 		{ label: 'Products', value: stats.data?.products, hint: 'onboarded' },
 		{ label: 'Active licenses', value: stats.data?.active_licenses, hint: 'across all products' },
@@ -67,12 +99,18 @@ export function OverviewPage() {
 					<div className="mb-[18px] flex items-baseline justify-between">
 						<div>
 							<div className="font-semibold text-[13px]">Validations</div>
-							<div className="text-[11.5px] text-ink-faint">edge reads · coming soon</div>
+							<div className="text-[11.5px] text-ink-faint">
+								last 16 days · {validations.data?.reduce((s, d) => s + d.count, 0) ?? 0} checks
+							</div>
 						</div>
 					</div>
-					<div className="flex h-[150px] items-center justify-center text-[12.5px] text-ink-faint">
-						Validation traffic charts land with the metrics pipeline.
-					</div>
+					{validations.data ? (
+						<ValidationChart days={validations.data} />
+					) : (
+						<div className="flex h-[150px] items-center justify-center text-[12.5px] text-ink-faint">
+							Loading…
+						</div>
+					)}
 				</Card>
 				<Card className="px-5 py-[18px]">
 					<div className="mb-[15px] font-semibold text-[13px]">Recent activity</div>

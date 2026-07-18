@@ -163,6 +163,19 @@ export function useStats() {
 	});
 }
 
+export interface ValidationDay {
+	day: string;
+	count: number;
+}
+
+export function useValidations() {
+	return useQuery({
+		queryKey: ['validations'],
+		queryFn: () =>
+			api<{ validations: ValidationDay[] }>('GET', '/admin/validations').then((r) => r.validations),
+	});
+}
+
 export function useAudit() {
 	return useQuery({
 		queryKey: ['audit'],

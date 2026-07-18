@@ -11,6 +11,7 @@ import { consoleAuth } from '../../middleware/console-auth.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { rotateKey } from '../../services/signing.js';
 import { connectStripe } from '../../services/stripe-connect.js';
+import { recentValidationCounts } from '../../services/validation-stats.js';
 import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug } from '../../store/products.js';
 import { registerAdminKeyRoutes } from './keys.js';
@@ -38,6 +39,18 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 				total_licenses: count('SELECT COUNT(*) n FROM licenses'),
 				live_activations: count('SELECT COUNT(*) n FROM activations WHERE deactivated_at IS NULL'),
 			},
+		});
+	});
+
+	// Validation traffic for the Overview chart (issue #37). Sixteen days to match the
+	// design; missing days come back as zero so the chart never has holes in it.
+	admin.get('/validations', (c) => {
+		const productSlug = c.req.query('product');
+		const product = productSlug ? getProductBySlug(deps.db, productSlug) : undefined;
+		if (productSlug && !product) throw notFound('No product with that slug.');
+		return c.json({
+			ok: true,
+			validations: recentValidationCounts(deps, { days: 16, productId: product?.id }),
 		});
 	});
 

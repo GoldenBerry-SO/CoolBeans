@@ -54,8 +54,12 @@ export function LoginScreen() {
 	const [code, setCode] = useState('');
 	const [adminToken, setAdminTokenInput] = useState('');
 	const [showTokenInput, setShowTokenInput] = useState(false);
+	// The email/code path and the self-host token path can be on screen at the
+	// same time, so each tracks its own pending and error state.
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [tokenError, setTokenError] = useState<string | null>(null);
+	const [tokenBusy, setTokenBusy] = useState(false);
 
 	async function requestCode() {
 		setError(null);
@@ -72,8 +76,8 @@ export function LoginScreen() {
 	}
 
 	async function tokenSignIn() {
-		setError(null);
-		setBusy(true);
+		setTokenError(null);
+		setTokenBusy(true);
 		try {
 			// Prove the token works before storing it, so a typo can't strand
 			// the user inside a dashboard of 401s.
@@ -83,9 +87,9 @@ export function LoginScreen() {
 			if (!res.ok) throw new Error('unauthorized');
 			signIn(adminToken);
 		} catch {
-			setError("That token didn't work. Check ADMIN_TOKEN in your env.");
+			setTokenError("That token didn't work. Check ADMIN_TOKEN in your env.");
 		} finally {
-			setBusy(false);
+			setTokenBusy(false);
 		}
 	}
 
@@ -132,9 +136,7 @@ export function LoginScreen() {
 							placeholder="you@company.com"
 							className={`${loginInput} mt-[7px]`}
 						/>
-						{error && !showTokenInput ? (
-							<p className="mt-2 mb-0 text-[12.5px] text-danger">{error}</p>
-						) : null}
+						{error ? <p className="mt-2 mb-0 text-[12.5px] text-danger">{error}</p> : null}
 						<AccentButton
 							className="mt-[18px] w-full justify-center py-[11px] text-[14px]"
 							onClick={() => email && requestCode()}
@@ -156,12 +158,14 @@ export function LoginScreen() {
 									placeholder="ADMIN_TOKEN"
 									className={`${loginInput} font-mono text-[13px]`}
 								/>
-								{error ? <p className="mt-2 mb-0 text-[12.5px] text-danger">{error}</p> : null}
+								{tokenError ? (
+									<p className="mt-2 mb-0 text-[12.5px] text-danger">{tokenError}</p>
+								) : null}
 								<InkButton
 									className="mt-2.5 w-full justify-center py-[11px] text-[14px]"
 									onClick={() => adminToken && tokenSignIn()}
 								>
-									{busy ? 'Checking…' : 'Sign in with token'}
+									{tokenBusy ? 'Checking…' : 'Sign in with token'}
 								</InkButton>
 							</div>
 						) : (
@@ -169,10 +173,7 @@ export function LoginScreen() {
 								Running your own instance? Sign in with the{' '}
 								<button
 									type="button"
-									onClick={() => {
-										setError(null);
-										setShowTokenInput(true);
-									}}
+									onClick={() => setShowTokenInput(true)}
 									className="cursor-pointer border-none bg-transparent p-0 font-mono text-[12.5px] text-ink-muted underline decoration-ink/20 hover:text-ink"
 								>
 									ADMIN_TOKEN

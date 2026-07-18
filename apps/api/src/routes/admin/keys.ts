@@ -51,6 +51,11 @@ function adminLicenseView(deps: AppDeps, license: License, product: Product) {
 			and(eq(activations.licenseId, license.id), isNull(activations.deactivatedAt), leaseCondition),
 		)
 		.all().length;
+	const purchase = deps.db
+		.select({ email: purchases.email })
+		.from(purchases)
+		.where(eq(purchases.id, license.purchaseId))
+		.get();
 	return {
 		...serializeLicense(license, product),
 		id: license.id,
@@ -60,6 +65,7 @@ function adminLicenseView(deps: AppDeps, license: License, product: Product) {
 		email_sent_at: license.emailSentAt,
 		live_seats: liveSeats,
 		activation_limit: product.activationLimit,
+		customer_email: purchase?.email ?? null,
 	};
 }
 

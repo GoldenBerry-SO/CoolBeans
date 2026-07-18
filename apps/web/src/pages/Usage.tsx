@@ -5,7 +5,7 @@ import { Card, CardHeader, EmptyState } from '../components/ui.js';
 
 export function UsagePage() {
 	return (
-		<div className="cbin max-w-[1180px]">
+		<div className="cbin">
 			<Card className="overflow-hidden">
 				<CardHeader
 					title={

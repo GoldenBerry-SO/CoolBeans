@@ -2,6 +2,7 @@
 // ABOUTME: The token lives in localStorage; the dev server proxies /admin and /v1 to the API.
 
 const TOKEN_KEY = 'coolbeans.admin_token';
+const EMAIL_KEY = 'coolbeans.admin_email';
 
 // Guard against non-browser contexts (server-side test rendering).
 const store = typeof localStorage !== 'undefined' ? localStorage : null;
@@ -14,6 +15,13 @@ export function setToken(token: string): void {
 }
 export function clearToken(): void {
 	store?.removeItem(TOKEN_KEY);
+	store?.removeItem(EMAIL_KEY);
+}
+export function getAdminEmail(): string | null {
+	return store?.getItem(EMAIL_KEY) ?? null;
+}
+export function setAdminEmail(email: string): void {
+	store?.setItem(EMAIL_KEY, email);
 }
 
 export class ApiError extends Error {

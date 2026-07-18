@@ -1,7 +1,7 @@
 // ABOUTME: Admin product routes (PRD §16) — create/update products and define metered metrics.
 // ABOUTME: Bearer-token authed upstream; uniqueness violations surface as the uniform envelope.
 
-import { metrics, products } from '@coolbeans/db';
+import { licenses, metrics, products } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -124,7 +124,27 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		return c.json({ ok: true, product: updated });
 	});
 
-	admin.get('/products', (c) => c.json({ ok: true, products: listProducts(deps.db) }));
+	admin.get('/products', (c) => {
+		// The console's product cards show key counts; one grouped pass covers every product.
+		const counts = new Map<number, { total: number; active: number }>();
+		for (const row of deps.db
+			.select({ productId: licenses.productId, status: licenses.status })
+			.from(licenses)
+			.all()) {
+			const entry = counts.get(row.productId) ?? { total: 0, active: 0 };
+			entry.total += 1;
+			if (row.status === 'active') entry.active += 1;
+			counts.set(row.productId, entry);
+		}
+		return c.json({
+			ok: true,
+			products: listProducts(deps.db).map((p) => ({
+				...p,
+				keysTotal: counts.get(p.id)?.total ?? 0,
+				keysActive: counts.get(p.id)?.active ?? 0,
+			})),
+		});
+	});
 
 	admin.get('/products/:slug', (c) => {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));

@@ -2,20 +2,24 @@
 @import "tailwindcss";
 
 @theme {
-	--font-sans: "IBM Plex Sans", system-ui, sans-serif;
+	--font-sans: "Instrument Sans", "IBM Plex Sans", system-ui, sans-serif;
 	--font-mono: "IBM Plex Mono", monospace;
 
 	--color-canvas: #f6f5f1;
-	--color-surface: #fbfaf7;
 	--color-card: #ffffff;
 	--color-fill-soft: #faf9f5;
 	--color-fill: #f4f2ec;
 	--color-track: #eceae3;
 
 	--color-ink: #1a1a19;
+	--color-ink-heading: #2a2a26;
 	--color-ink-secondary: #4a4a44;
+	--color-ink-body: #3a3a36;
 	--color-ink-muted: #6e6e68;
+	--color-ink-soft: #7a7a72;
+	--color-ink-label: #8a8a82;
 	--color-ink-faint: #9a9a92;
+	--color-ink-ghost: #b8b8af;
 
 	--color-accent: #c8ff4d;
 	--color-accent-hover: #bcf53f;
@@ -23,6 +27,7 @@
 
 	--color-positive: #4d6b16;
 	--color-positive-deep: #3d6b16;
+	--color-positive-nav: #3f6b12;
 	--color-positive-tint: #eef7d3;
 	--color-positive-border: #d4e9a6;
 
@@ -36,6 +41,10 @@
 	--color-warn-border: #f0dcae;
 
 	--color-tier-lifetime: #6b5bd6;
+	--color-stripe: #635bff;
+
+	--color-meter-ok: #8fbf3f;
+	--color-meter-near: #e8a33a;
 }
 
 html,
@@ -46,7 +55,7 @@ body,
 
 body {
 	margin: 0;
-	background: var(--color-canvas);
+	background: var(--color-card);
 	color: var(--color-ink);
 	font-family: var(--font-sans);
 	font-size: 14px;
@@ -58,6 +67,9 @@ a {
 	color: var(--color-positive);
 	text-decoration: none;
 }
+a:hover {
+	color: #3a5210;
+}
 
 ::-webkit-scrollbar {
 	width: 12px;
@@ -66,7 +78,7 @@ a {
 ::-webkit-scrollbar-thumb {
 	background: rgb(26 26 25 / 0.18);
 	border-radius: 8px;
-	border: 3px solid var(--color-canvas);
+	border: 3px solid var(--color-card);
 }
 ::-webkit-scrollbar-track {
 	background: transparent;

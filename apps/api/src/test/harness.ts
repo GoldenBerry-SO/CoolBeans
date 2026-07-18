@@ -3,7 +3,6 @@
 
 import { createDb, migrate, openSqlite } from '@coolbeans/db';
 import type { EmailSender, OutgoingEmail } from '@coolbeans/email';
-import { createLogger } from '@coolbeans/logger';
 import { createApp } from '../app.js';
 import type { Config } from '../config.js';
 import type { AppDeps } from '../deps.js';
@@ -58,6 +57,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 		signingKeySecret: 'test-signing-secret-0123456789',
 		tokenTtlDays: 7,
 		publicUrl: 'http://localhost:3000',
+		logMagicCodes: false,
 		...overrides,
 	};
 }
@@ -133,7 +133,33 @@ export interface TestHarness {
 	app: ReturnType<typeof createApp>;
 	clock: FakeClock;
 	email: CapturingEmail;
+	logger: ReturnType<typeof capturingLogger>;
 	adminHeaders: Record<string, string>;
+}
+
+export interface CapturedLine {
+	level: string;
+	message: string;
+	fields?: Record<string, unknown>;
+}
+
+/** A logger that records everything, so a test can assert a secret was NOT logged. */
+export function capturingLogger() {
+	const lines: CapturedLine[] = [];
+	const at = (level: string) => (message: string, fields?: Record<string, unknown>) => {
+		lines.push({ level, message, fields });
+	};
+	const logger = {
+		lines,
+		debug: at('debug'),
+		info: at('info'),
+		warn: at('warn'),
+		error: at('error'),
+		child() {
+			return logger;
+		},
+	};
+	return logger;
 }
 
 export function makeHarness(
@@ -145,10 +171,11 @@ export function makeHarness(
 	migrate(db);
 	const clock = fakeClock();
 	const email = capturingEmail();
+	const logger = capturingLogger();
 	const deps: AppDeps = {
 		db,
 		config: testConfig(overrides.config),
-		logger: createLogger({ level: 'error' }),
+		logger,
 		email,
 		rateLimit: overrides.rateLimit,
 		now: () => clock.now(),
@@ -158,6 +185,7 @@ export function makeHarness(
 		app: createApp(deps),
 		clock,
 		email,
+		logger,
 		adminHeaders: {
 			Authorization: `Bearer ${TEST_ADMIN_TOKEN}`,
 			'Content-Type': 'application/json',

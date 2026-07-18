@@ -1,7 +1,7 @@
 # Cool Beans — PRD validation
 
 A section-by-section check of the v1 build against `docs/PRD.md`. Every row names where the behavior
-lives and how it's verified. Test totals at time of writing: **212 automated tests** (179 API, 16 SDK,
+lives and how it's verified. Test totals at time of writing: **216 automated tests** (183 API, 16 SDK,
 4 DB, 4 web, 4 logger, 3 CLI, 2 email) plus a **Docker Compose smoke test** that boots the stack and
 issues a first key.
 

@@ -31,6 +31,23 @@ Postgres). Deployed to our k8s infra like pleasehold; self-host via docker compo
 - Webhook handlers verify signatures before parsing bodies, and are idempotent two ways:
   `provider_events` dedupe + `purchases.provider_checkout_id UNIQUE`.
 
+## Review practice
+
+Anything touching concurrency or exactly-once behaviour — webhook/event claims, activation
+seats, usage quotas, floating leases, throttles — gets an OpenAI Codex review before it
+merges:
+
+```
+npx @openai/codex review --base main -c model_reasoning_effort="xhigh"
+```
+
+This is in addition to TDD, not instead of it. It earned its place: Codex twice found real
+defects in concurrency code that already had passing tests, because those tests exercised
+the interleavings the author had already thought of. Verify each finding against the code
+before acting — it over-reports occasionally. When a race can't be staged against the
+synchronous SQLite driver, extract the decision into a pure function and test that, rather
+than shipping a test that can't fail.
+
 ## Reference material
 
 - `temporal/keygate` — a Go license service we cloned for domain reference (gitignored). Look at

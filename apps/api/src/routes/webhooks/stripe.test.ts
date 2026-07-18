@@ -496,6 +496,73 @@ describe('Stripe webhook', () => {
 		})();
 	});
 
+	it('keeps a parked refund when a dispute on the same payment is won', async () => {
+		// Both park against the same payment intent. Winning the dispute drops the
+		// chargeback, but the money was still refunded, so access must not be issued.
+		await webhook(h.app, {
+			id: 'evt_early_refund_2',
+			type: 'charge.refunded',
+			data: {
+				object: {
+					id: 'ch_1',
+					payment_intent: 'pi_1',
+					amount_captured: 4900,
+					amount_refunded: 4900,
+				},
+			},
+		});
+		await webhook(h.app, {
+			id: 'evt_dispute_2',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_won_2',
+			type: 'charge.dispute.closed',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1', status: 'won' } },
+		});
+		await webhook(h.app, checkout());
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'the refund still stands even though we won the dispute').toBe(
+			'disabled',
+		);
+		expect(keys[0]?.disabled_reason).toBe('refund');
+	});
+
+	it('keeps a parked refund when the DISPUTE was parked first and then won', async () => {
+		// Order matters. If both causes share one row, the dispute lands first, the refund
+		// is swallowed as a duplicate, and winning the dispute deletes the only record —
+		// so the checkout behind it issues a working key for money we refunded.
+		await webhook(h.app, {
+			id: 'evt_dispute_3',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_refund_3',
+			type: 'charge.refunded',
+			data: {
+				object: {
+					id: 'ch_1',
+					payment_intent: 'pi_1',
+					amount_captured: 4900,
+					amount_refunded: 4900,
+				},
+			},
+		});
+		await webhook(h.app, {
+			id: 'evt_won_3',
+			type: 'charge.dispute.closed',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1', status: 'won' } },
+		});
+		await webhook(h.app, checkout());
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'the refund still stands even though we won the dispute').toBe(
+			'disabled',
+		);
+		expect(keys[0]?.disabled_reason).toBe('refund');
+	});
+
 	it('flags a checkout that paid for several units but gets one key', async () => {
 		// A landing page with adjustable quantity (or quantity: 3) charges three times
 		// and still gets exactly one licence. We cannot un-charge them, but leaving no

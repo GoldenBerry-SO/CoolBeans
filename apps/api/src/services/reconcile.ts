@@ -82,8 +82,12 @@ export function applyPendingRevocation(
 	const refs = args.references.filter((r): r is string => Boolean(r));
 	if (refs.length === 0) return args.license;
 
+	let license = args.license;
 	for (const reference of refs) {
-		const row = deps.db
+		// Every outstanding cause, not just the first. A refund and a chargeback can both
+		// be parked against one payment, and leaving either unconsumed would let a later
+		// restore hand back access the other one still forbids.
+		const rows = deps.db
 			.select()
 			.from(pendingRevocations)
 			.where(
@@ -93,20 +97,20 @@ export function applyPendingRevocation(
 					isNull(pendingRevocations.consumedAt),
 				),
 			)
-			.get();
-		if (!row) continue;
+			.all();
 
-		const disabled = disableLicense(deps, {
-			license: args.license,
-			reason: row.reason as DisableReason,
-			actor: `${args.provider}:${row.eventId}`,
-		});
-		deps.db
-			.update(pendingRevocations)
-			.set({ consumedAt: nowDate(deps).toISOString() })
-			.where(eq(pendingRevocations.id, row.id))
-			.run();
-		return disabled;
+		for (const row of rows) {
+			license = disableLicense(deps, {
+				license,
+				reason: row.reason as DisableReason,
+				actor: `${args.provider}:${row.eventId}`,
+			});
+			deps.db
+				.update(pendingRevocations)
+				.set({ consumedAt: nowDate(deps).toISOString() })
+				.where(eq(pendingRevocations.id, row.id))
+				.run();
+		}
 	}
-	return args.license;
+	return license;
 }

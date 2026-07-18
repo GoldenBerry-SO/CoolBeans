@@ -116,6 +116,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			prices: { lifetimePriceId: result.lifetimePriceId, yearlyPriceId: result.yearlyPriceId },
 			webhook_path: result.webhookPath,
 			secret_rotated: result.secretRotated,
+			dunning: result.dunning,
 		});
 	});
 

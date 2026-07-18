@@ -57,6 +57,13 @@
       "when": 1784397854517,
       "tag": "0007_license_revocations",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1784398430024,
+      "tag": "0008_revocation_cause_key",
+      "breakpoints": true
     }
   ]
 }

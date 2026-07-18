@@ -18,8 +18,10 @@ export const pendingRevocations = sqliteTable(
 		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 		consumedAt: text('consumed_at'),
 	},
-	// One row per reference: a redelivered refund must not stack up claims.
-	(t) => [uniqueIndex('idx_pending_revocations_ref').on(t.provider, t.reference)],
+	// One row per (reference, cause). Keying on the reference alone let a dispute and a
+	// refund for the same payment share a row, so clearing the dispute threw away the
+	// refund too. A redelivery of the same cause still collapses into one row.
+	(t) => [uniqueIndex('idx_pending_revocations_ref').on(t.provider, t.reference, t.reason)],
 );
 
 export type PendingRevocation = typeof pendingRevocations.$inferSelect;

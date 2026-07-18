@@ -242,10 +242,43 @@ function ProductDialog({ product, onClose }: { product?: Product; onClose: () =>
 }
 
 function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: () => void }) {
+	// The signing secret is stored per product, so only the per-product route can verify
+	// those deliveries. Recommending the global path here wired people up to an endpoint
+	// that rejected every event.
+	const suggestedPath = `/v1/stripe/webhook/${product.slug}`;
 	const [webhookUrl, setWebhookUrl] = useState('');
 	const [lifetime, setLifetime] = useState('4900');
 	const [yearly, setYearly] = useState('2900');
 	const connect = useConnectStripe();
+
+	// Once it succeeds the operator still has one thing to do in Stripe, so show the
+	// result rather than closing over it.
+	if (connect.isSuccess && connect.data) {
+		return (
+			<Dialog
+				title="Stripe connected"
+				lede={`${product.name} · prices and webhook are wired`}
+				onClose={onClose}
+				footer={<SecondaryButton onClick={onClose}>Done</SecondaryButton>}
+			>
+				<Field label="Point Stripe at this endpoint">
+					<div className="rounded-[7px] bg-track px-3 py-2 font-mono text-[12.5px]">
+						{connect.data.webhook_path}
+					</div>
+				</Field>
+				<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
+					{connect.data.secret_rotated
+						? 'A fresh signing secret was stored.'
+						: 'That endpoint already existed, so your stored signing secret was kept.'}
+				</p>
+				<Field label="One setting we cannot make for you">
+					<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
+						{connect.data.dunning.note}
+					</p>
+				</Field>
+			</Dialog>
+		);
+	}
 
 	return (
 		<Dialog
@@ -258,15 +291,12 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 					<button
 						type="button"
 						onClick={() =>
-							connect.mutate(
-								{
-									slug: product.slug,
-									webhook_url: webhookUrl,
-									lifetime_amount: Number(lifetime),
-									yearly_amount: Number(yearly),
-								},
-								{ onSuccess: onClose },
-							)
+							connect.mutate({
+								slug: product.slug,
+								webhook_url: webhookUrl,
+								lifetime_amount: Number(lifetime),
+								yearly_amount: Number(yearly),
+							})
 						}
 						className="cursor-pointer rounded-[9px] border border-stripe bg-stripe px-4 py-[9px] font-semibold text-[13px] text-white"
 					>
@@ -279,7 +309,7 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 				<input
 					value={webhookUrl}
 					onChange={(e) => setWebhookUrl(e.target.value)}
-					placeholder="https://keys.example.com/v1/stripe/webhook"
+					placeholder={`https://keys.example.com${suggestedPath}`}
 					className={`${inputClass} font-mono text-[13px]`}
 				/>
 			</Field>

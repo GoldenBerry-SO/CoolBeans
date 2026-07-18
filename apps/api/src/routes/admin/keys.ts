@@ -37,7 +37,7 @@ function resolveKey(deps: AppDeps, keyInput: string): { license: License; produc
 	return { license, product };
 }
 
-function adminLicenseView(deps: AppDeps, license: License, product: Product) {
+export function adminLicenseView(deps: AppDeps, license: License, product: Product) {
 	// A floating seat only counts while its lease is current ("expired lease frees automatically").
 	const nowIso = nowDate(deps).toISOString();
 	const leaseCondition =

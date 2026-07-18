@@ -33,6 +33,26 @@ export class ApiError extends Error {
 	}
 }
 
+/**
+ * Download a file from an authed endpoint. A plain link cannot carry the bearer token, so
+ * fetch it, then hand the browser a blob to save.
+ */
+export async function download(path: string, filename: string): Promise<void> {
+	const token = getToken();
+	const res = await fetch(path, {
+		headers: token ? { Authorization: `Bearer ${token}` } : {},
+	});
+	if (!res.ok) throw new ApiError(res.status, `Export failed (${res.status})`);
+	const blob = await res.blob();
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement('a');
+	link.href = url;
+	link.download = filename;
+	link.click();
+	// Revoking immediately can cancel the save in some browsers; a tick is enough.
+	setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
 	const token = getToken();
 	const res = await fetch(path, {

@@ -15,6 +15,7 @@ import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug } from '../../store/products.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
+import { registerAdminSurfaceRoutes } from './surfaces.js';
 import { registerAdminTeamRoutes } from './team.js';
 import { assertScope, auditActor, readBody } from './util.js';
 
@@ -25,6 +26,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	registerAdminProductRoutes(admin, deps);
 	registerAdminKeyRoutes(admin, deps);
 	registerAdminTeamRoutes(admin, deps);
+	registerAdminSurfaceRoutes(admin, deps);
 
 	admin.get('/stats', (c) => {
 		const count = (sqlText: string) => (deps.db.$client.prepare(sqlText).get() as { n: number }).n;

@@ -26,6 +26,7 @@ const PRODUCT_SCOPED: { method: string; path: RegExp }[] = [
 	{ method: 'GET', path: /^\/keys\/[^/]+$/ },
 	{ method: 'POST', path: /^\/keys\/[^/]+\/(disable|enable)$/ },
 	{ method: 'GET', path: /^\/purchases$/ },
+	{ method: 'GET', path: /^\/usage$/ },
 ];
 
 function scopeAllows(method: string, path: string): boolean {

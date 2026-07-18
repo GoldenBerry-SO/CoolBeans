@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { normalizeAgainst, toDisplayKey } from '../../domain/keygen.js';
-import { badRequest, notFound } from '../../http/errors.js';
+import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, trialExpiry } from '../../services/issuance.js';
@@ -75,6 +75,9 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		const product = getProductBySlug(deps.db, body.product);
 		if (!product) throw notFound(`No product with slug "${body.product}".`);
 		assertScope(c, product);
+		if (product.archivedAt) {
+			throw conflict('product_archived', 'This product is archived and cannot issue new keys.');
+		}
 		let expiresAt = body.expires_at ?? null;
 		if (body.tier === 'trial' && !expiresAt) {
 			expiresAt = trialExpiry(deps, body.trial_days ?? 14);

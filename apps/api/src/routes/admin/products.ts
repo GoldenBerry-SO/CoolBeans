@@ -6,6 +6,7 @@ import type { OpenAPIHono } from '@hono/zod-openapi';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
+import { nowDate } from '../../deps.js';
 import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
@@ -35,6 +36,7 @@ const createProductBody = z.object({
 	stripe_webhook_secret: z.string().optional(),
 	paypal_plan_yearly: z.string().optional(),
 	paypal_sku_lifetime: z.string().optional(),
+	archived: z.boolean().optional(),
 });
 
 const metricBody = z.object({
@@ -112,6 +114,8 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			patch.stripeWebhookSecret = body.stripe_webhook_secret;
 		if (body.paypal_plan_yearly !== undefined) patch.paypalPlanYearly = body.paypal_plan_yearly;
 		if (body.paypal_sku_lifetime !== undefined) patch.paypalSkuLifetime = body.paypal_sku_lifetime;
+		if (body.archived !== undefined)
+			patch.archivedAt = body.archived ? nowDate(deps).toISOString() : null;
 		if (Object.keys(patch).length === 0) throw badRequest('No updatable fields provided.');
 		const updated = deps.db
 			.update(products)
@@ -143,7 +147,10 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		// List rows go to the console/CLI; secrets stay server-side (the :slug endpoint
 		// still returns the full row for operational tooling).
 		const scope = productScope(c);
-		const visible = listProducts(deps.db).filter((p) => !scope || p.id === scope.id);
+		const includeArchived = c.req.query('include_archived') === '1';
+		const visible = listProducts(deps.db)
+			.filter((p) => !scope || p.id === scope.id)
+			.filter((p) => includeArchived || !p.archivedAt);
 		return c.json({
 			ok: true,
 			products: visible.map(({ stripeWebhookSecret: _secret, productTokenHash: _hash, ...p }) => ({
@@ -152,6 +159,25 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 				keysActive: counts.get(p.id)?.active ?? 0,
 			})),
 		});
+	});
+
+	admin.delete('/products/:slug', (c) => {
+		const product = getProductBySlug(deps.db, c.req.param('slug'));
+		if (!product) throw notFound('No product with that slug.');
+		assertScope(c, product);
+		// Archive, never delete: §9 promises issued keys keep validating. This only
+		// stops new issuance and hides the product from the console's default list.
+		deps.db
+			.update(products)
+			.set({ archivedAt: nowDate(deps).toISOString() })
+			.where(eq(products.id, product.id))
+			.run();
+		writeAudit(deps.db, {
+			action: 'product.archived',
+			actor: auditActor(c),
+			productId: product.id,
+		});
+		return c.json({ ok: true });
 	});
 
 	admin.get('/products/:slug', (c) => {

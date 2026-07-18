@@ -2,7 +2,7 @@
 // ABOUTME: The key is the credential; a disabled key still shows its definitive status.
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { makeHarness, type TestHarness } from '../../test/harness.js';
+import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
 import { createProduct, issueKey, post } from '../../test/seed.js';
 
 let h: TestHarness;
@@ -47,5 +47,68 @@ describe('POST /v1/portal/lookup', () => {
 		await h.app.request(`/admin/keys/${key}/disable`, { method: 'POST', headers: h.adminHeaders });
 		const r = await post(h.app, '/v1/portal/lookup', { license_key: key });
 		expect((r.body.license as { status: string }).status).toBe('disabled');
+	});
+});
+
+describe('portal recovery by email (PRD §15, issue #35)', () => {
+	it('emails the keys to the address instead of returning them', async () => {
+		await issueKey(h.app, { product: 'clementine', email: 'buyer@example.com', tier: 'lifetime' });
+		h.email.sent.length = 0;
+
+		const res = await post(h.app, '/v1/portal/recover', { email: 'buyer@example.com' });
+		expect(res.status).toBe(200);
+		// The response must not carry the keys: email is not a credential.
+		expect(JSON.stringify(res.body)).not.toContain('CLEM-');
+		expect(h.email.sent).toHaveLength(1);
+		expect(h.email.sent[0].to).toBe('buyer@example.com');
+		expect(h.email.sent[0].html).toContain('CLEM-');
+	});
+
+	it('answers identically for an unknown email so it cannot be used to probe buyers', async () => {
+		const known = await post(h.app, '/v1/portal/recover', { email: 'buyer@example.com' });
+		h.email.sent.length = 0;
+		const unknown = await post(h.app, '/v1/portal/recover', { email: 'nobody@example.com' });
+		expect(unknown.status).toBe(known.status);
+		expect(unknown.body).toEqual(known.body);
+		expect(h.email.sent).toHaveLength(0);
+	});
+});
+
+describe('billing portal session (PRD §15, issue #35)', () => {
+	it('hands a subscriber a provider billing-portal URL', async () => {
+		h.deps.config.stripe = { secretKey: 'sk_test', webhookSecret: 'whsec_test' };
+		h.deps.stripe = {
+			...fakeStripeGateway(),
+			async billingPortalSession(customerId: string, returnUrl: string) {
+				return `https://billing.stripe.test/session?c=${customerId}&r=${encodeURIComponent(returnUrl)}`;
+			},
+		};
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'sub@example.com',
+			tier: 'yearly',
+		});
+		// Attach a Stripe customer to the purchase behind this key.
+		h.deps.db.$client
+			.prepare("UPDATE purchases SET provider = 'stripe', provider_customer_id = 'cus_123'")
+			.run();
+
+		const res = await post(h.app, '/v1/portal/billing-session', {
+			license_key: key,
+			return_url: 'https://clementine.email/account',
+		});
+		expect(res.status).toBe(200);
+		expect(res.body.url).toContain('cus_123');
+	});
+
+	it('tells a lifetime buyer plainly that there is nothing to manage', async () => {
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'life@example.com',
+			tier: 'lifetime',
+		});
+		const res = await post(h.app, '/v1/portal/billing-session', { license_key: key });
+		expect(res.status).toBe(404);
+		expect(res.body.error).toBe('no_billing_account');
 	});
 });

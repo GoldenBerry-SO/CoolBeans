@@ -1,6 +1,7 @@
 // ABOUTME: Licenses page (PRD §16) — key table across products with status/product filters.
 // ABOUTME: Rows carry product identity, tier, seats, and buyer; disable/enable acts inline.
 
+import { Link } from '@tanstack/react-router';
 import { clsx } from 'clsx';
 import { useState } from 'react';
 import {
@@ -100,9 +101,13 @@ export function LicensesPage() {
 									GRID,
 								)}
 							>
-								<span className="font-medium font-mono text-[12.5px] tracking-[-0.01em]">
+								<Link
+									to="/licenses/$key"
+									params={{ key: l.key }}
+									className="font-medium font-mono text-[12.5px] text-ink tracking-[-0.01em] hover:text-positive"
+								>
 									{l.key}
-								</span>
+								</Link>
 								<span className="flex items-center gap-[7px] overflow-hidden text-ink-secondary">
 									<span
 										className="h-[7px] w-[7px] flex-none rounded-[2px]"

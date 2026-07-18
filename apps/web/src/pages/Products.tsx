@@ -12,6 +12,7 @@ import {
 	SecondaryButton,
 } from '../components/ui.js';
 import {
+	useArchiveProduct,
 	useConnectStripe,
 	useCreateProduct,
 	useProducts,
@@ -44,6 +45,7 @@ export function ProductsPage() {
 	const [showNew, setShowNew] = useState(false);
 	const [editing, setEditing] = useState<Product | null>(null);
 	const [connecting, setConnecting] = useState<Product | null>(null);
+	const [archiving, setArchiving] = useState<Product | null>(null);
 
 	return (
 		<div className="cbin">
@@ -104,6 +106,14 @@ export function ProductsPage() {
 											Connect Stripe
 										</button>
 									)}
+									<div className="flex-1" />
+									<SecondaryButton
+										destructive
+										className="px-3 py-[7px] text-[12.5px]"
+										onClick={() => setArchiving(p)}
+									>
+										Archive
+									</SecondaryButton>
 								</div>
 							</Card>
 						);
@@ -119,6 +129,7 @@ export function ProductsPage() {
 			{connecting ? (
 				<ConnectStripeDialog product={connecting} onClose={() => setConnecting(null)} />
 			) : null}
+			{archiving ? <ArchiveDialog product={archiving} onClose={() => setArchiving(null)} /> : null}
 		</div>
 	);
 }
@@ -291,6 +302,37 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 			{connect.error ? (
 				<p className="m-0 text-[12.5px] text-danger">{(connect.error as Error).message}</p>
 			) : null}
+		</Dialog>
+	);
+}
+
+function ArchiveDialog({ product, onClose }: { product: Product; onClose: () => void }) {
+	const archive = useArchiveProduct();
+	return (
+		<Dialog
+			title="Archive product?"
+			lede="Retire it without breaking anything already sold."
+			onClose={onClose}
+			footer={
+				<>
+					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+					<button
+						type="button"
+						onClick={() => archive.mutate(product.slug, { onSuccess: onClose })}
+						className="cursor-pointer rounded-[9px] border border-danger bg-danger px-4 py-[9px] font-semibold text-[13px] text-white"
+					>
+						{archive.isPending ? 'Archiving…' : 'Archive product'}
+					</button>
+				</>
+			}
+		>
+			<p className="m-0 text-[13px] text-ink-muted leading-[1.5]">
+				<strong className="text-ink">{product.name}</strong> stops issuing new keys and leaves the
+				product list. Its {product.keysTotal} existing{' '}
+				{product.keysTotal === 1 ? 'key keeps' : 'keys keep'} validating exactly as before — the
+				public contract is frozen, so nothing a customer already bought stops working. You can
+				un-archive it later.
+			</p>
 		</Dialog>
 	);
 }

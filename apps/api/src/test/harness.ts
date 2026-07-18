@@ -93,6 +93,9 @@ export function fakeStripeGateway(
 		async getCheckoutSession(sessionId: string): Promise<Record<string, unknown> | null> {
 			return extras.sessions?.[sessionId] ?? null;
 		},
+		async billingPortalSession(customerId: string, returnUrl: string): Promise<string> {
+			return `https://billing.stripe.test/${customerId}?return=${encodeURIComponent(returnUrl)}`;
+		},
 		async connect(args: { productSlug: string }) {
 			return {
 				lifetimePriceId: `price_lifetime_${args.productSlug}`,

@@ -14,12 +14,32 @@ const inviteBody = z.object({
 });
 
 export function registerAdminTeamRoutes(admin: OpenAPIHono, deps: AppDeps): void {
-	admin.get('/team', (c) => c.json({ ok: true, team: listTeam(deps) }));
+	admin.get('/team', (c) =>
+		c.json({
+			ok: true,
+			team: listTeam(deps).map((m) => ({
+				id: m.id,
+				email: m.email,
+				name: m.name,
+				created_at: m.createdAt,
+				last_login_at: m.lastLoginAt,
+			})),
+		}),
+	);
 
 	admin.post('/team', async (c) => {
 		const body = await readBody(c, inviteBody);
-		const member = inviteAdmin(deps, body.email, auditActor(c), body.name);
-		return c.json({ ok: true, member });
+		const m = inviteAdmin(deps, body.email, auditActor(c), body.name);
+		return c.json({
+			ok: true,
+			member: {
+				id: m.id,
+				email: m.email,
+				name: m.name,
+				created_at: m.createdAt,
+				last_login_at: m.lastLoginAt,
+			},
+		});
 	});
 
 	admin.delete('/team/:id', (c) => {

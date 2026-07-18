@@ -26,6 +26,9 @@ export const products = sqliteTable(
 		// SHA-256 hex of the per-product token (PRD §16): scopes the success-page
 		// lookup without exposing the global admin token to landing sites.
 		productTokenHash: text('product_token_hash'),
+		// Archiving retires a product without deleting it: §9 is frozen, so issued keys
+		// must keep validating forever. Null means live.
+		archivedAt: text('archived_at'),
 		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 	},
 	(t) => [

@@ -16,6 +16,8 @@ export interface StripeConnectResult {
 }
 
 export interface StripeGateway {
+	/** A Stripe billing-portal URL for a customer, so a subscriber can self-manage (§15). */
+	billingPortalSession(customerId: string, returnUrl: string): Promise<string>;
 	/** Verify a raw webhook body against a signature + secret. Throws on failure. */
 	constructEvent(rawBody: string, signature: string, secret: string): StripeEvent;
 	/** current_period_end of a subscription as ISO 8601 (Basil: read from the first item). */
@@ -96,6 +98,13 @@ export function createStripeGateway(secretKey: string): StripeGateway {
 			} catch {
 				return null;
 			}
+		},
+		async billingPortalSession(customerId, returnUrl) {
+			const session = await stripe.billingPortal.sessions.create({
+				customer: customerId,
+				return_url: returnUrl,
+			});
+			return session.url;
 		},
 		async connect(args) {
 			// Idempotent by coolbeans_slug metadata: reuse the existing Stripe product,

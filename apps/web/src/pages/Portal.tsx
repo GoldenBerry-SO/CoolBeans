@@ -27,6 +27,9 @@ export function PortalPage() {
 	const [result, setResult] = useState<LookupResult | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
+	const [recoverEmail, setRecoverEmail] = useState('');
+	const [recoverNote, setRecoverNote] = useState<string | null>(null);
+	const [showRecover, setShowRecover] = useState(false);
 
 	async function lookup() {
 		setError(null);
@@ -37,6 +40,34 @@ export function PortalPage() {
 			setError("We couldn't find that license key.");
 		} finally {
 			setLoading(false);
+		}
+	}
+
+	async function recover() {
+		setError(null);
+		setLoading(true);
+		try {
+			const res = await publicApi<{ message: string }>('POST', '/v1/portal/recover', {
+				email: recoverEmail,
+			});
+			// The response is deliberately uniform, so the copy never implies we found them.
+			setRecoverNote(res.message);
+		} catch {
+			setError('That does not look like a valid email address.');
+		} finally {
+			setLoading(false);
+		}
+	}
+
+	async function manageBilling() {
+		try {
+			const res = await publicApi<{ url: string }>('POST', '/v1/portal/billing-session', {
+				license_key: key,
+				return_url: window.location.href,
+			});
+			window.location.href = res.url;
+		} catch {
+			setError('There is no subscription to manage for this license.');
 		}
 	}
 
@@ -73,6 +104,45 @@ export function PortalPage() {
 					<p className="mt-[18px] mb-0 text-center text-[11.5px] text-ink-faint">
 						No password. No account. The key is the credential.
 					</p>
+					<div className="mt-5 border-ink/8 border-t pt-4">
+						{showRecover ? (
+							<div>
+								<label
+									className="block font-medium text-[12.5px] text-ink-body"
+									htmlFor="recover-email"
+								>
+									Lost your key? Enter the email you bought with.
+								</label>
+								<input
+									id="recover-email"
+									type="email"
+									value={recoverEmail}
+									onChange={(e) => setRecoverEmail(e.target.value)}
+									placeholder="you@example.com"
+									className="mt-[7px] w-full rounded-[10px] border border-ink/14 bg-fill-soft px-3.5 py-2.5 text-[13.5px] outline-none focus:border-positive focus:bg-card"
+								/>
+								<SecondaryButton
+									className="mt-2.5 w-full justify-center"
+									onClick={() => recoverEmail && recover()}
+								>
+									{loading ? 'Sending…' : 'Email me my keys'}
+								</SecondaryButton>
+								{recoverNote ? (
+									<p className="mt-2.5 mb-0 text-center text-[12px] text-ink-muted">
+										{recoverNote}
+									</p>
+								) : null}
+							</div>
+						) : (
+							<button
+								type="button"
+								onClick={() => setShowRecover(true)}
+								className="w-full cursor-pointer border-none bg-transparent text-center text-[12.5px] text-ink-faint hover:text-ink"
+							>
+								Lost your key?
+							</button>
+						)}
+					</div>
 				</div>
 			) : (
 				<div className="cbin w-full max-w-[520px]">
@@ -100,14 +170,19 @@ export function PortalPage() {
 								Copy
 							</SecondaryButton>
 						</div>
-						{result.download_url ? (
-							<a
-								href={result.download_url}
-								className="mt-4 inline-block rounded-[10px] bg-ink px-4 py-2.5 font-medium text-[13px] text-white no-underline"
-							>
-								Download
-							</a>
-						) : null}
+						<div className="mt-4 flex gap-2.5">
+							{result.download_url ? (
+								<a
+									href={result.download_url}
+									className="rounded-[10px] bg-ink px-4 py-2.5 font-medium text-[13px] text-white no-underline"
+								>
+									Download
+								</a>
+							) : null}
+							{result.license.tier === 'yearly' ? (
+								<SecondaryButton onClick={manageBilling}>Manage billing</SecondaryButton>
+							) : null}
+						</div>
 					</Card>
 					<Card className="overflow-hidden rounded-2xl">
 						<div className="border-ink/8 border-b px-5 py-4 font-semibold text-[13.5px]">

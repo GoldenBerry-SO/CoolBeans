@@ -66,6 +66,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@coolbeans/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13

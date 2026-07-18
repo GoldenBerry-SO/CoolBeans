@@ -75,6 +75,9 @@ if JOURNEY_API="http://localhost:$API_PORT" \
    STRIPE_WEBHOOK_SECRET=whsec_journey \
    ADMIN_TOKEN=journey-admin-token-0123456789 \
    node "$ROOT/scripts/journey/run.mjs"; then
+  # The journeys prove the API answers correctly. This proves it wrote the right
+  # rows underneath — a handler can return 200 and still corrupt what it stored.
+  node "$ROOT/scripts/journey/validate-data.mjs" "$WORK/journey.sqlite"
   say "All journeys passed."
 else
   echo

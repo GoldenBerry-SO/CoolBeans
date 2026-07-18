@@ -87,7 +87,11 @@ export function useIssueKey() {
 	const qc = useQueryClient();
 	return useMutation({
 		mutationFn: (input: IssueKeyInput) => api<{ key: string }>('POST', '/admin/keys', input),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ['licenses'] }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['licenses'] });
+			qc.invalidateQueries({ queryKey: ['products'] });
+			qc.invalidateQueries({ queryKey: ['stats'] });
+		},
 	});
 }
 
@@ -96,7 +100,11 @@ export function useSetLicenseStatus() {
 	return useMutation({
 		mutationFn: ({ key, action }: { key: string; action: 'disable' | 'enable' }) =>
 			api('POST', `/admin/keys/${encodeURIComponent(key)}/${action}`),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ['licenses'] }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['licenses'] });
+			qc.invalidateQueries({ queryKey: ['products'] });
+			qc.invalidateQueries({ queryKey: ['stats'] });
+		},
 	});
 }
 

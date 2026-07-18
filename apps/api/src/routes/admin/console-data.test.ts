@@ -52,4 +52,13 @@ describe('GET /admin/products', () => {
 		expect(clem?.keysTotal).toBe(2);
 		expect(clem?.keysActive).toBe(1);
 	});
+
+	it('never ships webhook secrets or token hashes in the list', async () => {
+		const res = await h.app.request('/admin/products', { headers: h.adminHeaders });
+		const body = (await res.json()) as { products: Record<string, unknown>[] };
+		for (const p of body.products) {
+			expect(p).not.toHaveProperty('stripeWebhookSecret');
+			expect(p).not.toHaveProperty('productTokenHash');
+		}
+	});
 });

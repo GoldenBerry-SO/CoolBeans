@@ -65,7 +65,25 @@ export function LoginScreen() {
 			setStep('code');
 			setCode('');
 		} catch {
-			setError('That does not look like a valid email.');
+			setError("Couldn't send a code. Check the email address and try again.");
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	async function tokenSignIn() {
+		setError(null);
+		setBusy(true);
+		try {
+			// Prove the token works before storing it, so a typo can't strand
+			// the user inside a dashboard of 401s.
+			const res = await fetch('/admin/stats', {
+				headers: { Authorization: `Bearer ${adminToken}` },
+			});
+			if (!res.ok) throw new Error('unauthorized');
+			signIn(adminToken);
+		} catch {
+			setError("That token didn't work. Check ADMIN_TOKEN in your env.");
 		} finally {
 			setBusy(false);
 		}
@@ -114,7 +132,9 @@ export function LoginScreen() {
 							placeholder="you@company.com"
 							className={`${loginInput} mt-[7px]`}
 						/>
-						{error ? <p className="mt-2 mb-0 text-[12.5px] text-danger">{error}</p> : null}
+						{error && !showTokenInput ? (
+							<p className="mt-2 mb-0 text-[12.5px] text-danger">{error}</p>
+						) : null}
 						<AccentButton
 							className="mt-[18px] w-full justify-center py-[11px] text-[14px]"
 							onClick={() => email && requestCode()}
@@ -132,15 +152,16 @@ export function LoginScreen() {
 									type="password"
 									value={adminToken}
 									onChange={(e) => setAdminTokenInput(e.target.value)}
-									onKeyDown={(e) => e.key === 'Enter' && adminToken && signIn(adminToken)}
+									onKeyDown={(e) => e.key === 'Enter' && adminToken && tokenSignIn()}
 									placeholder="ADMIN_TOKEN"
 									className={`${loginInput} font-mono text-[13px]`}
 								/>
+								{error ? <p className="mt-2 mb-0 text-[12.5px] text-danger">{error}</p> : null}
 								<InkButton
 									className="mt-2.5 w-full justify-center py-[11px] text-[14px]"
-									onClick={() => adminToken && signIn(adminToken)}
+									onClick={() => adminToken && tokenSignIn()}
 								>
-									Sign in with token
+									{busy ? 'Checking…' : 'Sign in with token'}
 								</InkButton>
 							</div>
 						) : (
@@ -148,7 +169,10 @@ export function LoginScreen() {
 								Running your own instance? Sign in with the{' '}
 								<button
 									type="button"
-									onClick={() => setShowTokenInput(true)}
+									onClick={() => {
+										setError(null);
+										setShowTokenInput(true);
+									}}
 									className="cursor-pointer border-none bg-transparent p-0 font-mono text-[12.5px] text-ink-muted underline decoration-ink/20 hover:text-ink"
 								>
 									ADMIN_TOKEN
@@ -230,7 +254,11 @@ export function LoginScreen() {
 					Self-host it free
 				</a>{' '}
 				·{' '}
-				<a href="/docs" target="_blank" rel="noreferrer">
+				<a
+					href="https://github.com/GoldenBerry-SO/coolbeans/tree/main/docs"
+					target="_blank"
+					rel="noreferrer"
+				>
 					Docs
 				</a>
 				<br />

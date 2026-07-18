@@ -15,6 +15,11 @@ export interface StripeConnectResult {
 	webhookSecret: string;
 }
 
+export interface SessionLineItem {
+	priceId: string;
+	quantity: number;
+}
+
 export interface StripeGateway {
 	/** A Stripe billing-portal URL for a customer, so a subscriber can self-manage (§15). */
 	billingPortalSession(customerId: string, returnUrl: string): Promise<string>;
@@ -23,7 +28,11 @@ export interface StripeGateway {
 	/** current_period_end of a subscription as ISO 8601 (Basil: read from the first item). */
 	subscriptionPeriodEnd(subscriptionId: string): Promise<string | null>;
 	/** Price ids of a checkout session's line items (for product resolution, PRD §13). */
-	sessionPriceIds(sessionId: string): Promise<string[]>;
+	/**
+	 * The paid line items. Quantity is carried, not dropped: a checkout that charged for
+	 * three still yields exactly one key, and that gap has to be visible.
+	 */
+	sessionLineItems(sessionId: string): Promise<SessionLineItem[]>;
 	/** The subscription id an invoice belongs to (Basil: parent.subscription_details). */
 	invoiceSubscription(invoiceId: string): Promise<string | null>;
 	/** The subscription id behind a charge, via its invoice. Null for one-time charges. */
@@ -87,9 +96,11 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 			const end = item?.current_period_end;
 			return end ? new Date(end * 1000).toISOString() : null;
 		},
-		async sessionPriceIds(sessionId) {
+		async sessionLineItems(sessionId) {
 			const items = await stripe.checkout.sessions.listLineItems(sessionId, { limit: 10 });
-			return items.data.map((li) => li.price?.id).filter((id): id is string => !!id);
+			return items.data
+				.filter((li) => !!li.price?.id)
+				.map((li) => ({ priceId: li.price?.id as string, quantity: li.quantity ?? 1 }));
 		},
 		async invoiceSubscription(invoiceId) {
 			const invoice = (await stripe.invoices.retrieve(invoiceId)) as unknown as Parameters<
@@ -159,6 +170,8 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 					'checkout.session.async_payment_succeeded',
 					'charge.refunded',
 					'charge.dispute.created',
+					// Without the close event a dispute we win never gives access back.
+					'charge.dispute.closed',
 					'customer.subscription.updated',
 					'customer.subscription.deleted',
 				],

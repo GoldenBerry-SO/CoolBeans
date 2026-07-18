@@ -163,6 +163,19 @@ export function useStats() {
 	});
 }
 
+export interface ValidationDay {
+	day: string;
+	count: number;
+}
+
+export function useValidations() {
+	return useQuery({
+		queryKey: ['validations'],
+		queryFn: () =>
+			api<{ validations: ValidationDay[] }>('GET', '/admin/validations').then((r) => r.validations),
+	});
+}
+
 export function useAudit() {
 	return useQuery({
 		queryKey: ['audit'],
@@ -250,11 +263,18 @@ export interface ConnectStripeInput {
 	yearly_amount: number;
 }
 
+export interface ConnectStripeResult {
+	/** Where to point Stripe: the signing secret is per product. */
+	webhook_path: string;
+	secret_rotated: boolean;
+	dunning: { setting: string; note: string };
+}
+
 export function useConnectStripe() {
 	const qc = useQueryClient();
 	return useMutation({
 		mutationFn: ({ slug, ...input }: ConnectStripeInput) =>
-			api('POST', `/admin/products/${slug}/stripe/connect`, input),
+			api<ConnectStripeResult>('POST', `/admin/products/${slug}/stripe/connect`, input),
 		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
 	});
 }

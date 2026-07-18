@@ -95,4 +95,22 @@ describe('connect never degrades a working integration', () => {
 		// The secret is stored per product, so only the per-product route can verify it.
 		expect(body.webhook_path).toBe('/v1/stripe/webhook/clementine');
 	});
+
+	it('tells the operator what their dunning setting has to be (§13)', async () => {
+		// customer.subscription.deleted only fires when Stripe's post-retry action is
+		// cancel. We cannot read that setting over the API, so connect has to say it out
+		// loud or a lapsed subscriber keeps working software forever.
+		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				webhook_url: 'https://clementine.email/webhook',
+				lifetime_amount: 4900,
+				yearly_amount: 2900,
+			}),
+		});
+		const body = (await res.json()) as { dunning: { setting: string; note: string } };
+		expect(body.dunning.setting).toBe('cancel_subscription');
+		expect(body.dunning.note).toMatch(/cancel/i);
+	});
 });

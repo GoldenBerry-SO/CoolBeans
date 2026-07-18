@@ -23,7 +23,27 @@ export interface ConnectResult {
 	webhookPath: string;
 	/** False when Stripe reused an endpoint and returned no secret (the stored one was kept). */
 	secretRotated: boolean;
+	/** The one Stripe setting connect cannot make for you (PRD §13). */
+	dunning: DunningRequirement;
 }
+
+export interface DunningRequirement {
+	setting: string;
+	note: string;
+}
+
+/**
+ * Stripe's post-retry action is an account-level Billing setting with no API to read or
+ * write, so connect cannot verify it — it can only say it plainly. It matters: our
+ * yearly-lapse signal is customer.subscription.deleted, which Stripe only sends when that
+ * action is "cancel". Left on "mark unpaid", a subscriber who stops paying keeps working
+ * software. (The unpaid handler is belt-and-braces for exactly this, but a setting the
+ * operator never saw is not a plan.)
+ */
+export const DUNNING_REQUIREMENT: DunningRequirement = {
+	setting: 'cancel_subscription',
+	note: 'In Stripe → Billing → Subscriptions and emails, set the action after all retries fail to "Cancel the subscription". That is what tells Cool Beans a yearly licence has lapsed.',
+};
 
 /** Wire a product to Stripe and persist the price ids + webhook secret. */
 export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<ConnectResult> {
@@ -61,5 +81,6 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 		// these deliveries. Point Stripe here, not at the global endpoint.
 		webhookPath: `/v1/stripe/webhook/${args.product.slug}`,
 		secretRotated: Boolean(result.webhookSecret),
+		dunning: DUNNING_REQUIREMENT,
 	};
 }

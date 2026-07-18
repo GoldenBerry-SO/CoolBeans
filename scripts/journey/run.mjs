@@ -376,4 +376,140 @@ await step('an unknown address gets the identical answer and no email', async ()
 	assert.equal((await inbox()).length, 0, 'recovery must not confirm who bought what');
 })();
 
+// ---------------------------------------------------------------------------
+console.log('\nJourney 5 — access comes back when the reason for taking it away goes away');
+// ---------------------------------------------------------------------------
+const dunSession = `cs_dun_${unique}`;
+const dunSub = `sub_dun_${unique}`;
+let dunKey;
+
+await step('a subscriber who falls behind and then pays up gets their access back', async () => {
+	await seedStripe({
+		sessions: { [dunSession]: { price_id: 'price_clem_yearly' } },
+		subscriptions: { [dunSub]: { current_period_end: seconds('2027-07-18T00:00:00Z') } },
+	});
+	await sendStripeWebhook(API, SECRET, {
+		id: `evt_dunbuy_${unique}`,
+		type: 'checkout.session.completed',
+		data: {
+			object: {
+				id: dunSession,
+				mode: 'subscription',
+				payment_status: 'paid',
+				subscription: dunSub,
+				customer: `cus_dun_${unique}`,
+				customer_email: 'dunning@example.com',
+			},
+		},
+	});
+	const keyOf = async () =>
+		(await api('GET', '/admin/products/clementine/keys')).body.keys.find(
+			(k) => k.customer_email === 'dunning@example.com',
+		);
+	dunKey = (await keyOf()).key;
+
+	// Their card fails.
+	await sendStripeWebhook(API, SECRET, {
+		id: `evt_dunfail_${unique}`,
+		type: 'customer.subscription.updated',
+		data: { object: { id: dunSub, status: 'unpaid' } },
+	});
+	assert.equal((await keyOf()).status, 'disabled', 'a lapse still revokes');
+
+	// They fix it and Stripe recovers the subscription.
+	await sendStripeWebhook(API, SECRET, {
+		id: `evt_dunfixed_${unique}`,
+		type: 'customer.subscription.updated',
+		data: {
+			object: {
+				id: dunSub,
+				status: 'active',
+				items: {
+					object: 'list',
+					data: [{ id: 'si_dun', current_period_end: seconds('2028-07-18T00:00:00Z') }],
+				},
+			},
+		},
+	});
+	const row = await keyOf();
+	assert.equal(row.status, 'active', 'a paying customer must not stay locked out');
+	assert.equal(row.disabled_reason, null);
+})();
+
+await step('a refunded key is NOT resurrected by a later active subscription', async () => {
+	// The lifetime key was refunded in journey 2. No subscription event may undo that.
+	const row = (await api('GET', '/admin/products/clementine/keys')).body.keys.find(
+		(k) => k.key === licenseKey,
+	);
+	assert.equal(row.status, 'disabled');
+	assert.equal(row.disabled_reason, 'refund');
+})();
+
+await step('a refund that arrives BEFORE its checkout still revokes the key', async () => {
+	// Stripe does not guarantee delivery order. The refund lands first, naming a payment
+	// we have never seen; the checkout behind it must not hand out a working key.
+	const oooSession = `cs_ooo_${unique}`;
+	const oooPi = `pi_ooo_${unique}`;
+	await seedStripe({ sessions: { [oooSession]: { price_id: 'price_clem_lifetime' } } });
+	await sendStripeWebhook(API, SECRET, {
+		id: `evt_ooorefund_${unique}`,
+		type: 'charge.refunded',
+		data: {
+			object: {
+				id: `ch_ooo_${unique}`,
+				payment_intent: oooPi,
+				amount_captured: 4900,
+				amount_refunded: 4900,
+			},
+		},
+	});
+	await sendStripeWebhook(API, SECRET, {
+		id: `evt_ooobuy_${unique}`,
+		type: 'checkout.session.completed',
+		data: {
+			object: {
+				id: oooSession,
+				mode: 'payment',
+				payment_status: 'paid',
+				payment_intent: oooPi,
+				customer: `cus_ooo_${unique}`,
+				customer_email: 'outoforder@example.com',
+				amount_total: 4900,
+				currency: 'usd',
+			},
+		},
+	});
+	const row = (await api('GET', '/admin/products/clementine/keys')).body.keys.find(
+		(k) => k.customer_email === 'outoforder@example.com',
+	);
+	assert.ok(row, 'the licence is still created, so the buyer exists in our records');
+	assert.equal(row.status, 'disabled', 'no working key for money we already refunded');
+	assert.equal(row.disabled_reason, 'refund');
+})();
+
+await step('a payment we cannot fulfil is recorded instead of silently dropped', async () => {
+	await seedStripe({ sessions: { [`cs_bad_${unique}`]: { price_id: 'price_nobody_configured' } } });
+	const res = await sendStripeWebhook(API, SECRET, {
+		id: `evt_bad_${unique}`,
+		type: 'checkout.session.completed',
+		data: {
+			object: {
+				id: `cs_bad_${unique}`,
+				mode: 'payment',
+				payment_status: 'paid',
+				customer_email: 'lost@example.com',
+				amount_total: 4900,
+				currency: 'usd',
+			},
+		},
+	});
+	assert.equal(res.status, 200, 'a retry cannot fix a price id that points nowhere');
+	const audit = (await api('GET', '/admin/audit?limit=200')).body.audit;
+	const row = audit.find(
+		(e) => e.action === 'payment.unfulfilled' && e.detail?.checkout_id === `cs_bad_${unique}`,
+	);
+	assert.ok(row, 'someone paid and got nothing: that has to be reconcilable later');
+	assert.equal(row.detail.email, 'lost@example.com');
+})();
+
 console.log(`\n${passed} journey steps passed.\n`);

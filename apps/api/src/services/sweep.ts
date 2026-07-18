@@ -6,6 +6,7 @@ import { and, eq, isNotNull, lt, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
+import { pruneProviderEvents } from './prune.js';
 
 /** Disable every active trial whose expires_at has passed. Returns the count disabled. */
 export function sweepExpiredTrials(deps: AppDeps): number {
@@ -67,6 +68,10 @@ export function reapFloatingLeases(deps: AppDeps): number {
 }
 
 /** Run all periodic sweeps. Scheduled by the worker (BullMQ repeatable) in production. */
-export function runSweeps(deps: AppDeps): { trials: number; leases: number } {
-	return { trials: sweepExpiredTrials(deps), leases: reapFloatingLeases(deps) };
+export function runSweeps(deps: AppDeps): { trials: number; leases: number; pruned: number } {
+	return {
+		trials: sweepExpiredTrials(deps),
+		leases: reapFloatingLeases(deps),
+		pruned: pruneProviderEvents(deps),
+	};
 }

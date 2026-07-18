@@ -19,6 +19,7 @@ import { writeAudit } from '../store/audit.js';
 import { getProductById, listPrefixes } from '../store/products.js';
 import { assertKeyNotThrottled, clearKeyFailures, recordKeyFailure } from './key-throttle.js';
 import { mintToken } from './signing.js';
+import { recordValidation } from './validation-stats.js';
 
 export interface ResolvedLicense {
 	license: License;
@@ -201,6 +202,10 @@ export function validate(deps: AppDeps, keyInput: string, instanceId: string): V
 	const { db } = deps;
 	const resolved = resolveLicense(deps, keyInput);
 	const { license, product, status } = resolved;
+
+	// Count every check that reached a real licence, refusals included: the chart is
+	// traffic, and a spike in refusals is exactly what an operator wants to see.
+	recordValidation(deps, product.id);
 
 	if (status === 'disabled') {
 		return { valid: false, license, product, status, activation: null, token: null };

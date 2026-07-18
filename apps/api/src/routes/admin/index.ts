@@ -14,6 +14,7 @@ import { connectStripe } from '../../services/stripe-connect.js';
 import { recentValidationCounts } from '../../services/validation-stats.js';
 import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug } from '../../store/products.js';
+import { registerAdminExportRoutes } from './export.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
 import { registerAdminSurfaceRoutes } from './surfaces.js';
@@ -26,6 +27,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	registerAdminProductRoutes(admin, deps);
 	registerAdminKeyRoutes(admin, deps);
+	registerAdminExportRoutes(admin, deps);
 	registerAdminTeamRoutes(admin, deps);
 	registerAdminSurfaceRoutes(admin, deps);
 

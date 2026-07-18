@@ -12,6 +12,7 @@ import {
 	TableHead,
 	TierText,
 } from '../components/ui.js';
+import { download } from '../lib/api.js';
 import { useLicensesAcross, useProducts, useSetLicenseStatus } from '../lib/queries.js';
 import { productColor, useScope } from '../lib/scope.js';
 
@@ -80,6 +81,18 @@ export function LicensesPage() {
 					</select>
 				) : null}
 				<div className="flex-1" />
+				{/* Export needs one product: the CSV columns are per product. */}
+				{effective !== 'all' ? (
+					<button
+						type="button"
+						onClick={() =>
+							download(`/admin/products/${effective}/keys/export`, `${effective}-licenses.csv`)
+						}
+						className="cursor-pointer rounded-[9px] border border-ink/12 bg-card px-3 py-[7px] font-medium text-[12.5px] text-ink-secondary"
+					>
+						Export CSV
+					</button>
+				) : null}
 				<div className="font-mono text-[12.5px] text-ink-faint">{rows.length} keys</div>
 			</div>
 

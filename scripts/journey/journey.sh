@@ -12,17 +12,42 @@ MAIL_SMTP=${MAIL_SMTP:-1025}
 MAIL_HTTP=${MAIL_HTTP:-8025}
 
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+
+# Wait for a service to answer before using it. The mail sink is a container and the
+# API compiles TypeScript on boot, so both take a moment; racing them produced a
+# "socket closed" failure on the very first inbox call.
+wait_for() {
+  local name=$1 url=$2
+  for _ in $(seq 1 60); do
+    curl -sf "$url" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  echo "$name did not become ready at $url" >&2
+  return 1
+}
+# tsx spawns a child, so killing the PID we hold leaves the real server bound to the
+# port. A leftover server then answers the next run's health check while the new one
+# fails to bind — which looked like a flaky assertion rather than a stale process.
+free_ports() {
+  fuser -k "$API_PORT/tcp" "$MOCK_PORT/tcp" >/dev/null 2>&1 || true
+}
 cleanup() {
   [ -n "${API_PID:-}" ] && kill "$API_PID" 2>/dev/null || true
   [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true
+  free_ports
   docker rm -f cb-journey-mail >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
 
+# Start from a clean slate: anything left behind would serve stale data.
+free_ports
+sleep 1
+
 say "Mail sink (Mailpit): SMTP :$MAIL_SMTP, web UI http://localhost:$MAIL_HTTP"
 docker rm -f cb-journey-mail >/dev/null 2>&1 || true
 docker run -d --name cb-journey-mail -p "$MAIL_SMTP:1025" -p "$MAIL_HTTP:8025" axllent/mailpit >/dev/null
+wait_for "Mailpit" "http://localhost:$MAIL_HTTP/api/v1/messages"
 
 say "Stripe stand-in on :$MOCK_PORT"
 # The official stripe-mock serves canned fixtures, so a session's line items would never
@@ -30,6 +55,7 @@ say "Stripe stand-in on :$MOCK_PORT"
 # journey seeds instead.
 PORT=$MOCK_PORT node scripts/journey/stripe-mock.mjs >"$WORK/mock.log" 2>&1 &
 MOCK_PID=$!
+wait_for "Stripe stand-in" "http://localhost:$MOCK_PORT/v1/checkout/sessions/none/line_items"
 
 say "API on :$API_PORT (real SMTP delivery, real signature verification)"
 LOG_MAGIC_CODES=true \
@@ -45,12 +71,7 @@ PUBLIC_URL="http://localhost:$API_PORT" \
   npx tsx apps/api/src/node.ts >"$WORK/api.log" 2>&1 &
 API_PID=$!
 
-for _ in $(seq 1 30); do
-  curl -sf "http://localhost:$API_PORT/health" >/dev/null && break
-  sleep 1
-done
-curl -sf "http://localhost:$API_PORT/health" >/dev/null || {
-  echo "API did not come up. Log:" >&2
+wait_for "API" "http://localhost:$API_PORT/health" || {
   cat "$WORK/api.log" >&2
   exit 1
 }

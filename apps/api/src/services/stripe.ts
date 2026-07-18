@@ -366,9 +366,10 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 					actor: `stripe:${event.id}`,
 				});
 			} else {
-				// Same out-of-order problem as a refund: revoke on arrival.
-				const reference = str(obj, 'payment_intent');
-				if (reference) {
+				// Same out-of-order problem as a refund, and the same trap: a renewal
+				// dispute names an invoice payment intent, while the checkout session only
+				// ever presents the subscription. Park under both or it can never apply.
+				for (const reference of await disputeReferences(deps, obj)) {
 					recordPendingRevocation(deps, {
 						provider: 'stripe',
 						reference,
@@ -389,8 +390,8 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// licence before it sends the key email, so a won event can arrive while the
 			// row is active and unconsumed; restoring alone would no-op on an active
 			// licence and leave the parked cause to disable a paying customer afterwards.
-			const reference = str(obj, 'payment_intent');
-			if (reference) {
+			// Every reference it could have been parked under, or the survivor revokes.
+			for (const reference of await disputeReferences(deps, obj)) {
 				dropPendingRevocation(deps, {
 					provider: 'stripe',
 					reference,
@@ -413,6 +414,26 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// Unhandled event types are acknowledged and recorded so Stripe stops retrying.
 			break;
 	}
+}
+
+/**
+ * Every id a dispute could be filed under. The payment intent is what the dispute names;
+ * the subscription is what a checkout session for a renewal actually presents, so a
+ * revocation parked under the payment intent alone would never be found.
+ */
+async function disputeReferences(
+	deps: AppDeps,
+	dispute: Record<string, unknown>,
+): Promise<string[]> {
+	// A dispute's own `id` is the dispute, not the charge — the charge is a separate
+	// field. Passing the dispute object straight to subscriptionForCharge would look up
+	// `dp_…` and find nothing.
+	const chargeId = str(dispute, 'charge');
+	const subscription = chargeId
+		? await subscriptionForCharge(deps, { id: chargeId, invoice: dispute.invoice })
+		: null;
+	const refs = [str(dispute, 'payment_intent'), subscription];
+	return [...new Set(refs.filter((r): r is string => Boolean(r)))];
 }
 
 /**

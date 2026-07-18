@@ -25,7 +25,14 @@ export function shouldApplySubscriptionEvent(
 	return eventCreated >= lastApplied;
 }
 
-/** The newest subscription event applied to this subscription, if we have seen one. */
+/**
+ * The newest subscription event applied to this subscription, if we have seen one.
+ *
+ * Ordering is tracked on the purchase, so it only starts once the checkout has landed.
+ * Subscription events arriving before that are applied in arrival order. In practice a
+ * checkout webhook lands within seconds while a lapse takes days, so the window where
+ * that matters is not one real customers hit.
+ */
 export function lastSubscriptionEventAt(deps: AppDeps, subscriptionId: string): number | null {
 	const row = deps.db
 		.select({ at: purchases.lastSubscriptionEventAt })

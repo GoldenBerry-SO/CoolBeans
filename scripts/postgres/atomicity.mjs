@@ -40,24 +40,27 @@ async function resetSeats() {
 const LIMIT = 3;
 const CONTENDERS = 12;
 
-await check('the SQLite seat statement OVER-ALLOCATES on Postgres (why the port needs care)', async () => {
-	await resetSeats();
-	await Promise.all(
-		Array.from({ length: CONTENDERS }, (_, i) =>
-			sql`
+await check(
+	'the SQLite seat statement OVER-ALLOCATES on Postgres (why the port needs care)',
+	async () => {
+		await resetSeats();
+		await Promise.all(
+			Array.from({ length: CONTENDERS }, (_, i) =>
+				sql`
 				INSERT INTO activations (instance_id, license_id)
 				SELECT ${`inst_${i}`}, 1
 				WHERE (SELECT COUNT(*) FROM activations
 				       WHERE license_id = 1 AND deactivated_at IS NULL) < ${LIMIT}
 				RETURNING id`.catch(() => null),
-		),
-	);
-	const [{ count }] = await sql`SELECT COUNT(*)::int AS count FROM activations`;
-	assert.ok(
-		count > LIMIT,
-		`expected the naive form to over-allocate so this test stays honest, got ${count}`,
-	);
-});
+			),
+		);
+		const [{ count }] = await sql`SELECT COUNT(*)::int AS count FROM activations`;
+		assert.ok(
+			count > LIMIT,
+			`expected the naive form to over-allocate so this test stays honest, got ${count}`,
+		);
+	},
+);
 
 await check('locking the licence row first holds the cap exactly', async () => {
 	await resetSeats();
@@ -117,10 +120,14 @@ await check('the usage quota statement holds on Postgres unchanged', async () =>
 // Floating lease renewal. Same shape as the seat insert — a guarded UPDATE whose
 // guard is a COUNT subquery — so it has the same snapshot problem.
 // ---------------------------------------------------------------------------
-await check('the floating-lease guard needs the same licence lock', async () => {
+/**
+ * Seed the licence one seat short of its cap, then have several expired leases race to
+ * renew into that single free slot. Filling the pool first would prove nothing: the guard
+ * rejects everyone when there is no room, lock or no lock.
+ */
+async function seedLeaseContention() {
 	await resetSeats();
-	// Seed the cap's worth of live leases, then have extras try to renew into the pool.
-	for (let i = 0; i < LIMIT; i += 1) {
+	for (let i = 0; i < LIMIT - 1; i += 1) {
 		await sql`INSERT INTO activations (instance_id, license_id) VALUES (${`live_${i}`}, 1)`;
 	}
 	const extras = [];
@@ -130,25 +137,45 @@ await check('the floating-lease guard needs the same licence lock', async () => 
 			VALUES (${`expired_${i}`}, 1, 'expired') RETURNING id`;
 		extras.push(row.id);
 	}
+	return extras;
+}
 
+const liveLeases = async () => {
+	const [{ count }] = await sql`
+		SELECT COUNT(*)::int AS count FROM activations
+		WHERE license_id = 1 AND deactivated_at IS NULL`;
+	return count;
+};
+
+const renewGuard = (tx, id) => tx`
+	UPDATE activations SET deactivated_at = NULL
+	WHERE id = ${id}
+	AND (SELECT COUNT(*) FROM activations
+	     WHERE license_id = 1 AND id != ${id} AND deactivated_at IS NULL) < ${LIMIT}`;
+
+await check(
+	'the unlocked lease renewal OVER-ALLOCATES, so this test can actually fail',
+	async () => {
+		const extras = await seedLeaseContention();
+		await Promise.all(extras.map((id) => renewGuard(sql, id).catch(() => null)));
+		const count = await liveLeases();
+		assert.ok(count > LIMIT, `expected the unlocked form to over-allocate, got ${count}`);
+	},
+);
+
+await check('the floating-lease guard holds the cap with the same licence lock', async () => {
+	const extras = await seedLeaseContention();
 	await Promise.all(
 		extras.map((id) =>
 			sql
 				.begin(async (tx) => {
 					await tx`SELECT id FROM licenses WHERE id = 1 FOR UPDATE`;
-					return tx`
-						UPDATE activations SET deactivated_at = NULL
-						WHERE id = ${id}
-						AND (SELECT COUNT(*) FROM activations
-						     WHERE license_id = 1 AND id != ${id} AND deactivated_at IS NULL) < ${LIMIT}`;
+					return renewGuard(tx, id);
 				})
 				.catch(() => null),
 		),
 	);
-	const [{ count }] = await sql`
-		SELECT COUNT(*)::int AS count FROM activations
-		WHERE license_id = 1 AND deactivated_at IS NULL`;
-	assert.equal(count, LIMIT, `live leases ${count}, expected ${LIMIT}`);
+	assert.equal(await liveLeases(), LIMIT, 'exactly one contender may take the free slot');
 });
 
 console.log(`\n${checks} atomicity checks passed against Postgres.\n`);

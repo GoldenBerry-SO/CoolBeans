@@ -459,6 +459,55 @@ describe('Stripe webhook', () => {
 		expect(keys[0]?.disabled_reason).toBe('refund');
 	});
 
+	it('revokes an early subscription DISPUTE the checkout can actually match', async () => {
+		// Same shape as the refund case above, and it was missed: a renewal dispute names
+		// an invoice payment intent, while the checkout session only ever presents the
+		// subscription. Parked under the payment intent alone it can never be applied,
+		// and the customer keeps access they charged back.
+		h.deps.stripe = fakeStripeGateway(
+			{ sub_1: PERIOD_END },
+			{},
+			{ chargeSubscriptions: { ch_dispute: 'sub_1' } },
+		);
+		await webhook(h.app, {
+			id: 'evt_early_sub_dispute',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', charge: 'ch_dispute', payment_intent: 'pi_invoice_unknown' } },
+		});
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status).toBe('disabled');
+		expect(keys[0]?.disabled_reason).toBe('chargeback');
+	});
+
+	it('clears BOTH parked references when that subscription dispute is won', async () => {
+		h.deps.stripe = fakeStripeGateway(
+			{ sub_1: PERIOD_END },
+			{},
+			{ chargeSubscriptions: { ch_dispute: 'sub_1' } },
+		);
+		await webhook(h.app, {
+			id: 'evt_early_sub_dispute',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', charge: 'ch_dispute', payment_intent: 'pi_invoice_unknown' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_sub_dispute_won',
+			type: 'charge.dispute.closed',
+			data: {
+				object: {
+					id: 'dp_1',
+					charge: 'ch_dispute',
+					payment_intent: 'pi_invoice_unknown',
+					status: 'won',
+				},
+			},
+		});
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'we kept the money, so they keep the licence').toBe('active');
+	});
+
 	it('does not strand a customer when the dispute is won before the checkout lands', async () => {
 		// dispute.created parks a chargeback; we then win. The parked revocation must not
 		// outlive the dispute and disable a licence issued afterwards.

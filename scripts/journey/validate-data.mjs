@@ -3,8 +3,8 @@
 
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // better-sqlite3 lives in the db package, not here.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -107,7 +107,9 @@ check('every activation belongs to a real licence', () => {
 });
 
 check('a finished webhook releases its claim, so a retry is a clean no-op', () => {
-	const stuck = all("SELECT id FROM provider_events WHERE status = 'done' AND claimed_at IS NOT NULL");
+	const stuck = all(
+		"SELECT id FROM provider_events WHERE status = 'done' AND claimed_at IS NOT NULL",
+	);
 	assert.equal(stuck.length, 0, `done events still holding a claim: ${JSON.stringify(stuck)}`);
 });
 
@@ -126,7 +128,10 @@ check('no parked revocation is left unapplied once its payment exists', () => {
 check('every issued licence is attributed in the audit log', () => {
 	const issued = one("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'license.issued'");
 	const licences = one('SELECT COUNT(*) AS n FROM licenses');
-	assert.ok(issued.n >= licences.n, `${licences.n} licences but only ${issued.n} issuance audit rows`);
+	assert.ok(
+		issued.n >= licences.n,
+		`${licences.n} licences but only ${issued.n} issuance audit rows`,
+	);
 	const anon = all("SELECT id FROM audit_log WHERE actor IS NULL OR actor = ''");
 	assert.equal(anon.length, 0, 'an audit row with no actor cannot answer "who did this"');
 });
@@ -144,7 +149,8 @@ check('foreign keys hold across the whole database', () => {
 check('no credential is stored in the clear', () => {
 	const hex64 = /^[a-f0-9]{64}$/;
 	for (const p of all('SELECT product_token_hash FROM products')) {
-		if (p.product_token_hash) assert.match(p.product_token_hash, hex64, 'product tokens are hashed');
+		if (p.product_token_hash)
+			assert.match(p.product_token_hash, hex64, 'product tokens are hashed');
 	}
 	for (const s of all('SELECT token_hash FROM admin_sessions')) {
 		assert.match(s.token_hash, hex64, 'session tokens are hashed');

@@ -8,7 +8,9 @@
 		"beans": "./dist/index.js"
 	},
 	"main": "./dist/index.js",
-	"files": ["dist"],
+	"files": [
+		"dist"
+	],
 	"scripts": {
 		"dev": "tsx src/index.ts",
 		"build": "tsup src/index.ts --format esm",

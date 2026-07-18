@@ -1,4 +1,11 @@
-// ABOUTME: Barrel for the Drizzle schema. Tables from docs/PRD.md §17 land here, one file each.
+// ABOUTME: Barrel for the Drizzle schema — the PRD §17 data model, one table group per file.
 // ABOUTME: Portable SQL — SQLite for dev/self-host, Postgres for the k8s production instance.
 
-export {};
+export * from './activations.js';
+export * from './events.js';
+export * from './licenses.js';
+export * from './metrics.js';
+export * from './outbox.js';
+export * from './products.js';
+export * from './purchases.js';
+export * from './signing-keys.js';

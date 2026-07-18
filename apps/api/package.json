@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "tsx watch src/node.ts",
-		"build": "tsup src/node.ts --format esm --dts",
+		"build": "tsup src/node.ts src/runtime.ts --format esm --dts",
 		"lint": "biome check src/",
 		"format": "biome format --write src/",
 		"typecheck": "tsc --noEmit",
@@ -21,18 +21,26 @@
 		"@hono/zod-openapi": "^1.5.1",
 		"@scalar/hono-api-reference": "^0.11.11",
 		"better-sqlite3": "^12.11.1",
+		"drizzle-orm": "^0.45.2",
 		"hono": "^4.12.30",
-		"stripe": "^22.3.2",
-		"zod": "^4.4.3",
 		"hono-rate-limiter": "^0.5.3",
-		"ioredis": "^5.9.2"
+		"ioredis": "^5.9.2",
+		"stripe": "^22.3.2",
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
+		"@coolbeans/sdk": "workspace:*",
 		"@types/better-sqlite3": "^7.6.13",
 		"@types/node": "^24.0.0",
 		"tsup": "^8.5.1",
-		"typescript": "~5.9.3",
 		"tsx": "^4.23.1",
+		"typescript": "~5.9.3",
 		"vitest": "^4.1.10"
+	},
+	"exports": {
+		"./runtime": {
+			"types": "./dist/runtime.d.ts",
+			"import": "./dist/runtime.js"
+		}
 	}
 }

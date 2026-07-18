@@ -1,0 +1,49 @@
+// ABOUTME: Email sender adapters (PRD §14) — Resend for the cloud, SMTP for self-host.
+// ABOUTME: Both implement EmailSender; selection happens in the API from EMAIL_PROVIDER config.
+
+import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
+import type { EmailSender, OutgoingEmail } from './index.js';
+
+/** Resend adapter — a single API call, works anywhere fetch does. */
+export function createResendSender(apiKey: string): EmailSender {
+	const resend = new Resend(apiKey);
+	return {
+		async send(email: OutgoingEmail): Promise<void> {
+			const { error } = await resend.emails.send({
+				from: email.from,
+				to: email.to,
+				subject: email.subject,
+				html: email.html,
+			});
+			if (error) throw new Error(`Resend failed: ${error.message}`);
+		},
+	};
+}
+
+export interface SmtpOptions {
+	host: string;
+	port: number;
+	user?: string;
+	pass?: string;
+}
+
+/** SMTP adapter for self-hosters. */
+export function createSmtpSender(opts: SmtpOptions): EmailSender {
+	const transport = nodemailer.createTransport({
+		host: opts.host,
+		port: opts.port,
+		secure: opts.port === 465,
+		auth: opts.user ? { user: opts.user, pass: opts.pass } : undefined,
+	});
+	return {
+		async send(email: OutgoingEmail): Promise<void> {
+			await transport.sendMail({
+				from: email.from,
+				to: email.to,
+				subject: email.subject,
+				html: email.html,
+			});
+		},
+	};
+}

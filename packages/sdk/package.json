@@ -12,7 +12,9 @@
 			"import": "./dist/index.js"
 		}
 	},
-	"files": ["dist"],
+	"files": [
+		"dist"
+	],
 	"scripts": {
 		"dev": "tsup src/index.ts --format esm --watch --no-dts",
 		"build": "tsup src/index.ts --format esm --dts",

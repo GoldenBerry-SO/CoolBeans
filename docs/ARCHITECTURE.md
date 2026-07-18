@@ -35,8 +35,14 @@ Where we deliberately diverge from pleasehold.dev:
   against the infra repo). No Cloudflare Workers target; we don't optimize for edge runtimes.
   Self-hosters get the same images via docker compose. Redis backs rate limiting
   (hono-rate-limiter) and queues (BullMQ in `apps/worker`), as in pleasehold.
-- **SQLite dialect first** for dev and lightweight self-host; the production k8s instance runs
-  Postgres behind the same `Database` seam (tracked as its own issue).
+- **SQLite dialect throughout, with libSQL as the production path.** The data layer is built on
+  the synchronous better-sqlite3 API (`.get()`/`.run()`/`.all()`), which keeps the service code
+  simple and the atomic guarded-statement pattern honest. For the production k8s instance the same
+  code runs against **libSQL/Turso** (SQLite-compatible, distributed, sync client) with no changes.
+  A true Postgres adapter would require making every data-access call async (postgres-js has no sync
+  client), i.e. an `await` refactor across all services — a deliberate, separate piece of work
+  tracked in the Postgres issue, not a drop-in. libSQL covers the "production database" need today
+  without that fork.
 - **Zod v4 everywhere** (pleasehold is stuck on a v3/v4 dual-version override; greenfield means we
   skip that).
 - **Better Auth only for the dashboard.** The license key itself is the public credential and the

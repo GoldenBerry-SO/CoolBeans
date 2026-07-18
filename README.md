@@ -14,9 +14,11 @@ One codebase, two homes:
 
 It's a drop-in for the Lemon Squeezy License API, so existing clients migrate with a base-URL change.
 
-**Status: early scaffold.** The spec is done, the build is underway — see the issue tracker for
-progress. Full product spec: [`docs/PRD.md`](docs/PRD.md). Architecture decisions:
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+**Status: v1 built.** Full license lifecycle, Stripe + PayPal payments, offline-token SDK, usage
+metering, LS-parity routes, admin console, customer portal, worker, and Docker/k8s packaging are
+implemented and tested (106 automated tests plus a Docker Compose smoke test). Full product spec:
+[`docs/PRD.md`](docs/PRD.md). Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Design
+system: [`docs/DESIGN.md`](docs/DESIGN.md). PRD coverage: [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
 ## Repo layout
 

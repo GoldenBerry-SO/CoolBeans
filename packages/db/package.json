@@ -12,7 +12,8 @@
 		}
 	},
 	"files": [
-		"dist"
+		"dist",
+		"drizzle"
 	],
 	"scripts": {
 		"dev": "tsup src/index.ts --format esm --watch --no-dts",

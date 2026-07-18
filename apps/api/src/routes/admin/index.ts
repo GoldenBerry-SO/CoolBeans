@@ -15,7 +15,8 @@ import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug } from '../../store/products.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
-import { auditActor, readBody } from './util.js';
+import { registerAdminTeamRoutes } from './team.js';
+import { assertScope, auditActor, readBody } from './util.js';
 
 export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	const admin = new OpenAPIHono();
@@ -23,6 +24,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	registerAdminProductRoutes(admin, deps);
 	registerAdminKeyRoutes(admin, deps);
+	registerAdminTeamRoutes(admin, deps);
 
 	admin.get('/stats', (c) => {
 		const count = (sqlText: string) => (deps.db.$client.prepare(sqlText).get() as { n: number }).n;
@@ -57,6 +59,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	admin.post('/products/:slug/signing-keys/rotate', (c) => {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
+		assertScope(c, product);
 		const key = rotateKey(deps, product.id);
 		writeAudit(deps.db, {
 			action: 'signing_key.rotated',
@@ -83,6 +86,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	admin.post('/products/:slug/stripe/connect', async (c) => {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
+		assertScope(c, product);
 		const body = await readBody(c, connectBody);
 		const result = await connectStripe(deps, {
 			actor: auditActor(c),

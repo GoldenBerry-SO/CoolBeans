@@ -154,3 +154,83 @@ export function revokeSession(deps: AppDeps, token: string): void {
 		.where(eq(adminSessions.tokenHash, sha256(token)))
 		.run();
 }
+
+export interface TeamMember {
+	id: number;
+	email: string;
+	name: string | null;
+	createdAt: string;
+	lastLoginAt: string | null;
+}
+
+/** Everyone who can sign in to the console. Never exposes session material. */
+export function listTeam(deps: AppDeps): TeamMember[] {
+	return deps.db
+		.select({
+			id: adminUsers.id,
+			email: adminUsers.email,
+			name: adminUsers.name,
+			createdAt: adminUsers.createdAt,
+			lastLoginAt: adminUsers.lastLoginAt,
+		})
+		.from(adminUsers)
+		.orderBy(adminUsers.id)
+		.all();
+}
+
+/**
+ * Add an admin so they can request a sign-in code. Idempotent: inviting an existing
+ * member returns them unchanged rather than erroring, so a double-click is harmless.
+ */
+export function inviteAdmin(
+	deps: AppDeps,
+	emailInput: string,
+	actor: string,
+	name?: string,
+): TeamMember {
+	const email = normalizeEmail(emailInput);
+	const existing = deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).get();
+	if (existing) {
+		return {
+			id: existing.id,
+			email: existing.email,
+			name: existing.name,
+			createdAt: existing.createdAt,
+			lastLoginAt: existing.lastLoginAt,
+		};
+	}
+	const created = deps.db
+		.insert(adminUsers)
+		.values({ email, name: name ?? null })
+		.returning()
+		.get();
+	writeAudit(deps.db, { action: 'admin.invited', actor, detail: { email } });
+	return {
+		id: created.id,
+		email: created.email,
+		name: created.name,
+		createdAt: created.createdAt,
+		lastLoginAt: created.lastLoginAt,
+	};
+}
+
+export type RevokeResult = 'revoked' | 'not_found' | 'last_admin';
+
+/**
+ * Remove an admin and drop their live sessions in the same breath — a revoked admin
+ * must lose access now, not whenever their 30-day session happens to expire.
+ * The last admin is never removable: that would lock the console out entirely.
+ */
+export function revokeAdmin(deps: AppDeps, id: number, actor: string): RevokeResult {
+	const target = deps.db.select().from(adminUsers).where(eq(adminUsers.id, id)).get();
+	if (!target) return 'not_found';
+	const total = deps.db.select({ id: adminUsers.id }).from(adminUsers).all().length;
+	if (total <= 1) return 'last_admin';
+
+	deps.db.delete(adminSessions).where(eq(adminSessions.adminUserId, id)).run();
+	deps.db.delete(adminUsers).where(eq(adminUsers.id, id)).run();
+	// Pending codes would otherwise let them sign straight back in.
+	deps.db.delete(authCodes).where(eq(authCodes.email, target.email)).run();
+	writeAudit(deps.db, { action: 'admin.revoked', actor, detail: { email: target.email } });
+	return 'revoked';
+}

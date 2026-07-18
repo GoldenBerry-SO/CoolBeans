@@ -10,7 +10,7 @@ import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug, listProducts } from '../../store/products.js';
-import { auditActor, readBody } from './util.js';
+import { assertScope, auditActor, productScope, readBody } from './util.js';
 
 const createProductBody = z.object({
 	slug: z
@@ -90,6 +90,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 	admin.patch('/products/:slug', async (c) => {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
+		assertScope(c, product);
 		const body = await readBody(c, createProductBody.partial());
 		// slug and key_prefix are immutable: issued keys embed the prefix and clients
 		// resolve products by it. Reject rather than silently ignoring.
@@ -141,27 +142,29 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		}
 		// List rows go to the console/CLI; secrets stay server-side (the :slug endpoint
 		// still returns the full row for operational tooling).
+		const scope = productScope(c);
+		const visible = listProducts(deps.db).filter((p) => !scope || p.id === scope.id);
 		return c.json({
 			ok: true,
-			products: listProducts(deps.db).map(
-				({ stripeWebhookSecret: _secret, productTokenHash: _hash, ...p }) => ({
-					...p,
-					keysTotal: counts.get(p.id)?.total ?? 0,
-					keysActive: counts.get(p.id)?.active ?? 0,
-				}),
-			),
+			products: visible.map(({ stripeWebhookSecret: _secret, productTokenHash: _hash, ...p }) => ({
+				...p,
+				keysTotal: counts.get(p.id)?.total ?? 0,
+				keysActive: counts.get(p.id)?.active ?? 0,
+			})),
 		});
 	});
 
 	admin.get('/products/:slug', (c) => {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
+		assertScope(c, product);
 		return c.json({ ok: true, product });
 	});
 
 	admin.post('/products/:slug/metrics', async (c) => {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
+		assertScope(c, product);
 		const body = await readBody(c, metricBody);
 		const existing = deps.db
 			.select({ id: metrics.id })

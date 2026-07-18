@@ -1,0 +1,13 @@
+{
+	"name": "@coolbeans/journey",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"description": "End-to-end commercial journeys: buy, email, run, refund, renew, lapse.",
+	"scripts": {
+		"journey": "node run.mjs"
+	},
+	"dependencies": {
+		"@coolbeans/sdk": "workspace:*"
+	}
+}

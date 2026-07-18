@@ -1,0 +1,99 @@
+// ABOUTME: A tiny stand-in for the Stripe REST endpoints our gateway calls, for journey tests.
+// ABOUTME: Returns data WE choose, so price-id resolution and renewal dates are assertable.
+
+import { createServer } from 'node:http';
+
+/**
+ * stripe-mock (the official one) serves canned fixtures, so a session's line items would
+ * never carry the price id our product is configured with — exactly the thing worth
+ * asserting. This returns what the journey sets up instead.
+ */
+const state = {
+	sessions: new Map(),
+	subscriptions: new Map(),
+	invoices: new Map(),
+	charges: new Map(),
+};
+
+function json(res, body, status = 200) {
+	const payload = JSON.stringify(body);
+	res.writeHead(status, { 'Content-Type': 'application/json' });
+	res.end(payload);
+}
+
+const server = createServer((req, res) => {
+	const url = new URL(req.url ?? '/', 'http://localhost');
+	const path = url.pathname;
+
+	// Journey control plane: the test seeds what Stripe "knows" before firing a webhook.
+	if (req.method === 'POST' && path === '/__seed') {
+		let body = '';
+		req.on('data', (c) => {
+			body += c;
+		});
+		req.on('end', () => {
+			const seed = JSON.parse(body);
+			for (const [kind, entries] of Object.entries(seed)) {
+				for (const [id, value] of Object.entries(entries)) {
+					state[kind]?.set(id, value);
+				}
+			}
+			json(res, { seeded: true });
+		});
+		return;
+	}
+
+	// GET /v1/checkout/sessions/:id/line_items — drives product+tier resolution (§13).
+	let m = path.match(/^\/v1\/checkout\/sessions\/([^/]+)\/line_items$/);
+	if (m) {
+		const session = state.sessions.get(m[1]);
+		const priceId = session?.price_id;
+		return json(res, {
+			object: 'list',
+			data: priceId ? [{ id: 'li_1', price: { id: priceId } }] : [],
+		});
+	}
+
+	// GET /v1/checkout/sessions/:id — the success-page ensure path (§14).
+	m = path.match(/^\/v1\/checkout\/sessions\/([^/]+)$/);
+	if (m) {
+		const session = state.sessions.get(m[1]);
+		if (!session) return json(res, { error: { message: 'No such session' } }, 404);
+		return json(res, session.object ?? session);
+	}
+
+	// GET /v1/subscriptions/:id — Basil keeps current_period_end on the item.
+	m = path.match(/^\/v1\/subscriptions\/([^/]+)$/);
+	if (m) {
+		const sub = state.subscriptions.get(m[1]);
+		if (!sub) return json(res, { error: { message: 'No such subscription' } }, 404);
+		return json(res, {
+			id: m[1],
+			object: 'subscription',
+			items: { object: 'list', data: [{ current_period_end: sub.current_period_end }] },
+		});
+	}
+
+	// GET /v1/invoices/:id — refunded renewals resolve through here (§13 notes).
+	m = path.match(/^\/v1\/invoices\/([^/]+)$/);
+	if (m) {
+		const invoice = state.invoices.get(m[1]);
+		if (!invoice) return json(res, { error: { message: 'No such invoice' } }, 404);
+		return json(res, { id: m[1], object: 'invoice', ...invoice });
+	}
+
+	// GET /v1/charges/:id — dispute/refund resolution.
+	m = path.match(/^\/v1\/charges\/([^/]+)$/);
+	if (m) {
+		const charge = state.charges.get(m[1]);
+		if (!charge) return json(res, { error: { message: 'No such charge' } }, 404);
+		return json(res, { id: m[1], object: 'charge', ...charge });
+	}
+
+	json(res, { error: { message: `stripe-mock: unhandled ${req.method} ${path}` } }, 404);
+});
+
+const port = Number(process.env.PORT ?? 12111);
+server.listen(port, () => {
+	console.log(`stripe mock listening on ${port}`);
+});

@@ -57,8 +57,25 @@ function invoiceSubId(invoice: {
 }
 
 /** Production gateway backed by the official stripe SDK. */
-export function createStripeGateway(secretKey: string): StripeGateway {
-	const stripe = new Stripe(secretKey);
+function hostOf(base: string): string {
+	return new URL(base).hostname;
+}
+function portOf(base: string): number {
+	const url = new URL(base);
+	return Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+}
+function protocolOf(base: string): 'http' | 'https' {
+	return new URL(base).protocol === 'https:' ? 'https' : 'http';
+}
+
+export function createStripeGateway(secretKey: string, apiBase?: string): StripeGateway {
+	// apiBase points the SDK at a local mock for journey tests; unset in production.
+	const stripe = new Stripe(
+		secretKey,
+		apiBase
+			? { host: hostOf(apiBase), port: portOf(apiBase), protocol: protocolOf(apiBase) }
+			: undefined,
+	);
 	return {
 		constructEvent(rawBody, signature, secret) {
 			return stripe.webhooks.constructEvent(rawBody, signature, secret) as unknown as StripeEvent;

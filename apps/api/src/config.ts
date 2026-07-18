@@ -8,7 +8,16 @@ export interface Config {
 	/** Hex secret that encrypts signing private keys at rest. */
 	signingKeySecret: string;
 	tokenTtlDays: number;
-	stripe?: { secretKey: string; webhookSecret?: string };
+	stripe?: {
+		secretKey: string;
+		webhookSecret?: string;
+		/**
+		 * Point the Stripe SDK somewhere other than api.stripe.com. Only for local
+		 * journey tests against a mock — unset in production, where it must be the
+		 * real Stripe.
+		 */
+		apiBase?: string;
+	};
 	paypal?: { clientId: string; secret: string; webhookId: string };
 	email?:
 		| { provider: 'resend'; apiKey: string }
@@ -76,6 +85,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		config.stripe = {
 			secretKey: env.STRIPE_SECRET_KEY,
 			webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+			...(env.STRIPE_API_BASE ? { apiBase: env.STRIPE_API_BASE } : {}),
 		};
 	}
 	if (env.PAYPAL_CLIENT_ID && env.PAYPAL_SECRET && env.PAYPAL_WEBHOOK_ID) {

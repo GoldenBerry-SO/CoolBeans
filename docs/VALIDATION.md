@@ -142,3 +142,40 @@ issued, rather than just that the webhook returned 200. PayPal has no local trig
 the script points at the sandbox simulator with the payload shape to send.
 
 Run it before a release, or after any change to `services/stripe.ts`.
+
+## Commercial journeys (`scripts/journey/`)
+
+The vitest suites prove the internals; these prove the thing customers actually pay for.
+One command stands up the whole world and tears it down again:
+
+```
+./scripts/journey/journey.sh
+```
+
+It runs Mailpit (a real SMTP sink, web UI on :8025), a small Stripe stand-in, and the API
+wired to both, then walks four journeys with hard assertions:
+
+1. **Buy a lifetime licence and run it on three machines.** A signature-valid
+   `checkout.session.completed` issues the key; the buyer's email is asserted to carry the
+   key, the download link and the product's own from-address; a forged signature is
+   rejected; a redelivery produces neither a second key nor a second email; the success
+   page reads the same purchase; three machines activate and the fourth is refused; the
+   real published SDK verifies online and then offline.
+2. **Refund.** A partial refund leaves the licence alone; a full refund disables it with
+   `reason=refund`, the running app sees a definitive (never inconclusive) signal, its
+   cached offline token stops working, and a fresh activation is refused.
+3. **Yearly renew and cancel.** The purchase dates the key to the period end, renewal
+   advances it, cancellation disables with `reason=subscription_canceled`, and a lifetime
+   licence is proven untouched by subscription events.
+4. **Self-service.** Key recovery emails the keys and never returns them in the response,
+   and an unknown address gets a byte-identical answer with no email sent.
+
+Two deliberate choices worth knowing:
+
+- **Real signatures, not a bypass.** `stripe-sign.mjs` builds the same HMAC Stripe does, so
+  the server's real `constructEvent` verifies it. A suite that skipped signatures would not
+  have caught connect blanking a stored webhook secret.
+- **Our own Stripe stand-in, not `stripe-mock`.** The official mock serves canned fixtures,
+  so a session's line items would never carry the price id our product is configured with —
+  which is exactly the assertion that catches issuance resolving to the wrong product.
+  `STRIPE_API_BASE` exists solely to point the SDK at it and is unset in production.

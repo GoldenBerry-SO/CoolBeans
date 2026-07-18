@@ -62,7 +62,9 @@ const deps: AppDeps = {
 	config,
 	logger,
 	email: resolveEmailSender(config, logger),
-	stripe: config.stripe ? createStripeGateway(config.stripe.secretKey) : undefined,
+	stripe: config.stripe
+		? createStripeGateway(config.stripe.secretKey, config.stripe.apiBase)
+		: undefined,
 	paypal: config.paypal
 		? createPayPalGateway({ clientId: config.paypal.clientId, secret: config.paypal.secret })
 		: undefined,

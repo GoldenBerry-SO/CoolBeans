@@ -10,6 +10,8 @@ import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import type { AppDeps } from './deps.js';
 import { resolveEmailSender } from './services/email.js';
+import { createPayPalGateway } from './services/paypal-gateway.js';
+import { createStripeGateway } from './services/stripe-gateway.js';
 
 const logger = createLogger();
 
@@ -34,6 +36,10 @@ const deps: AppDeps = {
 	config,
 	logger,
 	email: resolveEmailSender(config, logger),
+	stripe: config.stripe ? createStripeGateway(config.stripe.secretKey) : undefined,
+	paypal: config.paypal
+		? createPayPalGateway({ clientId: config.paypal.clientId, secret: config.paypal.secret })
+		: undefined,
 };
 
 const app = createApp(deps);

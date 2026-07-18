@@ -6,7 +6,9 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { badRequest, notFound } from '../../http/errors.js';
 import { serializeInstance, serializeLicense } from '../../http/serializers.js';
+import { adminAuth } from '../../middleware/admin-auth.js';
 import { activate, deactivate, heartbeat, validate } from '../../services/licensing.js';
+import { findByCheckoutId } from '../../services/payments.js';
 import { publicKeysFor } from '../../services/signing.js';
 import { getProductBySlug } from '../../store/products.js';
 import { registerUsageRoutes } from './usage.js';
@@ -79,6 +81,18 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const product = getProductBySlug(deps.db, slug);
 		if (!product) throw notFound('No product with that slug.');
 		return c.json({ ok: true, algorithm: 'ed25519', keys: publicKeysFor(deps, product.id) });
+	});
+
+	// Purchase lookup for a landing site's success page (PRD §13). Admin-token authed —
+	// the success page calls this server-side with the token held server-side.
+	app.get('/v1/purchase/session/:checkout_session_id', adminAuth(deps.config.adminToken), (c) => {
+		const found = findByCheckoutId(deps, c.req.param('checkout_session_id'));
+		if (!found) throw notFound('No purchase for that checkout session.');
+		return c.json({
+			ok: true,
+			license: serializeLicense(found.license, found.product),
+			email: found.email,
+		});
 	});
 
 	registerUsageRoutes(app, deps);

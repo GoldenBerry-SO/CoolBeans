@@ -61,6 +61,33 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 	};
 }
 
+/** A fake Stripe gateway: 'valid' signature passes, others throw; period-end from a map. */
+export function fakeStripeGateway(periodEnds: Record<string, string> = {}) {
+	return {
+		constructEvent(rawBody: string, signature: string, _secret: string) {
+			if (signature !== 'valid') throw new Error('Invalid signature');
+			return JSON.parse(rawBody);
+		},
+		async subscriptionPeriodEnd(subscriptionId: string): Promise<string | null> {
+			return periodEnds[subscriptionId] ?? null;
+		},
+	};
+}
+
+/** A fake PayPal gateway: verify honors a flag; next-billing from a map. */
+export function fakePayPalGateway(
+	opts: { verified?: boolean; nextBilling?: Record<string, string> } = {},
+) {
+	return {
+		async verify(): Promise<boolean> {
+			return opts.verified ?? true;
+		},
+		async subscriptionNextBilling(id: string): Promise<string | null> {
+			return opts.nextBilling?.[id] ?? null;
+		},
+	};
+}
+
 export interface TestHarness {
 	deps: AppDeps;
 	app: ReturnType<typeof createApp>;

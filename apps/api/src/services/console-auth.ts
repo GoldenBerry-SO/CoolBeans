@@ -37,7 +37,9 @@ export async function requestCode(deps: AppDeps, emailInput: string): Promise<Re
 	const anyAdmin = deps.db.select({ id: adminUsers.id }).from(adminUsers).limit(1).get();
 	const known = deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).get();
 	if (anyAdmin && !known) return { sent: false };
-	if (!deps.email) {
+	// Delivery is optional when codes are being logged for local development — that setup
+	// has no Resend key and no SMTP, and bailing here would mean nobody can sign in.
+	if (!deps.email && !deps.config.logMagicCodes) {
 		deps.logger.error('Console auth: no email sender configured; cannot deliver codes');
 		return { sent: false };
 	}
@@ -53,13 +55,21 @@ export async function requestCode(deps: AppDeps, emailInput: string): Promise<Re
 		})
 		.run();
 
-	const html = await render(MagicCodeEmail({ code, expiresMinutes: CODE_TTL_MINUTES }));
-	await deps.email.send({
-		from: 'Cool Beans <console@coolbeans.tools>',
-		to: email,
-		subject: `${code} is your Cool Beans sign-in code`,
-		html,
-	});
+	if (deps.config.logMagicCodes) {
+		// Local development only (see Config.logMagicCodes): saves digging through a mail
+		// catcher to sign in. Refused in production at config load.
+		deps.logger.warn('Console magic code (development logging is on)', { email, code });
+	}
+
+	if (deps.email) {
+		const html = await render(MagicCodeEmail({ code, expiresMinutes: CODE_TTL_MINUTES }));
+		await deps.email.send({
+			from: 'Cool Beans <console@coolbeans.tools>',
+			to: email,
+			subject: `${code} is your Cool Beans sign-in code`,
+			html,
+		});
+	}
 	return { sent: true };
 }
 

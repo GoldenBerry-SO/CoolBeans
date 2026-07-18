@@ -2,6 +2,7 @@
 // ABOUTME: Codes arrive via the captured email sender; no enumeration through request-code.
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import { loadConfig } from '../config.js';
 import { makeHarness, type TestHarness } from '../test/harness.js';
 
 let h: TestHarness;
@@ -150,5 +151,53 @@ describe('audit attribution (PRD §16)', () => {
 		// The env admin token stays distinguishable from a human session.
 		const viaToken = await h.app.request('/admin/products', { headers: h.adminHeaders });
 		expect(viaToken.status).toBe(200);
+	});
+});
+
+describe('dev convenience: logging the magic code', () => {
+	it('logs the code when explicitly enabled for local development', async () => {
+		h = makeHarness({ config: { logMagicCodes: true } });
+		await post('/auth/request-code', { email: 'chris@goldenberry.io' });
+		const code = lastCode();
+		const logged = h.logger.lines.find((l) => l.message.includes('magic code'));
+		expect(logged).toBeTruthy();
+		expect(JSON.stringify(logged)).toContain(code);
+	});
+
+	it('still issues a usable code with no email sender, which is the point of the flag', async () => {
+		// The local setup this exists for has no Resend key and no SMTP: if we bail before
+		// generating a code, a developer still cannot sign in.
+		h = makeHarness({ config: { logMagicCodes: true } });
+		h.deps.email = undefined;
+
+		const req = await post('/auth/request-code', { email: 'chris@goldenberry.io' });
+		expect(req.status).toBe(200);
+
+		const logged = h.logger.lines.find((l) => l.message.includes('magic code'));
+		const code = (logged?.fields as { code: string } | undefined)?.code;
+		expect(code).toMatch(/^\d{6}$/);
+
+		const verify = await post('/auth/verify', { email: 'chris@goldenberry.io', code });
+		expect(verify.status).toBe(200);
+		expect(verify.body.token).toBeTruthy();
+	});
+
+	it('never logs the code by default', async () => {
+		await post('/auth/request-code', { email: 'chris@goldenberry.io' });
+		const code = lastCode();
+		expect(JSON.stringify(h.logger.lines)).not.toContain(code);
+	});
+
+	it('refuses to start with code logging enabled outside development', () => {
+		// A code is a credential (§19). Making this a config error means it cannot be
+		// switched on in production by accident or by a copied .env.
+		expect(() =>
+			loadConfig({
+				ADMIN_TOKEN: 'a'.repeat(20),
+				SIGNING_KEY_SECRET: 'b'.repeat(20),
+				LOG_MAGIC_CODES: 'true',
+				NODE_ENV: 'production',
+			} as NodeJS.ProcessEnv),
+		).toThrow(/LOG_MAGIC_CODES/);
 	});
 });

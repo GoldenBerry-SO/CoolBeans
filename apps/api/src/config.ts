@@ -16,6 +16,12 @@ export interface Config {
 	redisUrl?: string;
 	/** Where the console/portal are served from, for building portal/billing links. */
 	publicUrl: string;
+	/**
+	 * Print sign-in codes to the log. Local development only — a code is a credential,
+	 * and §19 says those are never logged. loadConfig refuses to start with this on
+	 * outside development so it cannot be switched on by a copied .env.
+	 */
+	logMagicCodes: boolean;
 }
 
 export class ConfigError extends Error {}
@@ -48,7 +54,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		);
 	}
 
+	const logMagicCodes = env.LOG_MAGIC_CODES === 'true';
+	if (logMagicCodes && env.NODE_ENV === 'production') {
+		throw new ConfigError(
+			'LOG_MAGIC_CODES cannot be enabled with NODE_ENV=production: a sign-in code is a credential and must never reach the logs outside local development.',
+		);
+	}
+
 	const config: Config = {
+		logMagicCodes,
 		databaseUrl: env.DATABASE_URL ?? './data/coolbeans.sqlite',
 		port,
 		adminToken,

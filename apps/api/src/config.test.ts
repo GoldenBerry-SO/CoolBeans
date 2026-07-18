@@ -58,3 +58,20 @@ function assertResend(config: ReturnType<typeof loadConfig>): asserts config is 
 } {
 	expect(config.email?.provider).toBe('resend');
 }
+
+describe('EMAIL_PROVIDER=console (development)', () => {
+	it('is accepted for local development', () => {
+		const config = loadConfig({ ...base, EMAIL_PROVIDER: 'console' } as NodeJS.ProcessEnv);
+		expect(config.email?.provider).toBe('console');
+	});
+
+	it('refuses to start in production, where silently not sending email is a disaster', () => {
+		expect(() =>
+			loadConfig({
+				...base,
+				EMAIL_PROVIDER: 'console',
+				NODE_ENV: 'production',
+			} as NodeJS.ProcessEnv),
+		).toThrow(/console/i);
+	});
+});

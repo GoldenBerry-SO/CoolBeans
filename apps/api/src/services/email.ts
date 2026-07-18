@@ -4,6 +4,7 @@
 import type { License, Product } from '@coolbeans/db';
 import { licenses } from '@coolbeans/db';
 import {
+	createConsoleSender,
 	createResendSender,
 	createSmtpSender,
 	type EmailSender,
@@ -22,6 +23,19 @@ export function resolveEmailSender(config: Config, logger: Logger): EmailSender 
 	if (!config.email) {
 		logger.info('Email disabled: no EMAIL_PROVIDER configured');
 		return undefined;
+	}
+	if (config.email.provider === 'console') {
+		logger.warn('Email provider is "console": emails are logged, not delivered');
+		return createConsoleSender((email) => {
+			// One structured line per email, so local work and the journey suite can both
+			// see exactly what a customer would have received.
+			logger.info('email.sent', {
+				from: email.from,
+				to: email.to,
+				subject: email.subject,
+				html: email.html,
+			});
+		});
 	}
 	if (config.email.provider === 'resend') {
 		return createResendSender(config.email.apiKey, config.email.baseUrl);

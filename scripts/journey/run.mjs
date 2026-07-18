@@ -2,11 +2,12 @@
 // ABOUTME: Real HTTP, real SMTP delivery, real Stripe signatures, the real published SDK.
 
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { CoolBeans } from '@coolbeans/sdk';
 import { sendStripeWebhook } from './stripe-sign.mjs';
 
 const API = process.env.JOURNEY_API ?? 'http://localhost:3098';
-const MAIL = process.env.JOURNEY_MAIL ?? 'http://localhost:12112';
+const API_LOG = process.env.JOURNEY_API_LOG;
 const STRIPE_MOCK = process.env.JOURNEY_STRIPE_MOCK ?? 'http://localhost:12111';
 const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_journey';
 const ADMIN = {
@@ -42,11 +43,31 @@ const seedStripe = (seed) =>
 	});
 
 /**
- * Emails are read back from the Resend stand-in — the provider we actually ship (§14) —
- * so these journeys exercise the Resend adapter rather than the self-host SMTP one.
+ * In development the API logs every email instead of delivering it, so the journeys read
+ * the customer's mail straight out of the log. That needs no mail service at all, and it
+ * asserts on the same rendered React Email HTML a real buyer would receive. The Resend
+ * adapter that ships to production is covered separately by packages/email tests.
  */
-const inbox = async () => (await (await fetch(`${MAIL}/__sent`)).json()).messages;
-const clearInbox = () => fetch(`${MAIL}/__sent`, { method: 'DELETE' });
+let mailCursor = 0;
+const inbox = async () => {
+	const text = await readFile(API_LOG, 'utf8');
+	const emails = [];
+	for (const line of text.split('\n')) {
+		if (!line.includes('email.sent')) continue;
+		try {
+			const entry = JSON.parse(line);
+			if (entry.message === 'email.sent') emails.push(entry);
+		} catch {
+			// A partially written line; it will be complete on the next read.
+		}
+	}
+	return emails.slice(mailCursor);
+};
+/** "Clearing" the mailbox just moves the cursor: the log is append-only. */
+const clearInbox = async () => {
+	const text = await readFile(API_LOG, 'utf8');
+	mailCursor = text.split('\n').filter((l) => l.includes('"email.sent"')).length;
+};
 
 /** In-memory device storage: each CoolBeans instance is one machine. */
 const machine = () => {

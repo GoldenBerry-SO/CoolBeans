@@ -1,7 +1,7 @@
 # Cool Beans — PRD validation
 
 A section-by-section check of the v1 build against `docs/PRD.md`. Every row names where the behavior
-lives and how it's verified. Test totals at time of writing: **220 automated tests** (187 API, 16 SDK,
+lives and how it's verified. Test totals at time of writing: **225 automated tests** (189 API, 16 SDK, 5 email,
 4 DB, 4 web, 4 logger, 3 CLI, 2 email) plus a **Docker Compose smoke test** that boots the stack and
 issues a first key.
 
@@ -152,9 +152,9 @@ One command stands up the whole world and tears it down again:
 ./scripts/journey/journey.sh
 ```
 
-It runs stand-ins for **both** paid dependencies — Stripe and Resend — and the API wired
-to them, then walks four journeys with hard assertions. No containers and nothing to
-install: `node` is enough.
+It runs a Stripe stand-in and the API with emails logged rather than sent, then walks
+four journeys with hard assertions. No containers, no mail service, nothing to install:
+`node` is enough.
 
 1. **Buy a lifetime licence and run it on three machines.** A signature-valid
    `checkout.session.completed` issues the key; the buyer's email is asserted to carry the
@@ -176,10 +176,15 @@ Two deliberate choices worth knowing:
 - **Real signatures, not a bypass.** `stripe-sign.mjs` builds the same HMAC Stripe does, so
   the server's real `constructEvent` verifies it. A suite that skipped signatures would not
   have caught connect blanking a stored webhook secret.
-- **Resend is mocked, not SMTP.** Resend is the production sender (§14), so the journeys
-  drive that adapter. An earlier version used a Mailpit container over SMTP, which proved
-  the self-host path worked while leaving the path we actually ship untested.
-  `RESEND_BASE_URL` points the client at the stand-in and is unset in production.
+- **Emails are read from the log, not from a mail service.** `EMAIL_PROVIDER=console`
+  makes the API log each rendered email instead of delivering it, so local work needs no
+  mail provider and the journeys assert on the exact React Email HTML a buyer would get.
+  It refuses to start under `NODE_ENV=production`, because an instance that quietly logs
+  key emails instead of sending them looks healthy while every buyer waits forever.
+  The **Resend** adapter that actually ships (§14) is pinned separately in
+  `packages/email/src/senders.test.ts`, which asserts the request it posts — endpoint,
+  API key header, and the rendered payload — so the production path stays covered without
+  a mail service in the loop.
 - **Our own Stripe stand-in, not `stripe-mock`.** The official mock serves canned fixtures,
   so a session's line items would never carry the price id our product is configured with —
   which is exactly the assertion that catches issuance resolving to the wrong product.

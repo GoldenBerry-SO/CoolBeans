@@ -24,6 +24,19 @@ export function createResendSender(apiKey: string, baseUrl?: string): EmailSende
 	};
 }
 
+/**
+ * Development sender: hands the rendered email to a sink (the logger) instead of
+ * delivering it. Local work then needs no mail provider at all, and every email the
+ * system would have sent is visible and assertable.
+ */
+export function createConsoleSender(sink: (email: OutgoingEmail) => void): EmailSender {
+	return {
+		async send(email: OutgoingEmail): Promise<void> {
+			sink(email);
+		},
+	};
+}
+
 export interface SmtpOptions {
 	host: string;
 	port: number;

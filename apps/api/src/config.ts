@@ -29,7 +29,11 @@ export interface Config {
 				 */
 				baseUrl?: string;
 		  }
-		| { provider: 'smtp'; host: string; port: number; user?: string; pass?: string };
+		| { provider: 'smtp'; host: string; port: number; user?: string; pass?: string }
+		| {
+				/** Development only: log emails instead of delivering them. */
+				provider: 'console';
+		  };
 	redisUrl?: string;
 	/** Where the console/portal are served from, for building portal/billing links. */
 	publicUrl: string;
@@ -103,7 +107,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 			webhookId: env.PAYPAL_WEBHOOK_ID,
 		};
 	}
-	if (env.EMAIL_PROVIDER === 'resend' && env.RESEND_API_KEY) {
+	if (env.EMAIL_PROVIDER === 'console') {
+		// Never in production: an instance that quietly logs key emails instead of
+		// sending them looks healthy while every buyer waits for a key that never comes.
+		if (env.NODE_ENV === 'production') {
+			throw new ConfigError(
+				'EMAIL_PROVIDER=console only exists for local development: it logs emails instead of delivering them. Use resend or smtp in production.',
+			);
+		}
+		config.email = { provider: 'console' };
+	} else if (env.EMAIL_PROVIDER === 'resend' && env.RESEND_API_KEY) {
 		config.email = {
 			provider: 'resend',
 			apiKey: env.RESEND_API_KEY,

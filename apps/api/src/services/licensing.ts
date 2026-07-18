@@ -40,7 +40,7 @@ export function resolveLicenseThrottled(deps: AppDeps, keyInput: string): Resolv
 	assertKeyNotThrottled(deps, keyInput);
 	try {
 		const resolved = resolveLicense(deps, keyInput);
-		clearKeyFailures(deps, keyInput);
+		clearKeyFailures(keyInput);
 		return resolved;
 	} catch (err) {
 		// Only a failed *lookup* counts: a disabled key is a definitive answer, not a probe.

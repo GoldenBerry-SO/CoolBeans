@@ -56,7 +56,7 @@ export function recordKeyFailure(deps: AppDeps, keyInput: string): void {
 }
 
 /** A real client got through, so the key is not under attack. */
-export function clearKeyFailures(deps: AppDeps, keyInput: string): void {
+export function clearKeyFailures(keyInput: string): void {
 	attempts.delete(bucket(keyInput));
 }
 

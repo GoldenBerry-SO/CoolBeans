@@ -26,7 +26,13 @@ export function LicenseDetailPage() {
 	if (!detail.data) return <EmptyState>No license with that key.</EmptyState>;
 
 	const { license, activations, usage } = detail.data;
-	const live = activations.filter((a) => !a.deactivated_at);
+	// A floating seat is only held while its lease is current — an expired lease frees
+	// the seat automatically, so counting it would overstate usage on floating products.
+	const now = Date.now();
+	const live = activations.filter(
+		(a) =>
+			!a.deactivated_at && (!a.lease_expires_at || new Date(a.lease_expires_at).getTime() > now),
+	);
 
 	return (
 		<div className="cbin max-w-[1020px]">

@@ -167,6 +167,17 @@ export interface Claim {
  * worker is holding. The difference matters: acknowledging an in-flight event tells the
  * provider to stop retrying, and if that worker crashed the work is lost forever.
  */
+/**
+ * How to read the event row after our claim was refused. A missing row means another
+ * worker released it in the moment between the two statements, which is the middle of
+ * someone else's attempt — NOT a finished event. Calling that 'done' would acknowledge
+ * the delivery and lose the work, the exact failure the claim rewrite set out to fix.
+ */
+export function claimOutcomeForRow(row: { status: string } | undefined): ClaimResult {
+	if (!row) return 'in_flight';
+	return row.status === 'processing' ? 'in_flight' : 'done';
+}
+
 export function claimEventStatus(
 	deps: AppDeps,
 	event: { id: string; provider: string; type: string },
@@ -176,7 +187,7 @@ export function claimEventStatus(
 		return { result: 'claimed', token: row?.claimedAt ?? undefined };
 	}
 	const row = deps.db.select().from(providerEvents).where(eq(providerEvents.id, event.id)).get();
-	return { result: row?.status === 'processing' ? 'in_flight' : 'done' };
+	return { result: claimOutcomeForRow(row) };
 }
 
 export function claimEvent(

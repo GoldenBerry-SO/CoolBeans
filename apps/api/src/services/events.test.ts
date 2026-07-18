@@ -3,7 +3,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { makeHarness, type TestHarness } from '../test/harness.js';
-import { claimEvent, completeEvent, releaseEvent } from './payments.js';
+import { claimEvent, claimOutcomeForRow, completeEvent, releaseEvent } from './payments.js';
 
 let h: TestHarness;
 const EVENT = { id: 'evt_1', provider: 'stripe', type: 'checkout.session.completed' };
@@ -35,5 +35,22 @@ describe('provider event claims', () => {
 		claimEvent(h.deps, EVENT);
 		h.clock.advance(10 * 60_000);
 		expect(claimEvent(h.deps, EVENT)).toBe(true);
+	});
+});
+
+describe('reading the event row after a refused claim', () => {
+	// The interleaving that produces a missing row (another worker releasing between our
+	// two statements) cannot be staged against a synchronous driver, so the decision is
+	// tested directly — it is the part that would silently drop a delivery.
+	it('treats a vanished row as retryable, never as finished', () => {
+		expect(claimOutcomeForRow(undefined)).toBe('in_flight');
+	});
+
+	it('still recognises a genuinely completed event', () => {
+		expect(claimOutcomeForRow({ status: 'done' })).toBe('done');
+	});
+
+	it('recognises another worker mid-flight', () => {
+		expect(claimOutcomeForRow({ status: 'processing' })).toBe('in_flight');
 	});
 });

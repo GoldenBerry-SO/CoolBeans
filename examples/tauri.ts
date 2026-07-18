@@ -6,6 +6,7 @@ import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-f
 
 const FILE = 'license.json';
 let cache: Record<string, string> = {};
+let writeQueue: Promise<void> = Promise.resolve();
 
 /** Load once at startup, BEFORE any licensing call, so the device id is the durable one. */
 export async function loadLicenseStore(): Promise<void> {
@@ -23,8 +24,15 @@ export const beans = new CoolBeans({
 		getItem: (k: string) => cache[k] ?? null,
 		setItem: (k: string, v: string) => {
 			cache[k] = v;
-			// Fire and forget: the in-memory cache is authoritative for this run.
-			void writeTextFile(FILE, JSON.stringify(cache), { baseDir: BaseDirectory.AppConfig });
+			// Writes are chained rather than fired in parallel: two overlapping writes can
+			// otherwise land out of order and persist a stale snapshot of the cache.
+			writeQueue = writeQueue
+				.then(() =>
+					writeTextFile(FILE, JSON.stringify(cache), { baseDir: BaseDirectory.AppConfig }),
+				)
+				.catch(() => {
+					// A failed persist leaves the in-memory cache authoritative for this run.
+				});
 		},
 	},
 });

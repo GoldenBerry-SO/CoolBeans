@@ -50,6 +50,16 @@ describe('POST /v1/portal/lookup', () => {
 	});
 });
 
+/**
+ * Recovery renders and sends AFTER responding, on purpose: doing that work first would
+ * make response time reveal whether the address belongs to a buyer. Tests therefore have
+ * to let the deferred work settle before asserting on the mailbox.
+ */
+async function flushDeferredEmail(): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	await new Promise((resolve) => setImmediate(resolve));
+}
+
 describe('portal recovery by email (PRD §15, issue #35)', () => {
 	it('emails the keys to the address instead of returning them', async () => {
 		await issueKey(h.app, { product: 'clementine', email: 'buyer@example.com', tier: 'lifetime' });
@@ -59,6 +69,8 @@ describe('portal recovery by email (PRD §15, issue #35)', () => {
 		expect(res.status).toBe(200);
 		// The response must not carry the keys: email is not a credential.
 		expect(JSON.stringify(res.body)).not.toContain('CLEM-');
+
+		await flushDeferredEmail();
 		expect(h.email.sent).toHaveLength(1);
 		expect(h.email.sent[0].to).toBe('buyer@example.com');
 		expect(h.email.sent[0].html).toContain('CLEM-');
@@ -66,10 +78,15 @@ describe('portal recovery by email (PRD §15, issue #35)', () => {
 
 	it('answers identically for an unknown email so it cannot be used to probe buyers', async () => {
 		const known = await post(h.app, '/v1/portal/recover', { email: 'buyer@example.com' });
+		// Let the known-address send land BEFORE clearing, or it arrives during the
+		// unknown-address assertion and looks like a leak that isn't there.
+		await flushDeferredEmail();
 		h.email.sent.length = 0;
 		const unknown = await post(h.app, '/v1/portal/recover', { email: 'nobody@example.com' });
 		expect(unknown.status).toBe(known.status);
 		expect(unknown.body).toEqual(known.body);
+
+		await flushDeferredEmail();
 		expect(h.email.sent).toHaveLength(0);
 	});
 });

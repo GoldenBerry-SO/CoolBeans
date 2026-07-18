@@ -333,6 +333,11 @@ function ArchiveDialog({ product, onClose }: { product: Product; onClose: () => 
 				public contract is frozen, so nothing a customer already bought stops working. You can
 				un-archive it later.
 			</p>
+			<p className="m-0 text-[12.5px] text-warn leading-[1.5]">
+				Archiving here does not touch Stripe. Deactivate this product's prices or payment links too,
+				otherwise someone can still pay — we'll issue their key rather than take the money for
+				nothing, and flag it in the audit log.
+			</p>
 		</Dialog>
 	);
 }

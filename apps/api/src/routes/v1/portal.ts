@@ -98,28 +98,32 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			.all();
 		if (rows.length === 0 || !deps.email) return c.json(uniform);
 
-		const html = await render(
-			KeyRecoveryEmail({
-				keys: rows.map((r) => ({
-					key: toDisplayKey(r.license.key, r.product.keyPrefix),
-					product: r.product.name,
-					status: r.license.status,
-				})),
-			}),
-		);
-		// Deliberately NOT awaited: an unknown address returns immediately, so blocking a
-		// known one on an external send would make response time a buyer oracle. Failures
-		// are logged rather than surfaced, for the same reason.
-		void deps.email
-			.send({
-				from: rows[0].product.emailFrom,
-				to: body.email,
-				subject: 'Your Cool Beans license keys',
-				html,
-			})
-			.catch((err: Error) => {
-				deps.logger.error('Portal recovery email failed', { message: err.message });
-			});
+		// Rendering AND sending both happen after the response. An unknown address returns
+		// immediately, so any work done before responding here — the render included — is
+		// measurable and turns response time into a "did this person buy?" oracle.
+		// Failures are logged rather than surfaced, for the same reason.
+		const sender = deps.email;
+		void (async () => {
+			try {
+				const html = await render(
+					KeyRecoveryEmail({
+						keys: rows.map((r) => ({
+							key: toDisplayKey(r.license.key, r.product.keyPrefix),
+							product: r.product.name,
+							status: r.license.status,
+						})),
+					}),
+				);
+				await sender.send({
+					from: rows[0].product.emailFrom,
+					to: body.email,
+					subject: 'Your Cool Beans license keys',
+					html,
+				});
+			} catch (err) {
+				deps.logger.error('Portal recovery email failed', { message: (err as Error).message });
+			}
+		})();
 		return c.json(uniform);
 	});
 

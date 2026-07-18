@@ -11,6 +11,7 @@ import { activate, deactivate, heartbeat, validate } from '../../services/licens
 import { findByCheckoutId } from '../../services/payments.js';
 import { publicKeysFor } from '../../services/signing.js';
 import { getProductBySlug } from '../../store/products.js';
+import { registerLemonSqueezyRoutes } from './ls.js';
 import { registerUsageRoutes } from './usage.js';
 
 const activateBody = z.object({
@@ -96,4 +97,5 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	});
 
 	registerUsageRoutes(app, deps);
+	registerLemonSqueezyRoutes(app, deps);
 }

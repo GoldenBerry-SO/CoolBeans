@@ -1,14 +1,177 @@
 #!/usr/bin/env node
-// ABOUTME: Entry point for the beans CLI — admin commands over the Cool Beans HTTP API.
-// ABOUTME: Subcommands (product, key, stripe) land with the CLI issue; spec in docs/PRD.md §16.
+// ABOUTME: The beans CLI (PRD §16) — CLI-first admin over the Cool Beans HTTP API.
+// ABOUTME: Subcommands for products, keys, and purchases; --json for scripting.
 
 import { Command } from 'commander';
+import { apiRequest, type ClientOptions, resolveClient } from './client.js';
 
 const program = new Command();
 
 program
 	.name('beans')
 	.description('Cool Beans admin CLI — issue a key, activate it, check it is still good.')
-	.version('0.0.0');
+	.version('0.0.0')
+	.option('--url <url>', 'Cool Beans server URL (or COOLBEANS_URL)')
+	.option('--token <token>', 'Admin bearer token (or COOLBEANS_ADMIN_TOKEN)')
+	.option('--json', 'Emit raw JSON for scripting');
 
-program.parse();
+function ctx(command: Command): { client: ClientOptions; json: boolean } {
+	const opts = command.optsWithGlobals();
+	return { client: resolveClient(opts), json: !!opts.json };
+}
+
+function out(json: boolean, human: string, data: unknown): void {
+	if (json) console.log(JSON.stringify(data, null, 2));
+	else console.log(human);
+}
+
+function fail(err: unknown): never {
+	console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+	process.exit(1);
+}
+
+const product = program.command('product').description('Manage products');
+
+product
+	.command('create')
+	.requiredOption('--slug <slug>')
+	.requiredOption('--name <name>')
+	.requiredOption('--prefix <prefix>')
+	.requiredOption('--email-from <email>')
+	.option('--limit <n>', 'Activation limit', '3')
+	.option('--model <model>', 'node_locked | floating', 'node_locked')
+	.action(async (opts, cmd) => {
+		const { client, json } = ctx(cmd);
+		try {
+			const res = (await apiRequest(client, 'POST', '/admin/products', {
+				slug: opts.slug,
+				name: opts.name,
+				key_prefix: opts.prefix,
+				email_from: opts.emailFrom,
+				activation_limit: Number(opts.limit),
+				activation_model: opts.model,
+			})) as { product: { slug: string; key_prefix: string } };
+			out(json, `Created product ${res.product.slug} (${res.product.key_prefix})`, res);
+		} catch (err) {
+			fail(err);
+		}
+	});
+
+product.command('list').action(async (_opts, cmd) => {
+	const { client, json } = ctx(cmd);
+	try {
+		const res = (await apiRequest(client, 'GET', '/admin/products')) as {
+			products: Array<{ slug: string; keyPrefix: string; activationLimit: number }>;
+		};
+		out(
+			json,
+			res.products.map((p) => `${p.slug}  ${p.keyPrefix}  limit=${p.activationLimit}`).join('\n') ||
+				'No products.',
+			res,
+		);
+	} catch (err) {
+		fail(err);
+	}
+});
+
+const key = program.command('key').description('Manage license keys');
+
+key
+	.command('issue')
+	.requiredOption('--product <slug>')
+	.requiredOption('--email <email>')
+	.option('--tier <tier>', 'lifetime | yearly | trial', 'lifetime')
+	.option('--trial-days <n>', 'Trial length in days')
+	.action(async (opts, cmd) => {
+		const { client, json } = ctx(cmd);
+		try {
+			const res = (await apiRequest(client, 'POST', '/admin/keys', {
+				product: opts.product,
+				email: opts.email,
+				tier: opts.tier,
+				...(opts.trialDays ? { trial_days: Number(opts.trialDays) } : {}),
+			})) as { key: string };
+			out(json, res.key, res);
+		} catch (err) {
+			fail(err);
+		}
+	});
+
+key.command('disable <key>').action(async (keyArg, _opts, cmd) => {
+	const { client, json } = ctx(cmd);
+	try {
+		const res = await apiRequest(
+			client,
+			'POST',
+			`/admin/keys/${encodeURIComponent(keyArg)}/disable`,
+		);
+		out(json, `Disabled ${keyArg}`, res);
+	} catch (err) {
+		fail(err);
+	}
+});
+
+key.command('enable <key>').action(async (keyArg, _opts, cmd) => {
+	const { client, json } = ctx(cmd);
+	try {
+		const res = await apiRequest(
+			client,
+			'POST',
+			`/admin/keys/${encodeURIComponent(keyArg)}/enable`,
+		);
+		out(json, `Enabled ${keyArg}`, res);
+	} catch (err) {
+		fail(err);
+	}
+});
+
+key
+	.command('list')
+	.requiredOption('--product <slug>')
+	.option('--status <status>', 'active | disabled')
+	.action(async (opts, cmd) => {
+		const { client, json } = ctx(cmd);
+		try {
+			const q = opts.status ? `?status=${opts.status}` : '';
+			const res = (await apiRequest(client, 'GET', `/admin/products/${opts.product}/keys${q}`)) as {
+				keys: Array<{ key: string; status: string; tier: string }>;
+			};
+			out(
+				json,
+				res.keys.map((k) => `${k.key}  ${k.status}  ${k.tier}`).join('\n') || 'No keys.',
+				res,
+			);
+		} catch (err) {
+			fail(err);
+		}
+	});
+
+key.command('show <key>').action(async (keyArg, _opts, cmd) => {
+	const { client, json } = ctx(cmd);
+	try {
+		const res = await apiRequest(client, 'GET', `/admin/keys/${encodeURIComponent(keyArg)}`);
+		out(json, JSON.stringify(res, null, 2), res);
+	} catch (err) {
+		fail(err);
+	}
+});
+
+program
+	.command('purchase')
+	.description('Look up a purchase by email or provider id')
+	.option('--email <email>')
+	.option('--provider-id <id>')
+	.action(async (opts, cmd) => {
+		const { client, json } = ctx(cmd);
+		try {
+			const params = new URLSearchParams();
+			if (opts.email) params.set('email', opts.email);
+			if (opts.providerId) params.set('provider_id', opts.providerId);
+			const res = await apiRequest(client, 'GET', `/admin/purchases?${params.toString()}`);
+			out(json, JSON.stringify(res, null, 2), res);
+		} catch (err) {
+			fail(err);
+		}
+	});
+
+program.parseAsync();

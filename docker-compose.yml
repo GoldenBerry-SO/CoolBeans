@@ -1,0 +1,60 @@
+# ABOUTME: Self-host stack (PRD §18) — the API, the background worker, Redis, and a SQLite volume.
+# ABOUTME: `docker compose up` and you have a running Cool Beans; migrations apply on boot.
+
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      target: runtime
+    command: ['node', 'apps/api/dist/node.js']
+    environment:
+      DATABASE_URL: /app/data/coolbeans.sqlite
+      REDIS_URL: redis://redis:6379
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN}
+      SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET:?set SIGNING_KEY_SECRET}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    ports:
+      - '${API_PORT:-3000}:3000'
+    volumes:
+      - coolbeans-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  worker:
+    build:
+      context: .
+      target: runtime
+    command: ['node', 'apps/worker/dist/index.js']
+    environment:
+      DATABASE_URL: /app/data/coolbeans.sqlite
+      REDIS_URL: redis://redis:6379
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN}
+      SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET:?set SIGNING_KEY_SECRET}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+    volumes:
+      - coolbeans-data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  coolbeans-data:

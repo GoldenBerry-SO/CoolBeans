@@ -88,7 +88,7 @@ export async function processJob(
 				.from(licenses)
 				.where(eq(licenses.id, payload.licenseId))
 				.get();
-			if (license && !license.emailSentAt) {
+			if (license?.status === 'active' && !license.emailSentAt) {
 				const product = deps.db
 					.select()
 					.from(products)

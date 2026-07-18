@@ -3,14 +3,19 @@
 
 import type { License, Product } from '@coolbeans/db';
 import { licenses, providerEvents, purchases } from '@coolbeans/db';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
+import { isUniqueConstraintError } from '../store/db-errors.js';
+import { findLicenseByProviderId } from '../store/payment-lookup.js';
 import { getProductById } from '../store/products.js';
 import { sendKeyEmail } from './email.js';
 import { createPurchase, issueLicense, type Tier } from './issuance.js';
 import { enqueue } from './outbox.js';
+import { applyPendingRevocation } from './reconcile.js';
+
+export { findLicenseByProviderId } from '../store/payment-lookup.js';
 
 /** Delay before the outbox backstop tries the key email, after inline send + provider retries. */
 const EMAIL_BACKSTOP_DELAY_MS = 10 * 60_000;
@@ -102,7 +107,12 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 			created = true;
 		} catch (err) {
 			// A concurrent insert won the checkout-id UNIQUE race; re-read the winner's license.
-			if (err instanceof Error && /UNIQUE/i.test(err.message)) {
+			if (
+				isUniqueConstraintError(err, [
+					'purchases.provider_checkout_id',
+					'purchases_provider_checkout_id_unique',
+				])
+			) {
 				license = db
 					.select()
 					.from(licenses)
@@ -114,34 +124,20 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 		}
 	}
 
+	// Terminal events can arrive before checkout issuance. Reconcile before either the
+	// inline email or its durable outbox backstop can expose a key that is already revoked.
+	license = applyPendingRevocation(deps, {
+		license,
+		provider: args.provider,
+		references: [args.paymentId, args.subscriptionId, args.checkoutId],
+	});
+
 	// Retry-only-email path: send if not yet sent. A failure propagates (caller returns 500).
-	if (!license.emailSentAt && deps.email) {
+	if (license.status === 'active' && !license.emailSentAt && deps.email) {
 		await sendKeyEmail(deps, { license, product: args.product, email: args.email });
 	}
 
 	return { license, created };
-}
-
-/** Find the license behind a purchase matched by any provider id (subscription/payment/checkout). */
-export function findLicenseByProviderId(
-	deps: AppDeps,
-	providerId: string,
-): { license: License; product: Product } | undefined {
-	const row = deps.db
-		.select()
-		.from(licenses)
-		.innerJoin(purchases, eq(purchases.id, licenses.purchaseId))
-		.where(
-			or(
-				eq(purchases.providerSubscriptionId, providerId),
-				eq(purchases.providerPaymentId, providerId),
-				eq(purchases.providerCheckoutId, providerId),
-			),
-		)
-		.get();
-	if (!row) return undefined;
-	const product = getProductById(deps.db, row.licenses.productId);
-	return product ? { license: row.licenses, product } : undefined;
 }
 
 /** How long an in-flight claim is honoured before another delivery may take it over. */

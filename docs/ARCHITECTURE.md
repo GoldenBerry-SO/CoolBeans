@@ -39,14 +39,11 @@ Where we deliberately diverge from pleasehold.dev:
   against the infra repo). No Cloudflare Workers target; we don't optimize for edge runtimes.
   Self-hosters get the same images via docker compose. Redis backs rate limiting
   (hono-rate-limiter) and queues (BullMQ in `apps/worker`), as in pleasehold.
-- **SQLite dialect throughout, with libSQL as the production path.** The data layer is built on
-  the synchronous better-sqlite3 API (`.get()`/`.run()`/`.all()`), which keeps the service code
-  simple and the atomic guarded-statement pattern honest. For the production k8s instance the same
-  code runs against **libSQL/Turso** (SQLite-compatible, distributed, sync client) with no changes.
-  A true Postgres adapter would require making every data-access call async (postgres-js has no sync
-  client), i.e. an `await` refactor across all services — a deliberate, separate piece of work
-  tracked in the Postgres issue, not a drop-in. libSQL covers the "production database" need today
-  without that fork.
+- **SQLite is the shipped database adapter.** The data layer uses synchronous better-sqlite3
+  (`.get()`/`.run()`/`.all()`), which keeps the service code and guarded-statement behavior simple.
+  There is currently no libSQL/Turso or Postgres runtime adapter: both require an async data-access
+  refactor, and Postgres additionally needs dialect-specific schema/migrations and locking. The
+  Postgres work is a deliberate follow-up, not a configuration-only switch.
 
   The async refactor is the visible cost; the quieter one is that **our atomic statements are not
   all portable**. `scripts/postgres/atomicity.sh` proves it against a real Postgres: the seat cap

@@ -114,6 +114,55 @@ describe('PayPal webhook', () => {
 		expect((await keys(h, 'r@x.io'))[0]?.status).toBe('disabled');
 	});
 
+	it('parks a refund that arrives before its capture and never emails the revoked key', async () => {
+		await webhook(h.app, {
+			id: 'wh_early_refund',
+			event_type: 'PAYMENT.CAPTURE.REFUNDED',
+			resource: {
+				id: 'refund_early',
+				links: [{ rel: 'up', href: 'https://api.paypal.com/v2/payments/captures/cap_early' }],
+			},
+		});
+		await webhook(h.app, {
+			id: 'wh_late_capture',
+			event_type: 'PAYMENT.CAPTURE.COMPLETED',
+			resource: {
+				id: 'cap_early',
+				custom_id: 'photoglide:lifetime',
+				payer: { email_address: 'early-refund@example.com' },
+			},
+		});
+
+		const issued = await keys(h, 'early-refund@example.com');
+		expect(issued).toHaveLength(1);
+		expect(issued[0]?.status).toBe('disabled');
+		expect(issued[0]?.disabled_reason).toBe('refund');
+		expect(h.email.sent).toHaveLength(0);
+	});
+
+	it('parks a cancellation that arrives before subscription activation', async () => {
+		await webhook(h.app, {
+			id: 'wh_early_cancel',
+			event_type: 'BILLING.SUBSCRIPTION.CANCELLED',
+			resource: { id: 'sub_early' },
+		});
+		await webhook(h.app, {
+			id: 'wh_late_activation',
+			event_type: 'BILLING.SUBSCRIPTION.ACTIVATED',
+			resource: {
+				id: 'sub_early',
+				custom_id: 'photoglide:yearly',
+				subscriber: { email_address: 'early-cancel@example.com' },
+			},
+		});
+
+		const issued = await keys(h, 'early-cancel@example.com');
+		expect(issued).toHaveLength(1);
+		expect(issued[0]?.status).toBe('disabled');
+		expect(issued[0]?.disabled_reason).toBe('subscription_canceled');
+		expect(h.email.sent).toHaveLength(0);
+	});
+
 	it('is idempotent across redelivery', async () => {
 		const event = {
 			id: 'wh_evt_6',

@@ -282,25 +282,42 @@ describe('CoolBeans SDK', () => {
 		expect(await cb.offlineState()).toBe('expired');
 	});
 
-	it('refetches the keyset once on unknown kid (rotation)', async () => {
+	it('refreshes an unknown rotated key while verify is already online', async () => {
+		const old = await signToken(payloadOf(), 'old-kid');
 		const rotated = await signToken(payloadOf(), 'new-kid');
 		const storage = memStorage();
-		storage.setItem('coolbeans.token', rotated.token);
 		let fetches = 0;
 		const cb = new CoolBeans({
 			product: 'clementine',
 			storage,
+			publicKeys: old.publicKeys,
 			fetch: cannedFetch((path) => {
 				if (path === '/v1/pubkey') {
 					fetches++;
 					return { status: 200, json: { ok: true, keys: rotated.publicKeys } };
 				}
-				return { status: 404, json: { ok: false } };
+				return {
+					status: 200,
+					json: {
+						ok: true,
+						valid: true,
+						license: {
+							key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
+							status: 'active',
+							tier: 'yearly',
+							product: 'clementine',
+							expires_at: null,
+						},
+						instance: { id: 'i', name: 'device' },
+						token: rotated.token,
+					},
+				};
 			}),
 		});
+		await cb.verify('CLEM-A2B3-C4D5-E6F7-G8H9', { instanceId: 'i' });
 		expect(await cb.offlineState()).toBe('valid');
 		expect(fetches).toBe(1);
-		// Keys persisted: a second check needs no further fetch.
+		// Keys persisted: local checks need no further fetch.
 		expect(await cb.offlineState()).toBe('valid');
 		expect(fetches).toBe(1);
 	});
@@ -323,10 +340,14 @@ describe('SDK hardening (issue #45)', () => {
 
 	it('verifyOffline never touches the network', async () => {
 		let called = false;
+		const storage = memStorage();
+		// A cached token without its signing key used to make offlineState fetch /pubkey.
+		// The local-only contract must hold even on this unknown-kid path.
+		storage.setItem('coolbeans.token', 'eyJraWQiOiJ1bmtub3duIn0.e30.invalid');
 		const client = new CoolBeans({
 			product: 'clementine',
 			baseUrl: 'https://keys.test',
-			storage: memStorage(),
+			storage,
 			fetch: (async () => {
 				called = true;
 				throw new Error('verifyOffline must not fetch');

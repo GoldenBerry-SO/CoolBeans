@@ -1,9 +1,11 @@
 // ABOUTME: Console magic-code auth tests — bootstrap create-account, sign-in, sessions, sign-out.
 // ABOUTME: Codes arrive via the captured email sender; no enumeration through request-code.
 
+import { createLogger } from '@coolbeans/logger';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../config.js';
-import { makeHarness, type TestHarness } from '../test/harness.js';
+import { authRateLimiter } from '../middleware/rate-limit.js';
+import { makeHarness, type TestHarness, testConfig } from '../test/harness.js';
 
 let h: TestHarness;
 
@@ -88,6 +90,45 @@ describe('console magic-code auth', () => {
 		const code = lastCode();
 		expect((await post('/auth/verify', { email: 'chris@goldenberry.io', code })).status).toBe(200);
 		expect((await post('/auth/verify', { email: 'chris@goldenberry.io', code })).status).toBe(401);
+	});
+
+	it('atomically consumes a code when verification requests race', async () => {
+		await post('/auth/request-code', { email: 'chris@goldenberry.io' });
+		const code = lastCode();
+		const results = await Promise.all([
+			post('/auth/verify', { email: 'chris@goldenberry.io', code }),
+			post('/auth/verify', { email: 'chris@goldenberry.io', code }),
+		]);
+		expect(results.map((result) => result.status).sort()).toEqual([200, 401]);
+	});
+
+	it('allows only one account to win concurrent first-admin bootstrap', async () => {
+		await post('/auth/request-code', { email: 'first@example.com' });
+		const firstCode = lastCode();
+		await post('/auth/request-code', { email: 'second@example.com' });
+		const secondCode = lastCode();
+
+		expect(
+			(await post('/auth/verify', { email: 'first@example.com', code: firstCode })).status,
+		).toBe(200);
+		expect(
+			(await post('/auth/verify', { email: 'second@example.com', code: secondCode })).status,
+		).toBe(401);
+	});
+
+	it('rate limits code requests and verification separately from the public API', async () => {
+		h = makeHarness({
+			authRateLimit: authRateLimiter({
+				config: testConfig(),
+				logger: createLogger({ level: 'error' }),
+				perMinute: 3,
+			}),
+		});
+		const statuses = [];
+		for (let i = 0; i < 5; i++) {
+			statuses.push((await post('/auth/request-code', { email: 'chris@goldenberry.io' })).status);
+		}
+		expect(statuses.filter((status) => status === 429)).toHaveLength(2);
 	});
 
 	it('sign-out revokes the session', async () => {

@@ -21,6 +21,8 @@ export interface AppDeps {
 	paypal?: PayPalGateway;
 	/** Optional rate-limit middleware applied to /v1/* (webhooks excluded). */
 	rateLimit?: MiddlewareHandler;
+	/** Separate limiter for magic-code request and verification endpoints. */
+	authRateLimit?: MiddlewareHandler;
 	/** Injectable clock for deterministic tests. Returns an ISO 8601 string. */
 	now?: () => Date;
 }

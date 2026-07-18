@@ -6,15 +6,15 @@ import { pendingRevocations } from '@coolbeans/db';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
+import { findLicenseByProviderId } from '../store/payment-lookup.js';
 import { type DisableReason, disableLicense } from './lifecycle.js';
-import { findLicenseByProviderId } from './payments.js';
 
 type Provider = 'stripe' | 'paypal';
 
 /**
  * Remember a revocation whose license does not exist yet. Idempotent on (provider,
- * reference): a redelivered refund must not stack up rows, and the first reason wins
- * because a chargeback following a refund revokes for the same money either way.
+ * reference, reason): redelivery cannot stack rows, while a refund and chargeback may
+ * coexist because clearing one cause must not silently discard the other.
  */
 export function recordPendingRevocation(
 	deps: AppDeps,

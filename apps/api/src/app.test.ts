@@ -62,4 +62,13 @@ describe('OpenAPI document (issue #48)', () => {
 			}
 		}
 	});
+
+	it('documents the usage response with the frozen snake_case fields', async () => {
+		const h = makeHarness();
+		const res = await h.app.request('/doc');
+		const doc = (await res.json()) as { paths: Record<string, unknown> };
+		const usage = JSON.stringify(doc.paths['/v1/usage']);
+		expect(usage).toContain('resets_at');
+		expect(usage).not.toContain('resetsAt');
+	});
 });

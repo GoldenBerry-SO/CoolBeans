@@ -220,11 +220,12 @@ export const publicPaths = {
 								type: 'array',
 								items: {
 									type: 'object',
+									required: ['metric', 'current', 'limit', 'resets_at'],
 									properties: {
 										metric: { type: 'string' },
 										current: { type: 'integer' },
 										limit: { type: ['integer', 'null'] },
-										resetsAt: { type: ['string', 'null'] },
+										resets_at: { type: ['string', 'null'] },
 									},
 								},
 							},

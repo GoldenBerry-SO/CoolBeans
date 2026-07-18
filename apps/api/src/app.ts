@@ -40,6 +40,10 @@ export function createApp(deps: AppDeps) {
 			return limiter(c, next);
 		});
 	}
+	// Runtime embedders that only supplied the original public limiter still get auth
+	// protection; Node boot provides a dedicated, tighter bucket.
+	const authLimiter = deps.authRateLimit ?? deps.rateLimit;
+	if (authLimiter) app.use('/auth/*', authLimiter);
 
 	// Webhooks first: they need the raw body and their own (signature) auth.
 	registerWebhookRoutes(app, deps);

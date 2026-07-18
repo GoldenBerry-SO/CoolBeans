@@ -19,11 +19,7 @@ import {
 	findLicenseByProviderId,
 	releaseEvent,
 } from './payments.js';
-import {
-	applyPendingRevocation,
-	dropPendingRevocation,
-	recordPendingRevocation,
-} from './reconcile.js';
+import { dropPendingRevocation, recordPendingRevocation } from './reconcile.js';
 import type { StripeEvent } from './stripe-gateway.js';
 
 /**
@@ -174,13 +170,7 @@ export async function ensureLicenseForSession(
 		});
 	}
 
-	// A refund or dispute for this payment may have arrived before the checkout did.
-	const license = applyPendingRevocation(deps, {
-		license: result.license,
-		provider: 'stripe',
-		references: [str(obj, 'payment_intent'), subscriptionId],
-	});
-	return { license, product };
+	return { license: result.license, product };
 }
 
 /**

@@ -1,5 +1,5 @@
 // ABOUTME: Storage adapter seam — one Database type behind a factory, drivers stay in here.
-// ABOUTME: SQLite (better-sqlite3) for dev/self-host; the Postgres adapter reuses this schema.
+// ABOUTME: SQLite (better-sqlite3) is the current adapter; Postgres remains a planned async port.
 
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';

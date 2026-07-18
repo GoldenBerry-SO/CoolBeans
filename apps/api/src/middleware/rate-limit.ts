@@ -26,14 +26,19 @@ export interface RateLimitOptions {
 	perMinute?: number;
 }
 
-/** A rate limiter for the public /v1 surface, keyed per client IP. */
-export function publicRateLimiter(opts: RateLimitOptions): MiddlewareHandler {
+function ipRateLimiter(
+	opts: RateLimitOptions,
+	bucket: string,
+	defaultLimit: number,
+): MiddlewareHandler {
 	return rateLimiter({
 		windowMs: 60_000,
-		limit: opts.perMinute ?? 30,
+		limit: opts.perMinute ?? defaultLimit,
 		standardHeaders: 'draft-6',
 		store: opts.store,
-		keyGenerator: (c) => clientKey(c.req.raw.headers),
+		// Separate auth and public buckets. A busy licensed client must not prevent its
+		// operator from signing in, while both surfaces remain limited across replicas.
+		keyGenerator: (c) => `${bucket}:${clientKey(c.req.raw.headers)}`,
 		handler: (c) =>
 			c.json(
 				{
@@ -44,4 +49,14 @@ export function publicRateLimiter(opts: RateLimitOptions): MiddlewareHandler {
 				429,
 			),
 	});
+}
+
+/** A rate limiter for the public /v1 surface, keyed per client IP. */
+export function publicRateLimiter(opts: RateLimitOptions): MiddlewareHandler {
+	return ipRateLimiter(opts, 'public', 30);
+}
+
+/** A tighter bucket for requesting and verifying console magic codes. */
+export function authRateLimiter(opts: RateLimitOptions): MiddlewareHandler {
+	return ipRateLimiter(opts, 'auth', 10);
 }

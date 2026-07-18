@@ -11,7 +11,7 @@ import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { mountConsole } from './console-static.js';
 import type { AppDeps } from './deps.js';
-import { publicRateLimiter } from './middleware/rate-limit.js';
+import { authRateLimiter, publicRateLimiter } from './middleware/rate-limit.js';
 import { createRedisStore } from './middleware/redis-store.js';
 import { resolveEmailSender } from './services/email.js';
 import { createPayPalGateway } from './services/paypal-gateway.js';
@@ -31,7 +31,7 @@ try {
 if (config.databaseUrl.startsWith('postgres')) {
 	// Guard: without this we'd silently create a SQLite file literally named "postgres://…".
 	logger.error(
-		'DATABASE_URL points at Postgres, which is not supported yet (see the Postgres issue). Use a SQLite/libSQL file path.',
+		'DATABASE_URL points at Postgres, which is not supported yet (see the Postgres issue). Use a SQLite file path.',
 	);
 	process.exit(1);
 }
@@ -51,10 +51,16 @@ try {
 
 // Redis-backed rate limiting holds across replicas; in-memory otherwise (single-instance/dev).
 const redis = config.redisUrl ? new Redis(config.redisUrl) : undefined;
+const rateLimitStore = redis ? createRedisStore(redis, 60_000) : undefined;
 const rateLimit = publicRateLimiter({
 	config,
 	logger,
-	store: redis ? createRedisStore(redis, 60_000) : undefined,
+	store: rateLimitStore,
+});
+const authRateLimit = authRateLimiter({
+	config,
+	logger,
+	store: rateLimitStore,
 });
 
 const deps: AppDeps = {
@@ -69,6 +75,7 @@ const deps: AppDeps = {
 		? createPayPalGateway({ clientId: config.paypal.clientId, secret: config.paypal.secret })
 		: undefined,
 	rateLimit,
+	authRateLimit,
 };
 
 const app = createApp(deps);

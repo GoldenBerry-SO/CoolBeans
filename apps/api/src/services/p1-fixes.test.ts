@@ -1,9 +1,11 @@
 // ABOUTME: Regression tests for the P1s Codex found in the batch work.
 // ABOUTME: Each one is a way the system silently loses money, access, or protection.
 
+import { purchases } from '@coolbeans/db';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../test/harness.js';
 import { createProduct, issueKey, post } from '../test/seed.js';
+import { drainOutbox } from './outbox.js';
 import { claimEvent } from './payments.js';
 
 let h: TestHarness;
@@ -105,6 +107,53 @@ describe('archiving a product must not lose a paid checkout', () => {
 			(a) => a.action,
 		);
 		expect(actions).toContain('license.issued_for_archived_product');
+	});
+});
+
+describe('manual issuance durability', () => {
+	it('rolls back the purchase if the license insert fails', async () => {
+		h.deps.db.$client.exec(`
+			CREATE TRIGGER reject_license_insert
+			BEFORE INSERT ON licenses
+			BEGIN
+				SELECT RAISE(ABORT, 'simulated license failure');
+			END
+		`);
+		const res = await h.app.request('/admin/keys', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				product: 'clementine',
+				email: 'buyer@example.com',
+				tier: 'lifetime',
+			}),
+		});
+		expect(res.status).toBe(500);
+		expect(h.deps.db.select().from(purchases).all()).toHaveLength(0);
+	});
+
+	it('does not deliver a queued key after the license is disabled', async () => {
+		h.email.failNext = true;
+		const issued = await h.app.request('/admin/keys', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				product: 'clementine',
+				email: 'buyer@example.com',
+				tier: 'lifetime',
+			}),
+		});
+		const body = (await issued.json()) as { key: string };
+		expect(issued.status).toBe(200);
+
+		await h.app.request(`/admin/keys/${encodeURIComponent(body.key)}/disable`, {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: '{}',
+		});
+		h.clock.advance(61_000);
+		expect(await drainOutbox(h.deps)).toBe(1);
+		expect(h.email.sent).toHaveLength(0);
 	});
 });
 

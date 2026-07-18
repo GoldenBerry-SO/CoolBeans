@@ -1,9 +1,9 @@
 # Cool Beans — PRD validation
 
 A section-by-section check of the v1 build against `docs/PRD.md`. Every row names where the behavior
-lives and how it's verified. Test totals at time of writing: **225 automated tests** (189 API, 16 SDK, 5 email,
-4 DB, 4 web, 4 logger, 3 CLI, 2 email) plus a **Docker Compose smoke test** that boots the stack and
-issues a first key.
+lives and how it's verified. Automated suites cover the API, SDK, database, web console, email,
+logger, and CLI; a **Docker Compose smoke test** boots the stack and issues a first key. Exact test
+counts are intentionally left to the runner so this document cannot drift every time coverage grows.
 
 ## §3 Goals
 
@@ -16,7 +16,7 @@ issues a first key.
 | Offline verification via signed tokens | ✅ | `domain/token.ts` (Ed25519), `services/signing.ts`; `token.test.ts`, e2e offline |
 | Drop-in SDK | ✅ | `packages/sdk`; `sdk/index.test.ts`, `test/e2e.test.ts` |
 | Admin dashboard + CLI | ✅ | `apps/web` console, `packages/cli`; browser-verified |
-| Self-host + cloud from one codebase | ✅ | Docker/compose + k8s GitOps; smoke test green |
+| Self-host + cloud from one codebase | Partial | SQLite self-host/compose ships; the async Postgres cloud adapter remains issue #32 |
 | Lemon Squeezy API parity | ✅ | `routes/v1/ls.ts`; `ls.test.ts` |
 
 ## §9 Public client API (the frozen contract)
@@ -123,9 +123,9 @@ Compose smoke test**.
 
 ## Deliberate scope notes
 
-- **Postgres (issue #32):** the data layer is synchronous better-sqlite3; the production path is
-  libSQL (same sync API, distributed). A true Postgres adapter needs an async refactor across all
-  services — documented in `ARCHITECTURE.md`, not shipped as broken code.
+- **Postgres (issue #32):** the shipped data layer is synchronous better-sqlite3. A Postgres adapter
+  needs an async refactor, Postgres schema/migrations, and explicit locking for seat caps — documented
+  in `ARCHITECTURE.md`, not advertised as a working `DATABASE_URL` option.
 - **Better Auth dashboard sessions (#26):** the console uses a token-paste gate today (the PRD listed
   session-vs-token as an open decision). Better Auth wiring is the follow-up; `packages/auth` scaffolds it.
 - **Native SDK stubs (Swift/C#/C++):** PRD marks these v1-or-fast-follow; not built.

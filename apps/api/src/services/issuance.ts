@@ -7,6 +7,7 @@ import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { generateKey, normalizedKey, parseKey } from '../domain/keygen.js';
 import { writeAudit } from '../store/audit.js';
+import { isUniqueConstraintError } from '../store/db-errors.js';
 
 const MAX_KEY_RETRIES = 3;
 
@@ -45,7 +46,8 @@ export function issueLicense(
 		} catch (err) {
 			// §10: regenerate on the rare collision — including one that races us to the
 			// UNIQUE constraint between generate and insert.
-			if (err instanceof Error && /UNIQUE.*licenses\.key/i.test(err.message)) continue;
+			if (isUniqueConstraintError(err, ['licenses.key', 'licenses_key_unique', 'licenses (key)']))
+				continue;
 			throw err;
 		}
 		writeAudit(db, {
@@ -83,17 +85,19 @@ export function issueManual(
 		actor: string;
 	},
 ): License {
-	const purchase = createPurchase(deps, {
-		productId: args.product.id,
-		provider: 'manual',
-		email: args.email,
-		note: args.note ?? null,
-	});
-	return issueLicense(deps, {
-		product: args.product,
-		purchaseId: purchase.id,
-		tier: args.tier,
-		expiresAt: args.expiresAt,
-		actor: args.actor,
+	return deps.db.transaction(() => {
+		const purchase = createPurchase(deps, {
+			productId: args.product.id,
+			provider: 'manual',
+			email: args.email,
+			note: args.note ?? null,
+		});
+		return issueLicense(deps, {
+			product: args.product,
+			purchaseId: purchase.id,
+			tier: args.tier,
+			expiresAt: args.expiresAt,
+			actor: args.actor,
+		});
 	});
 }

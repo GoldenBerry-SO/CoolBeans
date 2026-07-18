@@ -10,6 +10,7 @@ import { nowDate } from '../../deps.js';
 import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
+import { isUniqueConstraintError } from '../../store/db-errors.js';
 import { getProductBySlug, listProducts } from '../../store/products.js';
 import { assertScope, auditActor, productScope, readBody } from './util.js';
 
@@ -82,7 +83,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			const productToken = issueProductToken(deps, product);
 			return c.json({ ok: true, product, product_token: productToken });
 		} catch (err) {
-			if (err instanceof Error && /UNIQUE/i.test(err.message)) {
+			if (isUniqueConstraintError(err)) {
 				throw conflict('prefix_taken', 'That slug or key prefix is already in use.');
 			}
 			throw err;

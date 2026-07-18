@@ -1,5 +1,5 @@
 // ABOUTME: Barrel for the Drizzle schema — the PRD §17 data model, one table group per file.
-// ABOUTME: Portable SQL — SQLite for dev/self-host, Postgres for the k8s production instance.
+// ABOUTME: SQLite schema for the current runtime; a future Postgres adapter will need its own dialect.
 
 export * from './activations.js';
 export * from './admins.js';

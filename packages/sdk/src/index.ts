@@ -182,9 +182,10 @@ export class CoolBeans {
 		if (data.token) {
 			this.storage.setItem(TOKEN_KEY, data.token);
 			this.storage.setItem(INSTANCE_KEY, opts.instanceId);
-			// Best effort: persist the current keyset now so offline verification works
-			// later even if the app never embedded keys. Failure is fine (we're online).
-			if (!this.trustedKeys()) await this.refreshKeys();
+			// Best effort while we are already online: fetch when there is no keyset or the
+			// returned token uses a rotated/unknown key. offlineState itself never fetches.
+			const keys = this.trustedKeys();
+			if (!keys || !(await verifyTokenSignature(data.token, keys))) await this.refreshKeys();
 		}
 		// The definitive revocation signal: drop the cached token so verifyOffline stops unlocking.
 		if (data.license.status === 'disabled') this.storage.setItem(TOKEN_KEY, '');
@@ -211,13 +212,10 @@ export class CoolBeans {
 
 		// Only signature-verified tokens count. No trusted keys -> fail closed: the token
 		// came from a verify() that also persisted the keyset, so this only bites tampering.
-		let keys = this.trustedKeys();
-		let payload = keys ? await verifyTokenSignature(token, keys) : null;
-		if (!payload && (await this.refreshKeys())) {
-			// Unknown kid can mean the server rotated keys since our last fetch.
-			keys = this.trustedKeys();
-			payload = keys ? await verifyTokenSignature(token, keys) : null;
-		}
+		const keys = this.trustedKeys();
+		// This method is deliberately network-free. Online verify() refreshes missing
+		// keysets; an offline caller with no matching trusted key must fail closed locally.
+		const payload = keys ? await verifyTokenSignature(token, keys) : null;
 		if (!payload) return 'expired';
 
 		// Claim binding: the token must be for this product and this device's instance.

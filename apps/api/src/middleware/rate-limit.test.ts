@@ -1,5 +1,5 @@
 // ABOUTME: Rate-limit tests (PRD §18) — the public surface throttles; webhooks are never limited.
-// ABOUTME: Uses the in-memory store with a low limit; keys per license key so tenants are isolated.
+// ABOUTME: Uses the in-memory store with a low limit and proves the per-IP/public-key boundaries.
 
 import { createLogger } from '@coolbeans/logger';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -52,6 +52,19 @@ describe('rate limiting', () => {
 			});
 			expect(res.status).not.toBe(429);
 		}
+	});
+
+	it('protects auth for embedders that provide only the original public limiter', async () => {
+		const statuses = [];
+		for (let i = 0; i < 5; i++) {
+			const res = await h.app.request('/auth/request-code', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: 'admin@example.com' }),
+			});
+			statuses.push(res.status);
+		}
+		expect(statuses.filter((status) => status === 429)).toHaveLength(2);
 	});
 });
 

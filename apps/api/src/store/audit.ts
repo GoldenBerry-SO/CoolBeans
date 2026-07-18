@@ -12,7 +12,9 @@ export interface AuditEntry {
 	detail?: Record<string, unknown>;
 }
 
-export function writeAudit(db: Database, entry: AuditEntry): void {
+type AuditDb = Pick<Database, 'insert'>;
+
+export function writeAudit(db: AuditDb, entry: AuditEntry): void {
 	db.insert(auditLog)
 		.values({
 			action: entry.action,

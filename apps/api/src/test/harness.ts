@@ -168,7 +168,11 @@ export function capturingLogger() {
 }
 
 export function makeHarness(
-	overrides: { config?: Partial<Config>; rateLimit?: AppDeps['rateLimit'] } = {},
+	overrides: {
+		config?: Partial<Config>;
+		rateLimit?: AppDeps['rateLimit'];
+		authRateLimit?: AppDeps['authRateLimit'];
+	} = {},
 ): TestHarness {
 	// Throttle state is module-level, so each harness starts from a clean slate.
 	resetKeyThrottle();
@@ -183,6 +187,7 @@ export function makeHarness(
 		logger,
 		email,
 		rateLimit: overrides.rateLimit,
+		authRateLimit: overrides.authRateLimit,
 		now: () => clock.now(),
 	};
 	return {

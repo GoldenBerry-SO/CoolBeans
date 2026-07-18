@@ -13,6 +13,7 @@ import {
 	releaseEvent,
 } from './payments.js';
 import type { PayPalEvent } from './paypal-gateway.js';
+import { recordPendingRevocation } from './reconcile.js';
 
 function pickString(obj: Record<string, unknown>, path: string[]): string | null {
 	let cur: unknown = obj;
@@ -157,16 +158,30 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			// The refund resource's own id is the REFUND id; the capture we stored is in the
 			// "up" link (…/v2/payments/captures/<capture_id>). Try that first, then fall back
 			// to resource.id for older/alternate payload shapes.
-			const found = findLicenseByAnyId(deps, [
+			const references = [
 				captureIdFromLinks(resource),
+				pickString(resource, ['supplementary_data', 'related_ids', 'capture_id']),
+				pickString(resource, ['capture_id']),
 				pickString(resource, ['id']),
-			]);
+			];
+			const found = findLicenseByAnyId(deps, references);
 			if (found) {
 				disableLicense(deps, {
 					license: found.license,
 					reason: 'refund',
 					actor: `paypal:${event.id}`,
 				});
+			} else {
+				// PayPal can deliver the refund before the capture. Park every usable
+				// capture reference so issuance cannot email or activate a refunded key.
+				for (const reference of new Set(references.filter((id): id is string => Boolean(id)))) {
+					recordPendingRevocation(deps, {
+						provider: 'paypal',
+						reference,
+						reason: 'refund',
+						eventId: event.id,
+					});
+				}
 			}
 			break;
 		}
@@ -180,6 +195,13 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 					license: found.license,
 					reason: 'subscription_canceled',
 					actor: `paypal:${event.id}`,
+				});
+			} else if (subId) {
+				recordPendingRevocation(deps, {
+					provider: 'paypal',
+					reference: subId,
+					reason: 'subscription_canceled',
+					eventId: event.id,
 				});
 			}
 			break;

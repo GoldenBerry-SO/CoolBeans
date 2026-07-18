@@ -47,6 +47,16 @@ Where we deliberately diverge from pleasehold.dev:
   client), i.e. an `await` refactor across all services — a deliberate, separate piece of work
   tracked in the Postgres issue, not a drop-in. libSQL covers the "production database" need today
   without that fork.
+
+  The async refactor is the visible cost; the quieter one is that **our atomic statements are not
+  all portable**. `scripts/postgres/atomicity.sh` proves it against a real Postgres: the seat cap
+  (`INSERT … SELECT … WHERE (SELECT COUNT(*)…) < limit`) is safe on SQLite only because SQLite
+  serialises writers. On Postgres every concurrent contender evaluates that subquery against its
+  own snapshot, so a limit of 3 sold 12 seats. It needs `SELECT … FROM licenses WHERE id = ? FOR
+  UPDATE` first, which queues contenders per licence. The floating-lease renewal has the same
+  shape and needs the same lock. The usage quota is a single guarded `UPDATE` on one row, so
+  Postgres takes the row lock itself and that one ports unchanged. Any Postgres work starts by
+  running that script.
 - **Zod v4 everywhere** (pleasehold is stuck on a v3/v4 dual-version override; greenfield means we
   skip that).
 - **Better Auth only for the dashboard.** The license key itself is the public credential and the

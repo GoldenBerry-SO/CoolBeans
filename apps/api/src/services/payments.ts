@@ -3,8 +3,9 @@
 
 import type { License, Product } from '@coolbeans/db';
 import { licenses, providerEvents, purchases } from '@coolbeans/db';
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
+import { nowDate } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
 import { getProductById } from '../store/products.js';
 import { sendKeyEmail } from './email.js';
@@ -126,20 +127,49 @@ export function findLicenseByProviderId(
 	return product ? { license: row.licenses, product } : undefined;
 }
 
-/** True if a provider event id was already fully processed (recorded only on success). */
-export function eventAlreadyProcessed(deps: AppDeps, eventId: string): boolean {
-	return !!deps.db.select().from(providerEvents).where(eq(providerEvents.id, eventId)).get();
-}
+/** How long an in-flight claim is honoured before another delivery may take it over. */
+const CLAIM_STALE_MS = 5 * 60_000;
 
-/** Record a provider event as processed. Call only after full success (incl. email). */
-export function recordEvent(
+/**
+ * Take exclusive ownership of a provider event, or refuse when it is already done or
+ * in flight. A single guarded INSERT decides it: two concurrent redeliveries cannot
+ * both win, where the old read-then-write check let both through (issue #34).
+ * A claim older than CLAIM_STALE_MS is reclaimable so a crash mid-handler cannot
+ * wedge an event forever.
+ */
+export function claimEvent(
 	deps: AppDeps,
 	event: { id: string; provider: string; type: string },
-): void {
+): boolean {
+	const nowIso = nowDate(deps).toISOString();
+	const staleBefore = new Date(nowDate(deps).getTime() - CLAIM_STALE_MS).toISOString();
+	const claimed = deps.db.run(sql`
+		INSERT INTO provider_events (id, provider, type, status, claimed_at, received_at)
+		VALUES (${event.id}, ${event.provider}, ${event.type}, 'processing', ${nowIso}, ${nowIso})
+		ON CONFLICT(id) DO UPDATE SET claimed_at = ${nowIso}
+		WHERE provider_events.status = 'processing'
+			AND (provider_events.claimed_at IS NULL OR provider_events.claimed_at < ${staleBefore})
+	`);
+	return claimed.changes > 0;
+}
+
+/** Mark a claimed event fully processed (including its email). */
+export function completeEvent(deps: AppDeps, eventId: string): void {
 	deps.db
-		.insert(providerEvents)
-		.values({ id: event.id, provider: event.provider, type: event.type })
-		.onConflictDoNothing()
+		.update(providerEvents)
+		.set({ status: 'done', claimedAt: null })
+		.where(eq(providerEvents.id, eventId))
+		.run();
+}
+
+/**
+ * Give up a claim after a failed handler, so the provider's retry re-enters the
+ * idempotent path rather than being deduped away with the work half-done.
+ */
+export function releaseEvent(deps: AppDeps, eventId: string): void {
+	deps.db
+		.delete(providerEvents)
+		.where(and(eq(providerEvents.id, eventId), eq(providerEvents.status, 'processing')))
 		.run();
 }
 

@@ -96,7 +96,12 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			yearlyAmount: body.yearly_amount,
 			currency: body.currency,
 		});
-		return c.json({ ok: true, prices: result });
+		return c.json({
+			ok: true,
+			prices: { lifetimePriceId: result.lifetimePriceId, yearlyPriceId: result.yearlyPriceId },
+			webhook_path: result.webhookPath,
+			secret_rotated: result.secretRotated,
+		});
 	});
 
 	app.route('/admin', admin);

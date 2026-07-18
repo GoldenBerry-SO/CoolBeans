@@ -8,10 +8,11 @@ import { getProductBySlug, getProductByStripePrice } from '../store/products.js'
 import { disableLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
+	claimEvent,
+	completeEvent,
 	ensureLicense,
-	eventAlreadyProcessed,
 	findLicenseByProviderId,
-	recordEvent,
+	releaseEvent,
 } from './payments.js';
 import type { StripeEvent } from './stripe-gateway.js';
 
@@ -51,15 +52,18 @@ export async function ensureLicenseForSession(
 		return null;
 	}
 
-	// Resolve the product: metadata.product / client_reference_id first, then the
-	// session's line-item price id against the product price columns (PRD §13).
+	// Resolve the product from what was actually PAID (§13): the line-item price id
+	// maps to exactly one product and tier, and it is set in Stripe rather than by
+	// whoever opened the checkout session. metadata.product / client_reference_id is
+	// only a fallback — trusting a label over the price lets a stale or mislabelled
+	// landing page issue another product's key for this payment.
 	const metadata = (obj.metadata as Record<string, unknown> | undefined) ?? {};
 	const slug =
 		(typeof metadata.product === 'string' ? metadata.product : null) ??
 		str(obj, 'client_reference_id');
-	let product = slug ? getProductBySlug(deps.db, slug) : undefined;
+	let product: Product | undefined;
 	let priceTier: 'lifetime' | 'yearly' | null = null;
-	if (!product && deps.stripe) {
+	if (deps.stripe) {
 		const sessionId = str(obj, 'id');
 		const priceIds = sessionId ? await deps.stripe.sessionPriceIds(sessionId) : [];
 		for (const priceId of priceIds) {
@@ -69,6 +73,15 @@ export async function ensureLicenseForSession(
 				priceTier = match.tier;
 				break;
 			}
+		}
+	}
+	if (!product && slug) {
+		product = getProductBySlug(deps.db, slug);
+		if (product) {
+			deps.logger.info('Stripe checkout resolved by metadata, no price matched', {
+				slug,
+				event: actorEventId,
+			});
 		}
 	}
 	if (!product) {
@@ -108,10 +121,22 @@ export async function ensureLicenseForSession(
 
 /**
  * Process a verified Stripe event. Throws to force a 500 + provider retry (e.g. email failure);
- * records the event id only on full success so a retry re-enters the idempotent path.
+ * the claim is released on failure so that retry re-enters the idempotent path, and marked
+ * done only on full success. Claiming is atomic, so two concurrent redeliveries of the same
+ * event cannot both run the handler (issue #34).
  */
 export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Promise<void> {
-	if (eventAlreadyProcessed(deps, event.id)) return;
+	if (!claimEvent(deps, { id: event.id, provider: 'stripe', type: event.type })) return;
+	try {
+		await processStripeEvent(deps, event);
+	} catch (err) {
+		releaseEvent(deps, event.id);
+		throw err;
+	}
+	completeEvent(deps, event.id);
+}
+
+async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<void> {
 	const obj = event.data.object;
 
 	switch (event.type) {
@@ -208,8 +233,6 @@ export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Prom
 			// Unhandled event types are acknowledged and recorded so Stripe stops retrying.
 			break;
 	}
-
-	recordEvent(deps, { id: event.id, provider: 'stripe', type: event.type });
 }
 
 /** Find the license behind a refunded charge: payment intent, then invoice -> subscription. */

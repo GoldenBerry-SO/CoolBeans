@@ -22,6 +22,8 @@ export interface PayPalGateway {
 	verify(input: PayPalVerifyInput): Promise<boolean>;
 	/** next_billing_time of a subscription as ISO 8601, for renewal expiry. */
 	subscriptionNextBilling(subscriptionId: string): Promise<string | null>;
+	/** An order by id, so the success page can issue before the webhook lands (§14). */
+	getOrder(orderId: string): Promise<Record<string, unknown> | null>;
 }
 
 interface PayPalConfig {
@@ -78,6 +80,14 @@ export function createPayPalGateway(config: PayPalConfig): PayPalGateway {
 			if (!res.ok) return false;
 			const data = (await res.json()) as { verification_status?: string };
 			return data.verification_status === 'SUCCESS';
+		},
+		async getOrder(orderId) {
+			const token = await accessToken(cfg);
+			const res = await fetch(`${cfg.baseUrl}/v2/checkout/orders/${orderId}`, {
+				headers: { Authorization: `Bearer ${token}` },
+			});
+			if (!res.ok) return null;
+			return (await res.json()) as Record<string, unknown>;
 		},
 		async subscriptionNextBilling(subscriptionId) {
 			const token = await accessToken(cfg);

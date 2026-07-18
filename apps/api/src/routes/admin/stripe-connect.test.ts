@@ -43,3 +43,56 @@ describe('POST /admin/products/:slug/stripe/connect', () => {
 		expect(product.stripeWebhookSecret).toBe('whsec_clementine');
 	});
 });
+
+describe('connect never degrades a working integration', () => {
+	it('keeps the stored secret when Stripe reuses an endpoint and returns none', async () => {
+		// First connect stores a real secret.
+		await h.app.request('/admin/products/clementine/stripe/connect', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				webhook_url: 'https://clementine.email/webhook',
+				lifetime_amount: 4900,
+				yearly_amount: 2900,
+			}),
+		});
+		const first = await h.app.request('/admin/products/clementine', { headers: h.adminHeaders });
+		const storedSecret = ((await first.json()) as { product: { stripeWebhookSecret: string } })
+			.product.stripeWebhookSecret;
+		expect(storedSecret).toBe('whsec_clementine');
+
+		// Re-running against an existing endpoint yields no secret from Stripe; the
+		// stored one must survive or every subsequent webhook fails verification.
+		h.deps.stripe = fakeStripeGateway(undefined, undefined, { connectSecret: '' });
+		const again = await h.app.request('/admin/products/clementine/stripe/connect', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				webhook_url: 'https://clementine.email/webhook',
+				lifetime_amount: 4900,
+				yearly_amount: 2900,
+			}),
+		});
+		expect(again.status).toBe(200);
+
+		const after = await h.app.request('/admin/products/clementine', { headers: h.adminHeaders });
+		const secretAfter = ((await after.json()) as { product: { stripeWebhookSecret: string } })
+			.product.stripeWebhookSecret;
+		expect(secretAfter).toBe('whsec_clementine');
+	});
+
+	it('reports the per-product webhook URL to point Stripe at', async () => {
+		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				webhook_url: 'https://clementine.email/webhook',
+				lifetime_amount: 4900,
+				yearly_amount: 2900,
+			}),
+		});
+		const body = (await res.json()) as { webhook_path: string };
+		// The secret is stored per product, so only the per-product route can verify it.
+		expect(body.webhook_path).toBe('/v1/stripe/webhook/clementine');
+	});
+});

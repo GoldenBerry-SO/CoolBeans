@@ -69,6 +69,8 @@ export function fakeStripeGateway(
 		invoiceSubscriptions?: Record<string, string>;
 		chargeSubscriptions?: Record<string, string>;
 		sessions?: Record<string, Record<string, unknown>>;
+		/** Stripe returns no secret when an endpoint already exists; set '' to model that. */
+		connectSecret?: string;
 	} = {},
 ) {
 	return {
@@ -95,7 +97,7 @@ export function fakeStripeGateway(
 			return {
 				lifetimePriceId: `price_lifetime_${args.productSlug}`,
 				yearlyPriceId: `price_yearly_${args.productSlug}`,
-				webhookSecret: `whsec_${args.productSlug}`,
+				webhookSecret: extras.connectSecret ?? `whsec_${args.productSlug}`,
 			};
 		},
 	};
@@ -103,9 +105,16 @@ export function fakeStripeGateway(
 
 /** A fake PayPal gateway: verify honors a flag; next-billing from a map. */
 export function fakePayPalGateway(
-	opts: { verified?: boolean; nextBilling?: Record<string, string> } = {},
+	opts: {
+		verified?: boolean;
+		nextBilling?: Record<string, string>;
+		orders?: Record<string, Record<string, unknown>>;
+	} = {},
 ) {
 	return {
+		async getOrder(orderId: string): Promise<Record<string, unknown> | null> {
+			return opts.orders?.[orderId] ?? null;
+		},
 		async verify(): Promise<boolean> {
 			return opts.verified ?? true;
 		},

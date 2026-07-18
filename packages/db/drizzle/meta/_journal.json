@@ -22,6 +22,13 @@
       "when": 1784359282710,
       "tag": "0002_large_malice",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784359283710,
+      "tag": "0003_event_claims",
+      "breakpoints": true
     }
   ]
 }

@@ -4,12 +4,14 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
-import { badRequest, notFound } from '../../http/errors.js';
+import { badRequest, notFound, unauthorized } from '../../http/errors.js';
 import { serializeInstance, serializeLicense } from '../../http/serializers.js';
-import { adminAuth } from '../../middleware/admin-auth.js';
+import { isAdminRequest } from '../../middleware/admin-auth.js';
 import { activate, deactivate, heartbeat, validate } from '../../services/licensing.js';
 import { findByCheckoutId } from '../../services/payments.js';
+import { productForToken } from '../../services/product-tokens.js';
 import { publicKeysFor } from '../../services/signing.js';
+import { ensureLicenseForSession } from '../../services/stripe.js';
 import { getProductBySlug } from '../../store/products.js';
 import { registerLemonSqueezyRoutes } from './ls.js';
 import { registerPortalRoutes } from './portal.js';
@@ -85,11 +87,35 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		return c.json({ ok: true, algorithm: 'ed25519', keys: publicKeysFor(deps, product.id) });
 	});
 
-	// Purchase lookup for a landing site's success page (PRD §13). Admin-token authed —
-	// the success page calls this server-side with the token held server-side.
-	app.get('/v1/purchase/session/:checkout_session_id', adminAuth(deps.config.adminToken), (c) => {
-		const found = findByCheckoutId(deps, c.req.param('checkout_session_id'));
+	// Purchase lookup for a landing site's success page (PRD §13). Product-token authed
+	// (per-product scope) with the global admin token accepted as a superset. Whichever of
+	// {webhook, success page} runs first issues; this endpoint can ENSURE via the same
+	// idempotent path when the webhook has not landed yet.
+	app.get('/v1/purchase/session/:checkout_session_id', async (c) => {
+		const header = c.req.header('Authorization') ?? '';
+		const presented = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+		const tokenProduct = presented ? productForToken(deps, presented) : undefined;
+		// Not a product token: require the global admin token (constant-time).
+		if (!tokenProduct && !isAdminRequest(header, deps.config.adminToken)) {
+			throw unauthorized();
+		}
+
+		const sessionId = c.req.param('checkout_session_id');
+		let found = findByCheckoutId(deps, sessionId);
+		if (!found && deps.stripe) {
+			// Success-page race: the webhook hasn't landed yet. Retrieve the paid session
+			// from Stripe and issue through the same idempotent path (PRD §13/§14).
+			const session = await deps.stripe.getCheckoutSession(sessionId);
+			if (session) {
+				const ensured = await ensureLicenseForSession(deps, session, `lookup:${sessionId}`);
+				if (ensured) found = findByCheckoutId(deps, sessionId);
+			}
+		}
 		if (!found) throw notFound('No purchase for that checkout session.');
+		// A product-scoped token may only read its own product's purchases.
+		if (tokenProduct && found.product.id !== tokenProduct.id) {
+			throw notFound('No purchase for that checkout session.');
+		}
 		return c.json({
 			ok: true,
 			license: serializeLicense(found.license, found.product),

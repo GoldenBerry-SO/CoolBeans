@@ -3,7 +3,6 @@
 
 import type { License, NewPurchase, Product } from '@coolbeans/db';
 import { licenses, purchases } from '@coolbeans/db';
-import { eq } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { generateKey, normalizedKey, parseKey } from '../domain/keygen.js';
@@ -29,30 +28,33 @@ export function issueLicense(
 		const display = generateKey(args.product.keyPrefix);
 		const parsed = parseKey(display, args.product.keyPrefix);
 		const normalized = parsed?.normalized ?? normalizedKey(args.product.keyPrefix, display);
-		const existing = db
-			.select({ id: licenses.id })
-			.from(licenses)
-			.where(eq(licenses.key, normalized))
-			.get();
-		if (existing) continue;
-		const license = db
-			.insert(licenses)
-			.values({
-				productId: args.product.id,
-				purchaseId: args.purchaseId,
-				key: normalized,
-				tier: args.tier,
-				status: 'active',
-				expiresAt: args.expiresAt ?? null,
-			})
-			.returning()
-			.get();
+		let license: License;
+		try {
+			license = db
+				.insert(licenses)
+				.values({
+					productId: args.product.id,
+					purchaseId: args.purchaseId,
+					key: normalized,
+					tier: args.tier,
+					status: 'active',
+					expiresAt: args.expiresAt ?? null,
+				})
+				.returning()
+				.get();
+		} catch (err) {
+			// §10: regenerate on the rare collision — including one that races us to the
+			// UNIQUE constraint between generate and insert.
+			if (err instanceof Error && /UNIQUE.*licenses\.key/i.test(err.message)) continue;
+			throw err;
+		}
 		writeAudit(db, {
 			action: 'license.issued',
 			actor: args.actor,
 			productId: args.product.id,
 			licenseId: license.id,
-			detail: { tier: args.tier, key: display },
+			// The key is the credential (§19): the audit trail records only its tail.
+			detail: { tier: args.tier, key_suffix: display.slice(-4) },
 		});
 		return license;
 	}

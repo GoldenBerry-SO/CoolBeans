@@ -7,7 +7,7 @@ import { activations, licenses } from '@coolbeans/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
-import { normalizeAgainst, toDisplayKey } from '../domain/keygen.js';
+import { looksLikeKey, normalizeAgainst, toDisplayKey } from '../domain/keygen.js';
 import { activationLimitReached, invalidKey, licenseDisabled, unknownKey } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
 import { getProductById, listPrefixes } from '../store/products.js';
@@ -27,6 +27,8 @@ export interface ResolvedLicense {
  */
 export function resolveLicense(deps: AppDeps, keyInput: string): ResolvedLicense {
 	const { db } = deps;
+	// Format check before any storage hit (§10, §19): malformed input never reaches the DB.
+	if (!looksLikeKey(keyInput)) throw invalidKey();
 	const parsed = normalizeAgainst(keyInput, listPrefixes(db));
 	if (!parsed) throw invalidKey();
 	const license = db.select().from(licenses).where(eq(licenses.key, parsed.normalized)).get();

@@ -4,15 +4,17 @@
 import type { License, Product } from '@coolbeans/db';
 import { activations, licenses, metrics, purchases, usageCounters } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { and, desc, eq, isNull, like, or } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { normalizeAgainst, toDisplayKey } from '../../domain/keygen.js';
 import { badRequest, notFound } from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
+import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, trialExpiry } from '../../services/issuance.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
+import { enqueue } from '../../services/outbox.js';
 import { getProductById, getProductBySlug, listPrefixes } from '../../store/products.js';
 import { readBody } from './util.js';
 
@@ -36,10 +38,18 @@ function resolveKey(deps: AppDeps, keyInput: string): { license: License; produc
 }
 
 function adminLicenseView(deps: AppDeps, license: License, product: Product) {
+	// A floating seat only counts while its lease is current ("expired lease frees automatically").
+	const nowIso = nowDate(deps).toISOString();
+	const leaseCondition =
+		product.activationModel === 'floating'
+			? sql`${activations.leaseExpiresAt} > ${nowIso}`
+			: sql`1 = 1`;
 	const liveSeats = deps.db
 		.select({ id: activations.id })
 		.from(activations)
-		.where(and(eq(activations.licenseId, license.id), isNull(activations.deactivatedAt)))
+		.where(
+			and(eq(activations.licenseId, license.id), isNull(activations.deactivatedAt), leaseCondition),
+		)
 		.all().length;
 	return {
 		...serializeLicense(license, product),
@@ -70,6 +80,15 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			note: body.note,
 			actor: 'admin',
 		});
+		// Deliver the key email like any purchase (PRD §14). A send failure never fails
+		// the issuance: the durable outbox retries it.
+		if (deps.email) {
+			try {
+				await sendKeyEmail(deps, { license, product, email: body.email });
+			} catch {
+				enqueue(deps, 'send_key_email', { licenseId: license.id, email: body.email }, 60_000);
+			}
+		}
 		return c.json({
 			ok: true,
 			license: serializeLicense(license, product),

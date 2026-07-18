@@ -1,7 +1,7 @@
 // ABOUTME: @coolbeans/sdk (PRD §11) — drop-in licensing for Node, Electron, Tauri, and the browser.
 // ABOUTME: The key is the credential; offline-tolerant by contract, only `disabled` revokes access.
 
-import { decodeToken, type TokenPayload, verifyTokenSignature } from './token.js';
+import { type TokenPayload, verifyTokenSignature } from './token.js';
 
 export type { TokenPayload };
 
@@ -18,7 +18,7 @@ export interface InstanceObject {
 	name: string;
 }
 
-/** Minimal persistent storage the SDK uses for the device id and cached token. */
+/** Minimal persistent storage the SDK uses for the device id, cached token, and trusted keys. */
 export interface Storage {
 	getItem(key: string): string | null;
 	setItem(key: string, value: string): void;
@@ -28,9 +28,12 @@ export interface CoolBeansOptions {
 	product: string;
 	/** Base URL of the Cool Beans server. Defaults to the hosted cloud. */
 	baseUrl?: string;
-	/** Public keys keyed by kid, embedded in the app. If omitted, fetched from /v1/pubkey and cached. */
+	/**
+	 * Public keys keyed by kid, embedded in the app (PRD §11 recommends bundling them).
+	 * Keys fetched from /v1/pubkey are persisted to storage and merged with these.
+	 */
 	publicKeys?: Record<string, string>;
-	/** Persistent storage (localStorage in the browser, a file-backed shim in Electron/Tauri). */
+	/** Persistent storage. Defaults to localStorage in the browser, in-memory elsewhere. */
 	storage?: Storage;
 	/** Injectable fetch for tests. */
 	fetch?: typeof fetch;
@@ -48,13 +51,22 @@ export interface VerifyResult {
 	license: LicenseObject | null;
 	instance: InstanceObject | null;
 	token: string | null;
-	/** True when the call could not reach the server (offline). Never a lockout. */
+	/** True when the server could not be reached (network failure). */
 	offline: boolean;
+	/**
+	 * True when the answer is NOT definitive (network failure, non-200, malformed body,
+	 * or product mismatch). Per the frozen contract, an inconclusive answer must never
+	 * lock the user out — fall back to verifyOffline(). Only an explicit
+	 * `license.status === "disabled"` with `inconclusive: false` revokes access.
+	 */
+	inconclusive: boolean;
 }
 
 const DEFAULT_BASE = 'https://app.coolbeans.tools';
 const DEVICE_KEY = 'coolbeans.device_id';
 const TOKEN_KEY = 'coolbeans.token';
+const KEYS_KEY = 'coolbeans.pubkeys';
+const INSTANCE_KEY = 'coolbeans.instance_id';
 
 function memoryStorage(): Storage {
 	const map = new Map<string, string>();
@@ -66,19 +78,25 @@ function memoryStorage(): Storage {
 	};
 }
 
+function defaultStorage(): Storage {
+	// Browsers get durable storage automatically; Node/Electron callers should inject their own.
+	const ls = (globalThis as { localStorage?: Storage }).localStorage;
+	return ls ?? memoryStorage();
+}
+
 export class CoolBeans {
 	private readonly product: string;
 	private readonly baseUrl: string;
 	private readonly storage: Storage;
 	private readonly doFetch: typeof fetch;
-	private publicKeys: Record<string, string> | null;
+	private readonly embeddedKeys: Record<string, string> | null;
 
 	constructor(opts: CoolBeansOptions) {
 		this.product = opts.product;
 		this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE).replace(/\/$/, '');
-		this.storage = opts.storage ?? memoryStorage();
+		this.storage = opts.storage ?? defaultStorage();
 		this.doFetch = opts.fetch ?? globalThis.fetch.bind(globalThis);
-		this.publicKeys = opts.publicKeys ?? null;
+		this.embeddedKeys = opts.publicKeys ?? null;
 	}
 
 	/** A stable per-install device id, persisted in storage. */
@@ -104,11 +122,24 @@ export class CoolBeans {
 		if (data.license.product !== this.product) {
 			throw new CoolBeansError(res.status, { error: 'product_mismatch' });
 		}
+		this.storage.setItem(INSTANCE_KEY, data.instance.id);
 		return { license: data.license, instance: data.instance };
 	}
 
-	/** Verify online, refreshing the cached offline token. Offline errors never hard-lock. */
+	/**
+	 * Verify online, refreshing the cached offline token. Anything short of a definitive
+	 * 200 answer for this product is inconclusive and never a lockout.
+	 */
 	async verify(licenseKey: string, opts: { instanceId: string }): Promise<VerifyResult> {
+		const inconclusive = (offline: boolean): VerifyResult => ({
+			valid: false,
+			license: null,
+			instance: null,
+			token: null,
+			offline,
+			inconclusive: true,
+		});
+
 		let res: Response;
 		try {
 			res = await this.post('/v1/validate', {
@@ -116,26 +147,44 @@ export class CoolBeans {
 				instance_id: opts.instanceId,
 			});
 		} catch {
-			// Network failure: inconclusive, never a lockout.
-			return { valid: false, license: null, instance: null, token: null, offline: true };
+			return inconclusive(true);
 		}
-		const data = (await res.json()) as {
-			ok: boolean;
-			valid: boolean;
-			license: LicenseObject | null;
-			instance: InstanceObject | null;
+
+		let data: {
+			ok?: boolean;
+			valid?: boolean;
+			license?: LicenseObject | null;
+			instance?: InstanceObject | null;
 			token?: string;
 		};
-		if (data.token) this.storage.setItem(TOKEN_KEY, data.token);
-		// The definitive revocation signal: drop the cached token so verifyOffline
-		// stops unlocking. (404/network stay inconclusive and leave the cache alone.)
-		if (data.license?.status === 'disabled') this.storage.setItem(TOKEN_KEY, '');
+		try {
+			data = (await res.json()) as typeof data;
+		} catch {
+			return inconclusive(false);
+		}
+
+		// 404/422/429/5xx and malformed bodies are inconclusive per the frozen contract.
+		if (res.status !== 200 || !data.ok || !data.license) return inconclusive(false);
+		// A definitive answer about some other product is not an answer about this one.
+		if (data.license.product !== this.product) return inconclusive(false);
+
+		if (data.token) {
+			this.storage.setItem(TOKEN_KEY, data.token);
+			this.storage.setItem(INSTANCE_KEY, opts.instanceId);
+			// Best effort: persist the current keyset now so offline verification works
+			// later even if the app never embedded keys. Failure is fine (we're online).
+			if (!this.trustedKeys()) await this.refreshKeys();
+		}
+		// The definitive revocation signal: drop the cached token so verifyOffline stops unlocking.
+		if (data.license.status === 'disabled') this.storage.setItem(TOKEN_KEY, '');
+
 		return {
 			valid: !!data.valid,
-			license: data.license ?? null,
+			license: data.license,
 			instance: data.instance ?? null,
 			token: data.token ?? null,
 			offline: false,
+			inconclusive: false,
 		};
 	}
 
@@ -148,16 +197,33 @@ export class CoolBeans {
 	async offlineState(): Promise<OfflineState> {
 		const token = this.storage.getItem(TOKEN_KEY);
 		if (!token) return 'expired';
-		const keys = await this.getPublicKeys();
-		if (!keys) {
-			// Cannot fetch keys and none embedded — fall back to unverified decode within TTL only.
-			const decoded = decodeToken(token);
-			if (!decoded || decoded.payload.status === 'disabled') return 'expired';
-			return decoded.payload.exp * 1000 > Date.now() ? 'grace' : 'expired';
+
+		// Only signature-verified tokens count. No trusted keys -> fail closed: the token
+		// came from a verify() that also persisted the keyset, so this only bites tampering.
+		let keys = this.trustedKeys();
+		let payload = keys ? await verifyTokenSignature(token, keys) : null;
+		if (!payload && (await this.refreshKeys())) {
+			// Unknown kid can mean the server rotated keys since our last fetch.
+			keys = this.trustedKeys();
+			payload = keys ? await verifyTokenSignature(token, keys) : null;
 		}
-		const payload = await verifyTokenSignature(token, keys);
-		if (!payload || payload.status === 'disabled') return 'expired';
-		return payload.exp * 1000 > Date.now() ? 'valid' : 'grace';
+		if (!payload) return 'expired';
+
+		// Claim binding: the token must be for this product and this device's instance.
+		if (payload.product !== this.product) return 'expired';
+		const boundInstance = this.storage.getItem(INSTANCE_KEY);
+		if (boundInstance && payload.instance_id !== boundInstance) return 'expired';
+
+		if (payload.status === 'disabled') return 'expired';
+
+		const now = Date.now();
+		if (payload.tier === 'trial') {
+			// Trial expiry is enforced (§9): no grace period can outlive the trial itself.
+			if (payload.expires_at && new Date(payload.expires_at).getTime() <= now) return 'expired';
+			if (payload.exp * 1000 <= now) return 'expired';
+			return 'valid';
+		}
+		return payload.exp * 1000 > now ? 'valid' : 'grace';
 	}
 
 	/** Free a seat. Idempotent server-side. */
@@ -165,21 +231,33 @@ export class CoolBeans {
 		await this.post('/v1/deactivate', { license_key: licenseKey, instance_id: opts.instanceId });
 	}
 
-	private async getPublicKeys(): Promise<Record<string, string> | null> {
-		if (this.publicKeys) return this.publicKeys;
+	/** Embedded keys merged with any keyset persisted from a previous fetch. */
+	private trustedKeys(): Record<string, string> | null {
+		let stored: Record<string, string> = {};
+		try {
+			stored = JSON.parse(this.storage.getItem(KEYS_KEY) ?? '{}') as Record<string, string>;
+		} catch {
+			stored = {};
+		}
+		const merged = { ...stored, ...(this.embeddedKeys ?? {}) };
+		return Object.keys(merged).length > 0 ? merged : null;
+	}
+
+	/** Fetch the product keyset and persist it. Returns true when new keys were stored. */
+	private async refreshKeys(): Promise<boolean> {
 		try {
 			const res = await this.doFetch(
 				`${this.baseUrl}/v1/pubkey?product=${encodeURIComponent(this.product)}`,
 			);
 			const data = (await res.json()) as { ok: boolean; keys: Record<string, string> };
-			if (data.ok) {
-				this.publicKeys = data.keys;
-				return data.keys;
+			if (res.ok && data.ok && data.keys && Object.keys(data.keys).length > 0) {
+				this.storage.setItem(KEYS_KEY, JSON.stringify(data.keys));
+				return true;
 			}
 		} catch {
 			// Offline: no keys available this call.
 		}
-		return null;
+		return false;
 	}
 
 	private post(path: string, body: unknown): Promise<Response> {

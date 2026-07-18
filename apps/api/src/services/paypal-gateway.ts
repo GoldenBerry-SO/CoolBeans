@@ -39,7 +39,9 @@ async function accessToken(cfg: Required<PayPalConfig>): Promise<string> {
 		},
 		body: 'grant_type=client_credentials',
 	});
-	const data = (await res.json()) as { access_token: string };
+	if (!res.ok) throw new Error(`PayPal oauth failed: ${res.status}`);
+	const data = (await res.json()) as { access_token?: string };
+	if (!data.access_token) throw new Error('PayPal oauth returned no access token');
 	return data.access_token;
 }
 
@@ -65,7 +67,8 @@ export function createPayPalGateway(config: PayPalConfig): PayPalGateway {
 					webhook_event: JSON.parse(input.body),
 				}),
 			});
-			const data = (await res.json()) as { verification_status: string };
+			if (!res.ok) return false;
+			const data = (await res.json()) as { verification_status?: string };
 			return data.verification_status === 'SUCCESS';
 		},
 		async subscriptionNextBilling(subscriptionId) {
@@ -73,6 +76,7 @@ export function createPayPalGateway(config: PayPalConfig): PayPalGateway {
 			const res = await fetch(`${cfg.baseUrl}/v1/billing/subscriptions/${subscriptionId}`, {
 				headers: { Authorization: `Bearer ${token}` },
 			});
+			if (!res.ok) return null;
 			const data = (await res.json()) as { billing_info?: { next_billing_time?: string } };
 			return data.billing_info?.next_billing_time ?? null;
 		},

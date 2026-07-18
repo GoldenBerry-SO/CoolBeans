@@ -21,6 +21,8 @@ export function disableLicense(
 	args: { license: License; reason: DisableReason; actor: string },
 ): License {
 	const { db } = deps;
+	// Idempotent: a second disable (e.g. refund after chargeback) records no new state change.
+	if (args.license.status === 'disabled') return args.license;
 	const disabledAt = nowDate(deps).toISOString();
 	db.update(licenses)
 		.set({ status: 'disabled', disabledAt, disabledReason: args.reason })

@@ -68,6 +68,7 @@ describe('outbox backstop', () => {
 					object: {
 						id: 'cs_1',
 						mode: 'payment',
+						payment_status: 'paid',
 						customer_email: 'b@x.io',
 						metadata: { product: 'clementine' },
 					},

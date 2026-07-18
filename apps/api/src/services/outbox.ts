@@ -23,10 +23,22 @@ export function enqueue(deps: AppDeps, kind: JobKind, payload: object, delayMs =
 		.run();
 }
 
-/** Claim up to `limit` due pending jobs, marking them processing. */
+/** How long a claim may sit in `processing` before it is presumed dead and requeued. */
+const STALE_CLAIM_MS = 5 * 60_000;
+
+/** Claim up to `limit` due pending jobs, marking them processing with a claim timestamp. */
 export function claimDue(deps: AppDeps, limit = 10) {
 	const nowIso = nowDate(deps).toISOString();
 	return deps.db.transaction(() => {
+		// Recover claims from crashed workers: anything processing past the lease window
+		// returns to pending so the outbox stays durable (a claim is a lease, not a tombstone).
+		const staleBefore = new Date(nowDate(deps).getTime() - STALE_CLAIM_MS).toISOString();
+		deps.db
+			.update(outbox)
+			.set({ status: 'pending', claimedAt: null })
+			.where(and(eq(outbox.status, 'processing'), lte(outbox.claimedAt, staleBefore)))
+			.run();
+
 		const due = deps.db
 			.select()
 			.from(outbox)
@@ -34,7 +46,11 @@ export function claimDue(deps: AppDeps, limit = 10) {
 			.limit(limit)
 			.all();
 		for (const job of due) {
-			deps.db.update(outbox).set({ status: 'processing' }).where(eq(outbox.id, job.id)).run();
+			deps.db
+				.update(outbox)
+				.set({ status: 'processing', claimedAt: nowIso })
+				.where(eq(outbox.id, job.id))
+				.run();
 		}
 		return due;
 	});

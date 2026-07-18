@@ -50,8 +50,16 @@ product
 				email_from: opts.emailFrom,
 				activation_limit: Number(opts.limit),
 				activation_model: opts.model,
-			})) as { product: { slug: string; key_prefix: string } };
-			out(json, `Created product ${res.product.slug} (${res.product.key_prefix})`, res);
+			})) as { product: { slug: string; keyPrefix: string }; product_token?: string };
+			out(
+				json,
+				`Created product ${res.product.slug} (${res.product.keyPrefix})${
+					res.product_token
+						? `\nProduct token (shown once, for the success page): ${res.product_token}`
+						: ''
+				}`,
+				res,
+			);
 		} catch (err) {
 			fail(err);
 		}

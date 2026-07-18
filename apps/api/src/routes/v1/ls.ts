@@ -6,16 +6,24 @@ import { activations } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { AppDeps } from '../../deps.js';
+import { nowDate } from '../../deps.js';
 import { toDisplayKey } from '../../domain/keygen.js';
 import { ApiError } from '../../http/errors.js';
 import { activate, deactivate, resolveLicense, validate } from '../../services/licensing.js';
 
 /** LS-shaped license_key object. status maps active | expired (trial) | disabled. */
 function lsLicenseKey(deps: AppDeps, license: License, product: Product) {
+	const nowIso = nowDate(deps).toISOString();
+	const leaseCondition =
+		product.activationModel === 'floating'
+			? sql`${activations.leaseExpiresAt} > ${nowIso}`
+			: sql`1 = 1`;
 	const liveSeats = deps.db
 		.select({ n: sql<number>`count(*)` })
 		.from(activations)
-		.where(and(eq(activations.licenseId, license.id), isNull(activations.deactivatedAt)))
+		.where(
+			and(eq(activations.licenseId, license.id), isNull(activations.deactivatedAt), leaseCondition),
+		)
 		.get();
 	let status: string = license.status;
 	if (license.status === 'disabled') {

@@ -118,6 +118,7 @@ describe('E2E: disabled key is the definitive revocation signal', () => {
 					object: {
 						id: 'cs_1',
 						mode: 'payment',
+						payment_status: 'paid',
 						payment_intent: 'pi_1',
 						customer_email: 'b@x.io',
 						metadata: { product: 'clementine' },
@@ -228,6 +229,7 @@ describe('E2E: metered app', () => {
 				(
 					await post(h.app, '/v1/usage/increment', {
 						license_key: key,
+						instance_id: 'e2e-app',
 						metric: 'api_calls',
 						delta: 1,
 					})
@@ -238,6 +240,7 @@ describe('E2E: metered app', () => {
 			(
 				await post(h.app, '/v1/usage/increment', {
 					license_key: key,
+					instance_id: 'e2e-app',
 					metric: 'api_calls',
 					delta: 1,
 				})
@@ -248,6 +251,7 @@ describe('E2E: metered app', () => {
 			(
 				await post(h.app, '/v1/usage/increment', {
 					license_key: key,
+					instance_id: 'e2e-app',
 					metric: 'api_calls',
 					delta: 1,
 				})

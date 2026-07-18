@@ -224,12 +224,15 @@ describe('E2E: metered app', () => {
 			reset_period: 'daily',
 		});
 		const key = await issueKey(h.app, { product: 'clementine', email: 'm@x.io', tier: 'yearly' });
+		// Metering is bound to a live seat (§9), so the app activates before counting.
+		const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'e2e app' });
+		const instanceId = (act.body.instance as { id: string }).id;
 		for (let i = 0; i < 5; i++) {
 			expect(
 				(
 					await post(h.app, '/v1/usage/increment', {
 						license_key: key,
-						instance_id: 'e2e-app',
+						instance_id: instanceId,
 						metric: 'api_calls',
 						delta: 1,
 					})
@@ -240,7 +243,7 @@ describe('E2E: metered app', () => {
 			(
 				await post(h.app, '/v1/usage/increment', {
 					license_key: key,
-					instance_id: 'e2e-app',
+					instance_id: instanceId,
 					metric: 'api_calls',
 					delta: 1,
 				})
@@ -251,7 +254,7 @@ describe('E2E: metered app', () => {
 			(
 				await post(h.app, '/v1/usage/increment', {
 					license_key: key,
-					instance_id: 'e2e-app',
+					instance_id: instanceId,
 					metric: 'api_calls',
 					delta: 1,
 				})

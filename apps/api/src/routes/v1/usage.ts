@@ -9,9 +9,8 @@ import { getUsage, incrementUsage } from '../../services/usage.js';
 
 const incrementBody = z.object({
 	license_key: z.string(),
-	// §9 includes instance_id in the increment request, so it is required. Quota is
-	// currently counted per license, not per instance: a live-instance check would
-	// add a rejection the frozen contract does not define. Tracked for a decision.
+	// §9 sends instance_id with every increment and we bind quota to that live seat,
+	// so a deactivated device stops metering (404 unknown_instance).
 	instance_id: z.string().min(1),
 	metric: z.string().min(1),
 	delta: z.number().int().positive().default(1),
@@ -31,6 +30,7 @@ export function registerUsageRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const result = incrementUsage(
 			deps,
 			parsed.data.license_key,
+			parsed.data.instance_id,
 			parsed.data.metric,
 			parsed.data.delta,
 		);

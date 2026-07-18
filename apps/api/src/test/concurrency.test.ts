@@ -110,13 +110,15 @@ describe('usage quota under parallel increments', () => {
 			email: 'buyer@example.com',
 			tier: 'yearly',
 		});
+		const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Meter' });
+		const instanceId = (act.body.instance as { id: string }).id;
 
 		const attempts = 25;
 		const results = await Promise.all(
 			Array.from({ length: attempts }, () =>
 				post(h.app, '/v1/usage/increment', {
 					license_key: key,
-					instance_id: 'inst-race',
+					instance_id: instanceId,
 					metric: 'api_calls',
 					delta: 1,
 				}),

@@ -2,11 +2,11 @@
 // ABOUTME: The increment is a single guarded UPDATE so two concurrent calls can never both pass.
 
 import type { Metric, UsageCounter } from '@coolbeans/db';
-import { metrics, usageCounters } from '@coolbeans/db';
-import { and, eq, sql } from 'drizzle-orm';
+import { activations, metrics, usageCounters } from '@coolbeans/db';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
-import { licenseDisabled, notFound } from '../http/errors.js';
+import { licenseDisabled, notFound, unknownInstance } from '../http/errors.js';
 import { resolveLicense } from './licensing.js';
 
 export interface UsageState {
@@ -95,12 +95,29 @@ function applyResetIfDue(deps: AppDeps, counter: UsageCounter, metric: Metric): 
 export function incrementUsage(
 	deps: AppDeps,
 	keyInput: string,
+	instanceId: string,
 	metricKey: string,
 	delta: number,
 ): IncrementResult {
 	const resolved = resolveLicense(deps, keyInput);
 	// Fail closed: a disabled (or lazily-expired trial) license cannot consume quota.
 	if (resolved.status === 'disabled') throw licenseDisabled();
+	// §9 sends instance_id with every increment: metering belongs to a live seat, so a
+	// device that was deactivated (its seat handed back) stops counting. A lapsed
+	// floating lease is deliberately NOT rejected here — the seat frees itself and the
+	// client has not been told, so failing its metering mid-run would be a surprise.
+	const seat = deps.db
+		.select({ id: activations.id })
+		.from(activations)
+		.where(
+			and(
+				eq(activations.instanceId, instanceId),
+				eq(activations.licenseId, resolved.license.id),
+				isNull(activations.deactivatedAt),
+			),
+		)
+		.get();
+	if (!seat) throw unknownInstance();
 	const metric = getMetric(deps, resolved.product.id, metricKey);
 
 	return deps.db.transaction((): IncrementResult => {

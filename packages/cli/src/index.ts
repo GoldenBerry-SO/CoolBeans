@@ -156,6 +156,40 @@ key.command('show <key>').action(async (keyArg, _opts, cmd) => {
 	}
 });
 
+const stripe = program.command('stripe').description('Stripe onboarding');
+
+stripe
+	.command('connect')
+	.description('Create prices + register the webhook for a product (the 5-minute job)')
+	.requiredOption('--product <slug>')
+	.requiredOption('--webhook-url <url>')
+	.requiredOption('--lifetime <cents>', 'One-time lifetime price in the smallest currency unit')
+	.requiredOption('--yearly <cents>', 'Recurring yearly price in the smallest currency unit')
+	.option('--currency <currency>', 'ISO currency', 'usd')
+	.action(async (opts, cmd) => {
+		const { client, json } = ctx(cmd);
+		try {
+			const res = (await apiRequest(
+				client,
+				'POST',
+				`/admin/products/${opts.product}/stripe/connect`,
+				{
+					webhook_url: opts.webhookUrl,
+					lifetime_amount: Number(opts.lifetime),
+					yearly_amount: Number(opts.yearly),
+					currency: opts.currency,
+				},
+			)) as { prices: { lifetimePriceId: string; yearlyPriceId: string } };
+			out(
+				json,
+				`Connected ${opts.product} to Stripe.\n  lifetime: ${res.prices.lifetimePriceId}\n  yearly:   ${res.prices.yearlyPriceId}`,
+				res,
+			);
+		} catch (err) {
+			fail(err);
+		}
+	});
+
 program
 	.command('purchase')
 	.description('Look up a purchase by email or provider id')

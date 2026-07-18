@@ -8,6 +8,10 @@ import type { AppDeps } from '../deps.js';
 import { getProductById } from '../store/products.js';
 import { sendKeyEmail } from './email.js';
 import { createPurchase, issueLicense, type Tier } from './issuance.js';
+import { enqueue } from './outbox.js';
+
+/** Delay before the outbox backstop tries the key email, after inline send + provider retries. */
+const EMAIL_BACKSTOP_DELAY_MS = 10 * 60_000;
 
 export interface EnsureArgs {
 	product: Product;
@@ -65,6 +69,13 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 				actor: `${args.provider}:${args.checkoutId}`,
 			});
 			created = true;
+			// Durable backstop: if inline send and provider retries all fail, the worker retries later.
+			enqueue(
+				deps,
+				'send_key_email',
+				{ licenseId: license.id, email: args.email },
+				EMAIL_BACKSTOP_DELAY_MS,
+			);
 		} catch (err) {
 			// A concurrent insert won the checkout-id UNIQUE race; re-read the winner's license.
 			if (err instanceof Error && /UNIQUE/i.test(err.message)) {

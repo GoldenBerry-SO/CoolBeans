@@ -24,6 +24,15 @@ export function createApp(deps: AppDeps) {
 
 	app.get('/health', (c) => c.json({ ok: true, status: 'ok' }));
 
+	// Rate limit the public surface, but never webhooks (signature-verified, providers burst).
+	if (deps.rateLimit) {
+		const limiter = deps.rateLimit;
+		app.use('/v1/*', async (c, next) => {
+			if (c.req.path.includes('/webhook')) return next();
+			return limiter(c, next);
+		});
+	}
+
 	// Webhooks first: they need the raw body and their own (signature) auth.
 	registerWebhookRoutes(app, deps);
 	registerPublicRoutes(app, deps);

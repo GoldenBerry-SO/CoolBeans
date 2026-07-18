@@ -60,7 +60,7 @@ async function readParams(c: {
 	return Object.fromEntries(Object.entries(body).map(([k, v]) => [k, String(v ?? '')]));
 }
 
-function errorShape(deps: AppDeps, err: unknown, base: Record<string, unknown>) {
+function errorShape(err: unknown, base: Record<string, unknown>) {
 	const message = err instanceof ApiError ? err.message : 'Request failed.';
 	// LS returns 400 for most license errors; keep 404 for unknown key.
 	const status = err instanceof ApiError && err.status === 404 ? 404 : 400;
@@ -84,7 +84,7 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 				meta: lsMeta(result.product, null),
 			});
 		} catch (err) {
-			const { status, body } = errorShape(deps, err, {
+			const { status, body } = errorShape(err, {
 				activated: false,
 				license_key: null,
 				instance: null,
@@ -113,7 +113,7 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 				meta: lsMeta(result.product, null),
 			});
 		} catch (err) {
-			const { status, body } = errorShape(deps, err, {
+			const { status, body } = errorShape(err, {
 				valid: false,
 				license_key: null,
 				instance: null,
@@ -135,7 +135,7 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 				meta: lsMeta(resolved.product, null),
 			});
 		} catch (err) {
-			const { status, body } = errorShape(deps, err, {
+			const { status, body } = errorShape(err, {
 				deactivated: false,
 				license_key: null,
 				meta: null,

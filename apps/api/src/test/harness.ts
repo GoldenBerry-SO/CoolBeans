@@ -71,6 +71,13 @@ export function fakeStripeGateway(periodEnds: Record<string, string> = {}) {
 		async subscriptionPeriodEnd(subscriptionId: string): Promise<string | null> {
 			return periodEnds[subscriptionId] ?? null;
 		},
+		async connect(args: { productSlug: string }) {
+			return {
+				lifetimePriceId: `price_lifetime_${args.productSlug}`,
+				yearlyPriceId: `price_yearly_${args.productSlug}`,
+				webhookSecret: `whsec_${args.productSlug}`,
+			};
+		},
 	};
 }
 
@@ -96,7 +103,9 @@ export interface TestHarness {
 	adminHeaders: Record<string, string>;
 }
 
-export function makeHarness(overrides: { config?: Partial<Config> } = {}): TestHarness {
+export function makeHarness(
+	overrides: { config?: Partial<Config>; rateLimit?: AppDeps['rateLimit'] } = {},
+): TestHarness {
 	const db = createDb(openSqlite(':memory:'));
 	migrate(db);
 	const clock = fakeClock();
@@ -106,6 +115,7 @@ export function makeHarness(overrides: { config?: Partial<Config> } = {}): TestH
 		config: testConfig(overrides.config),
 		logger: createLogger({ level: 'error' }),
 		email,
+		rateLimit: overrides.rateLimit,
 		now: () => clock.now(),
 	};
 	return {

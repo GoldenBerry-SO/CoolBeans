@@ -6,9 +6,12 @@ import { dirname } from 'node:path';
 import { createDb, migrate, openSqlite } from '@coolbeans/db';
 import { createLogger } from '@coolbeans/logger';
 import { serve } from '@hono/node-server';
+import { Redis } from 'ioredis';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import type { AppDeps } from './deps.js';
+import { publicRateLimiter } from './middleware/rate-limit.js';
+import { createRedisStore } from './middleware/redis-store.js';
 import { resolveEmailSender } from './services/email.js';
 import { createPayPalGateway } from './services/paypal-gateway.js';
 import { createStripeGateway } from './services/stripe-gateway.js';
@@ -31,6 +34,14 @@ if (!config.databaseUrl.startsWith('postgres')) {
 const db = createDb(openSqlite(config.databaseUrl));
 migrate(db);
 
+// Redis-backed rate limiting holds across replicas; in-memory otherwise (single-instance/dev).
+const redis = config.redisUrl ? new Redis(config.redisUrl) : undefined;
+const rateLimit = publicRateLimiter({
+	config,
+	logger,
+	store: redis ? createRedisStore(redis, 60_000) : undefined,
+});
+
 const deps: AppDeps = {
 	db,
 	config,
@@ -40,6 +51,7 @@ const deps: AppDeps = {
 	paypal: config.paypal
 		? createPayPalGateway({ clientId: config.paypal.clientId, secret: config.paypal.secret })
 		: undefined,
+	rateLimit,
 };
 
 const app = createApp(deps);

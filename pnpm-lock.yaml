@@ -157,6 +157,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@coolbeans/api':
+        specifier: workspace:*
+        version: link:../api
       '@coolbeans/db':
         specifier: workspace:*
         version: link:../../packages/db

@@ -4,6 +4,7 @@
 import type { Database } from '@coolbeans/db';
 import type { EmailSender } from '@coolbeans/email';
 import type { Logger } from '@coolbeans/logger';
+import type { MiddlewareHandler } from 'hono';
 import type { Config } from './config.js';
 import type { PayPalGateway } from './services/paypal-gateway.js';
 import type { StripeGateway } from './services/stripe-gateway.js';
@@ -18,6 +19,8 @@ export interface AppDeps {
 	stripe?: StripeGateway;
 	/** Absent when PayPal is not configured. */
 	paypal?: PayPalGateway;
+	/** Optional rate-limit middleware applied to /v1/* (webhooks excluded). */
+	rateLimit?: MiddlewareHandler;
 	/** Injectable clock for deterministic tests. Returns an ISO 8601 string. */
 	now?: () => Date;
 }

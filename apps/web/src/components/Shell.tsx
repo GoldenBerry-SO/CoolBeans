@@ -57,6 +57,7 @@ const NAV = [
 	{ to: '/usage', icon: 'usage', label: 'Usage' },
 	{ to: '/webhooks', icon: 'webhooks', label: 'Webhooks' },
 	{ to: '/audit', icon: 'audit', label: 'Audit log' },
+	{ to: '/team', icon: 'customers', label: 'Team' },
 ] as const;
 
 const TITLES: Record<string, { title: string; sub: string }> = {
@@ -67,6 +68,7 @@ const TITLES: Record<string, { title: string; sub: string }> = {
 	'/usage': { title: 'Usage', sub: 'Metered counters, enforced at the edge' },
 	'/webhooks': { title: 'Webhooks', sub: 'Stripe & PayPal events feeding issuance' },
 	'/audit': { title: 'Audit log', sub: 'Every state change, with actor and detail' },
+	'/team': { title: 'Team', sub: 'Who can sign in to this console' },
 };
 
 function NavIcon({ name }: { name: string }) {
@@ -251,7 +253,10 @@ function HeaderSearch() {
 
 export function Shell() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
-	const page = TITLES[pathname] ?? TITLES['/'];
+	const page = TITLES[pathname];
+	// Detail views carry their own header (the key itself), so the generic page
+	// heading is suppressed there rather than mislabelling the screen.
+	const showHeading = Boolean(page);
 	const { signOut } = useAuth();
 	const [showIssue, setShowIssue] = useState(false);
 	const adminEmail = getAdminEmail();
@@ -359,12 +364,14 @@ export function Shell() {
 						</AccentButton>
 					</header>
 					<main className="flex-1 overflow-y-auto px-10 pt-[30px] pb-12">
-						<div className="mt-0.5 mb-[26px]">
-							<h1 className="m-0 font-bold text-[28px] text-ink tracking-[-0.02em]">
-								{page?.title}
-							</h1>
-							<p className="m-0 mt-[5px] text-[14px] text-ink-soft">{page?.sub}</p>
-						</div>
+						{showHeading ? (
+							<div className="mt-0.5 mb-[26px]">
+								<h1 className="m-0 font-bold text-[28px] text-ink tracking-[-0.02em]">
+									{page?.title}
+								</h1>
+								<p className="m-0 mt-[5px] text-[14px] text-ink-soft">{page?.sub}</p>
+							</div>
+						) : null}
 						<Outlet />
 					</main>
 				</div>

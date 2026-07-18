@@ -2,7 +2,12 @@
 // ABOUTME: Admin-token authed; a lookup before the webhook still yields exactly one license.
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
+import {
+	fakePayPalGateway,
+	fakeStripeGateway,
+	makeHarness,
+	type TestHarness,
+} from '../../test/harness.js';
 import { createProduct } from '../../test/seed.js';
 
 let h: TestHarness;
@@ -128,5 +133,57 @@ describe('GET /v1/purchase/session/:id', () => {
 			headers: { Authorization: 'Bearer cbp_wrong' },
 		});
 		expect(bad.status).toBe(401);
+	});
+});
+
+describe('PayPal success-page race (PRD §14)', () => {
+	it('ENSURES from a captured PayPal order when the webhook has not landed', async () => {
+		h.deps.config.paypal = { clientId: 'id', secret: 'secret', webhookId: 'wh' };
+		h.deps.paypal = {
+			...fakePayPalGateway(),
+			async getOrder(orderId: string) {
+				if (orderId !== 'PAYPAL-ORDER-1') return null;
+				return {
+					id: 'PAYPAL-ORDER-1',
+					status: 'COMPLETED',
+					purchase_units: [
+						{
+							custom_id: 'clementine:lifetime',
+							payments: {
+								captures: [{ id: 'CAPTURE-1', status: 'COMPLETED' }],
+							},
+						},
+					],
+					payer: { email_address: 'paypal-buyer@example.com' },
+				};
+			},
+		};
+
+		const res = await h.app.request('/v1/purchase/session/PAYPAL-ORDER-1', {
+			headers: h.adminHeaders,
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { email: string; license: { product: string } };
+		expect(body.email).toBe('paypal-buyer@example.com');
+		expect(body.license.product).toBe('clementine');
+	});
+
+	it('does not issue from an order that was never captured', async () => {
+		h.deps.config.paypal = { clientId: 'id', secret: 'secret', webhookId: 'wh' };
+		h.deps.paypal = {
+			...fakePayPalGateway(),
+			async getOrder() {
+				return {
+					id: 'PAYPAL-ORDER-2',
+					status: 'APPROVED',
+					purchase_units: [{ custom_id: 'clementine:lifetime' }],
+					payer: { email_address: 'nope@example.com' },
+				};
+			},
+		};
+		const res = await h.app.request('/v1/purchase/session/PAYPAL-ORDER-2', {
+			headers: h.adminHeaders,
+		});
+		expect(res.status).toBe(404);
 	});
 });

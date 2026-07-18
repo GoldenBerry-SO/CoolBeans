@@ -9,14 +9,14 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { normalizeAgainst, toDisplayKey } from '../../domain/keygen.js';
-import { badRequest, notFound } from '../../http/errors.js';
+import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, trialExpiry } from '../../services/issuance.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
 import { enqueue } from '../../services/outbox.js';
 import { getProductById, getProductBySlug, listPrefixes } from '../../store/products.js';
-import { auditActor, readBody } from './util.js';
+import { assertScope, auditActor, productScope, readBody } from './util.js';
 
 const issueBody = z.object({
 	product: z.string().min(1),
@@ -74,6 +74,10 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		const body = await readBody(c, issueBody);
 		const product = getProductBySlug(deps.db, body.product);
 		if (!product) throw notFound(`No product with slug "${body.product}".`);
+		assertScope(c, product);
+		if (product.archivedAt) {
+			throw conflict('product_archived', 'This product is archived and cannot issue new keys.');
+		}
 		let expiresAt = body.expires_at ?? null;
 		if (body.tier === 'trial' && !expiresAt) {
 			expiresAt = trialExpiry(deps, body.trial_days ?? 14);
@@ -104,18 +108,21 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 
 	admin.post('/keys/:key/disable', (c) => {
 		const { license, product } = resolveKey(deps, c.req.param('key'));
+		assertScope(c, product);
 		const updated = disableLicense(deps, { license, reason: 'manual', actor: auditActor(c) });
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 
 	admin.post('/keys/:key/enable', (c) => {
 		const { license, product } = resolveKey(deps, c.req.param('key'));
+		assertScope(c, product);
 		const updated = enableLicense(deps, { license, actor: auditActor(c) });
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 
 	admin.get('/keys/:key', (c) => {
 		const { license, product } = resolveKey(deps, c.req.param('key'));
+		assertScope(c, product);
 		const acts = deps.db
 			.select()
 			.from(activations)
@@ -157,6 +164,7 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 	admin.get('/products/:slug/keys', (c) => {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
+		assertScope(c, product);
 		const status = c.req.query('status');
 		const emailFilter = c.req.query('email');
 		const conditions = [eq(licenses.productId, product.id)];
@@ -201,12 +209,14 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 				),
 			);
 		}
-		const rows = deps.db
+		let rows = deps.db
 			.select()
 			.from(purchases)
 			.where(conditions.length === 1 ? conditions[0] : or(...conditions))
 			.orderBy(desc(purchases.createdAt))
 			.all();
+		const scope = productScope(c);
+		if (scope) rows = rows.filter((r) => r.productId === scope.id);
 		return c.json({ ok: true, purchases: rows });
 	});
 

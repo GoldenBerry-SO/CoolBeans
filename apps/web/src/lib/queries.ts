@@ -43,6 +43,112 @@ export function useLicensesAcross(productSlugs: string[], status: string) {
 	});
 }
 
+export interface TeamMember {
+	id: number;
+	email: string;
+	name: string | null;
+	created_at: string;
+	last_login_at: string | null;
+}
+
+export function useTeam() {
+	return useQuery({
+		queryKey: ['team'],
+		queryFn: () => api<{ team: TeamMember[] }>('GET', '/admin/team').then((r) => r.team),
+	});
+}
+
+export function useInviteAdmin() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (email: string) => api('POST', '/admin/team', { email }),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
+	});
+}
+
+export function useRevokeAdmin() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (id: number) => api('DELETE', `/admin/team/${id}`),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
+	});
+}
+
+export interface UsageRow {
+	key: string;
+	product: string;
+	metric: string;
+	display_name: string;
+	current: number;
+	limit: number | null;
+	resets_at: string | null;
+}
+
+export function useUsage() {
+	return useQuery({
+		queryKey: ['usage'],
+		queryFn: () => api<{ usage: UsageRow[] }>('GET', '/admin/usage').then((r) => r.usage),
+	});
+}
+
+export interface ProviderEvent {
+	id: string;
+	provider: string;
+	type: string;
+	status: string;
+	received_at: string;
+}
+
+export function useProviderEvents() {
+	return useQuery({
+		queryKey: ['events'],
+		queryFn: () => api<{ events: ProviderEvent[] }>('GET', '/admin/events').then((r) => r.events),
+	});
+}
+
+export interface ProviderStatus {
+	name: string;
+	configured: boolean;
+	path: string;
+}
+
+export function useProviders() {
+	return useQuery({
+		queryKey: ['providers'],
+		queryFn: () =>
+			api<{ providers: ProviderStatus[] }>('GET', '/admin/providers').then((r) => r.providers),
+	});
+}
+
+export interface LicenseDetail {
+	license: LicenseRow;
+	activations: {
+		instance_id: string;
+		name: string;
+		created_at: string;
+		last_validated_at: string | null;
+		lease_expires_at: string | null;
+		deactivated_at: string | null;
+	}[];
+	usage: { metric: string; current: number; limit: number | null; resets_at: string | null }[];
+}
+
+export function useLicenseDetail(key: string) {
+	return useQuery({
+		queryKey: ['license', key],
+		enabled: key.length > 0,
+		queryFn: () => api<LicenseDetail>('GET', `/admin/keys/${encodeURIComponent(key)}`),
+	});
+}
+
+export function useArchiveProduct() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (slug: string) => api('DELETE', `/admin/products/${slug}`),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+	});
+}
+
 export interface Stats {
 	products: number;
 	active_licenses: number;
@@ -100,10 +206,13 @@ export function useSetLicenseStatus() {
 	return useMutation({
 		mutationFn: ({ key, action }: { key: string; action: 'disable' | 'enable' }) =>
 			api('POST', `/admin/keys/${encodeURIComponent(key)}/${action}`),
-		onSuccess: () => {
+		onSuccess: (_data, variables) => {
 			qc.invalidateQueries({ queryKey: ['licenses'] });
 			qc.invalidateQueries({ queryKey: ['products'] });
 			qc.invalidateQueries({ queryKey: ['stats'] });
+			// The detail page reads its own query; without this it keeps showing the old
+			// status and the wrong action button until a reload.
+			qc.invalidateQueries({ queryKey: ['license', variables.key] });
 		},
 	});
 }

@@ -267,3 +267,60 @@ describe('Stripe webhook', () => {
 		expect(h.email.sent).toHaveLength(1);
 	});
 });
+
+describe('product resolution trusts the price, not the label (PRD §13)', () => {
+	it('issues for the product that owns the paid price even when metadata says otherwise', async () => {
+		await createProduct(h.app, {
+			slug: 'hexis',
+			name: 'Hexis',
+			key_prefix: 'HEX',
+			email_from: 'r@hexis.app',
+			stripe_price_lifetime: 'price_hex_life',
+		});
+		await h.app.request('/admin/products/clementine', {
+			method: 'PATCH',
+			headers: h.adminHeaders,
+			body: JSON.stringify({ stripe_price_lifetime: 'price_clem_life' }),
+		});
+		// The buyer paid Clementine's price; a stale landing page labelled the session 'hexis'.
+		h.deps.stripe = fakeStripeGateway({}, { cs_mislabelled: ['price_clem_life'] });
+
+		await webhook(h.app, {
+			id: 'evt_mislabelled',
+			type: 'checkout.session.completed',
+			data: {
+				object: {
+					id: 'cs_mislabelled',
+					mode: 'payment',
+					payment_status: 'paid',
+					customer_email: 'buyer@example.com',
+					metadata: { product: 'hexis' },
+				},
+			},
+		});
+
+		const clemKeys = await keysForEmail(h, 'buyer@example.com');
+		expect(clemKeys).toHaveLength(1);
+
+		const hexRes = await h.app.request('/admin/products/hexis/keys', { headers: h.adminHeaders });
+		expect(((await hexRes.json()) as { keys: unknown[] }).keys).toHaveLength(0);
+	});
+
+	it('still falls back to metadata when no price matches a product', async () => {
+		h.deps.stripe = fakeStripeGateway({}, { cs_meta_only: ['price_unknown'] });
+		await webhook(h.app, {
+			id: 'evt_meta_only',
+			type: 'checkout.session.completed',
+			data: {
+				object: {
+					id: 'cs_meta_only',
+					mode: 'payment',
+					payment_status: 'paid',
+					customer_email: 'fallback@example.com',
+					metadata: { product: 'clementine' },
+				},
+			},
+		});
+		expect(await keysForEmail(h, 'fallback@example.com')).toHaveLength(1);
+	});
+});

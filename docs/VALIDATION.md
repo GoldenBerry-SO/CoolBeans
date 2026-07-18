@@ -1,7 +1,7 @@
 # Cool Beans — PRD validation
 
 A section-by-section check of the v1 build against `docs/PRD.md`. Every row names where the behavior
-lives and how it's verified. Test totals at time of writing: **148 automated tests** (118 API, 13 SDK,
+lives and how it's verified. Test totals at time of writing: **209 automated tests** (176 API, 16 SDK,
 4 DB, 4 web, 4 logger, 3 CLI, 2 email) plus a **Docker Compose smoke test** that boots the stack and
 issues a first key.
 
@@ -131,3 +131,14 @@ Compose smoke test**.
 - **Native SDK stubs (Swift/C#/C++):** PRD marks these v1-or-fast-follow; not built.
 - **Dashboard export / some read-only views (Customers/Usage/Webhooks aggregates):** the console
   ships functional read+write for the core flows; a few aggregate views remain placeholders.
+
+## Provider CLI checks (PRD §20)
+
+The vitest webhook suites use synthesized payloads, which proves our handling but not
+that real provider payloads still match it. `scripts/provider-webhook-check.sh` drives
+the real Stripe CLI (`stripe trigger checkout.session.completed | charge.refunded |
+customer.subscription.deleted`) against a local server and asserts a key was actually
+issued, rather than just that the webhook returned 200. PayPal has no local trigger, so
+the script points at the sandbox simulator with the payload shape to send.
+
+Run it before a release, or after any change to `services/stripe.ts`.

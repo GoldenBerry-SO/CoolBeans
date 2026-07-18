@@ -100,20 +100,31 @@ export function SecondaryButton({
 	children,
 	onClick,
 	destructive,
+	disabled,
+	title,
 	className,
 }: {
 	children: ReactNode;
 	onClick?: () => void;
 	destructive?: boolean;
+	disabled?: boolean;
+	title?: string;
 	className?: string;
 }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
+			disabled={disabled}
+			title={title}
 			className={clsx(
-				'cursor-pointer rounded-[9px] border border-ink/14 bg-card px-3.5 py-[9px] font-medium text-[13px] text-ink',
-				destructive ? 'hover:border-danger-cue hover:text-danger' : 'hover:border-ink/30',
+				'rounded-[9px] border border-ink/14 bg-card px-3.5 py-[9px] font-medium text-[13px] text-ink',
+				disabled
+					? 'cursor-not-allowed text-ink-faint'
+					: clsx(
+							'cursor-pointer',
+							destructive ? 'hover:border-danger-cue hover:text-danger' : 'hover:border-ink/30',
+						),
 				className,
 			)}
 		>

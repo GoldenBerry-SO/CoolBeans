@@ -15,6 +15,7 @@ import { publicRateLimiter } from './middleware/rate-limit.js';
 import { createRedisStore } from './middleware/redis-store.js';
 import { resolveEmailSender } from './services/email.js';
 import { createPayPalGateway } from './services/paypal-gateway.js';
+import { assertSigningKeysUsable } from './services/signing.js';
 import { createStripeGateway } from './services/stripe-gateway.js';
 
 const logger = createLogger();
@@ -38,6 +39,15 @@ if (config.databaseUrl.startsWith('postgres')) {
 if (config.databaseUrl !== ':memory:') mkdirSync(dirname(config.databaseUrl), { recursive: true });
 const db = createDb(openSqlite(config.databaseUrl));
 migrate(db);
+
+// Fail fast if the configured secret cannot read the signing keys already stored:
+// discovering that on the first token request looks like an outage, not a config error.
+try {
+	assertSigningKeysUsable({ db, config });
+} catch (err) {
+	logger.error('Signing key validation failed', { message: (err as Error).message });
+	process.exit(1);
+}
 
 // Redis-backed rate limiting holds across replicas; in-memory otherwise (single-instance/dev).
 const redis = config.redisUrl ? new Redis(config.redisUrl) : undefined;

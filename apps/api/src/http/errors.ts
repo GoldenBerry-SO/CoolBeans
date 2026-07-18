@@ -44,6 +44,7 @@ export const activationLimitReached = (limit: number) =>
 		'activation_limit_reached',
 		`This license is already active on ${limit} device${limit === 1 ? '' : 's'}. Deactivate one from the customer portal to free a seat.`,
 	);
+export const forbidden = (message: string) => new ApiError(403, 'forbidden', message);
 export const unauthorized = () =>
 	new ApiError(401, 'unauthorized', 'A valid admin token is required.');
 export const notFound = (message = 'Not found.') => new ApiError(404, 'not_found', message);

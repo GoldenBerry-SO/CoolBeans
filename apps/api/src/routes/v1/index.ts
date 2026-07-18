@@ -9,6 +9,7 @@ import { serializeInstance, serializeLicense } from '../../http/serializers.js';
 import { isAdminRequest } from '../../middleware/admin-auth.js';
 import { activate, deactivate, heartbeat, validate } from '../../services/licensing.js';
 import { findByCheckoutId } from '../../services/payments.js';
+import { ensureLicenseForOrder } from '../../services/paypal.js';
 import { productForToken } from '../../services/product-tokens.js';
 import { publicKeysFor } from '../../services/signing.js';
 import { ensureLicenseForSession } from '../../services/stripe.js';
@@ -108,6 +109,14 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			const session = await deps.stripe.getCheckoutSession(sessionId);
 			if (session) {
 				const ensured = await ensureLicenseForSession(deps, session, `lookup:${sessionId}`);
+				if (ensured) found = findByCheckoutId(deps, sessionId);
+			}
+		}
+		if (!found && deps.paypal) {
+			// Same race on the PayPal side: the id is an order, not a Stripe session.
+			const order = await deps.paypal.getOrder(sessionId);
+			if (order) {
+				const ensured = await ensureLicenseForOrder(deps, order, `lookup:${sessionId}`);
 				if (ensured) found = findByCheckoutId(deps, sessionId);
 			}
 		}

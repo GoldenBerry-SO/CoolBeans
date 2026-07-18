@@ -6,10 +6,11 @@ import { getProductBySlug } from '../store/products.js';
 import { disableLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
+	claimEventStatus,
+	completeEvent,
 	ensureLicense,
-	eventAlreadyProcessed,
 	findLicenseByProviderId,
-	recordEvent,
+	releaseEvent,
 } from './payments.js';
 import type { PayPalEvent } from './paypal-gateway.js';
 
@@ -51,9 +52,33 @@ function findLicenseByAnyId(deps: AppDeps, candidates: Array<string | null>) {
 	return undefined;
 }
 
-/** Process a verified PayPal event; record it only on full success (retry-safe email). */
+/**
+ * Process a verified PayPal event. The claim is atomic, released on failure so the
+ * provider's retry re-enters, and marked done only on full success (issue #34).
+ */
 export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<void> {
-	if (eventAlreadyProcessed(deps, event.id)) return;
+	const claim = claimEventStatus(deps, {
+		id: event.id,
+		provider: 'paypal',
+		type: event.event_type,
+	});
+	// Already finished: acknowledge so the provider stops retrying.
+	if (claim.result === 'done') return;
+	// Someone else is mid-flight. Answering 200 would end the retries, and if that
+	// worker died the issuance or refund would never happen — so fail retryably.
+	if (claim.result === 'in_flight') {
+		throw new Error(`Event ${event.id} is already being processed; retry shortly.`);
+	}
+	try {
+		await processPayPalEvent(deps, event);
+	} catch (err) {
+		releaseEvent(deps, event.id, claim.token);
+		throw err;
+	}
+	completeEvent(deps, event.id, claim.token);
+}
+
+async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<void> {
 	const resource = event.resource;
 
 	switch (event.event_type) {
@@ -84,6 +109,7 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 			await ensureLicense(deps, {
 				product,
 				provider: 'paypal',
+				eventId: event.id,
 				checkoutId: orderId ?? event.id,
 				tier,
 				email,
@@ -106,6 +132,7 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 			await ensureLicense(deps, {
 				product,
 				provider: 'paypal',
+				eventId: event.id,
 				checkoutId: subId,
 				tier: 'yearly',
 				email,
@@ -161,8 +188,6 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 		default:
 			break;
 	}
-
-	recordEvent(deps, { id: event.id, provider: 'paypal', type: event.event_type });
 }
 
 /** Capture amount in minor units, when present (value is a decimal string like "49.00"). */
@@ -171,4 +196,64 @@ function parseAmount(resource: Record<string, unknown>): number | null {
 	if (!value) return null;
 	const parsed = Number.parseFloat(value);
 	return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
+}
+
+/**
+ * Issue from a PayPal order the success page just returned from, when the webhook
+ * has not arrived yet (PRD §14: whichever channel lands first issues, the other reads).
+ * Goes through the same idempotent ensureLicense path, so a later webhook is a no-op.
+ * Only a captured order issues — an APPROVED-but-uncaptured order is not payment.
+ */
+export async function ensureLicenseForOrder(
+	deps: AppDeps,
+	order: Record<string, unknown>,
+	actorEventId: string,
+): Promise<boolean> {
+	const orderId = pickString(order, ['id']);
+	if (!orderId) return false;
+	if (pickString(order, ['status']) !== 'COMPLETED') return false;
+
+	const captureStatus = pickString(order, [
+		'purchase_units',
+		'0',
+		'payments',
+		'captures',
+		'0',
+		'status',
+	]);
+	if (captureStatus !== 'COMPLETED') return false;
+	const captureId = pickString(order, ['purchase_units', '0', 'payments', 'captures', '0', 'id']);
+
+	const custom =
+		pickString(order, ['purchase_units', '0', 'custom_id']) ?? pickString(order, ['custom_id']);
+	const [slug, tierRaw] = (custom ?? '').split(':');
+	const product = slug ? getProductBySlug(deps.db, slug) : undefined;
+	if (!product) {
+		deps.logger.error('PayPal order resolves to no product', { custom, order: orderId });
+		return false;
+	}
+
+	// payee is the MERCHANT receiving the money, never the buyer: falling back to it
+	// would store the seller as the customer and email them their own product's key.
+	const email = pickString(order, ['payer', 'email_address']) ?? '';
+	if (!email) {
+		deps.logger.error('PayPal order has no payer email; refusing to guess a recipient', {
+			order: orderId,
+		});
+		return false;
+	}
+
+	await ensureLicense(deps, {
+		product,
+		provider: 'paypal',
+		checkoutId: orderId,
+		tier: tierRaw === 'yearly' ? 'yearly' : 'lifetime',
+		email,
+		paymentId: captureId,
+	});
+	deps.logger.info('PayPal order issued via success-page lookup', {
+		order: orderId,
+		actor: actorEventId,
+	});
+	return true;
 }

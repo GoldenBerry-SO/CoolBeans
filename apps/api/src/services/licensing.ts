@@ -8,9 +8,16 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { looksLikeKey, normalizeAgainst, toDisplayKey } from '../domain/keygen.js';
-import { activationLimitReached, invalidKey, licenseDisabled, unknownKey } from '../http/errors.js';
+import {
+	ApiError,
+	activationLimitReached,
+	invalidKey,
+	licenseDisabled,
+	unknownKey,
+} from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
 import { getProductById, listPrefixes } from '../store/products.js';
+import { assertKeyNotThrottled, clearKeyFailures, recordKeyFailure } from './key-throttle.js';
 import { mintToken } from './signing.js';
 
 export interface ResolvedLicense {
@@ -25,7 +32,29 @@ export interface ResolvedLicense {
  * Throws invalid_key (422) if the format fails, unknown_key (404) if not found.
  * Lazily disables an expired trial and records the reason.
  */
+/**
+ * Resolve a raw key from a public request, with the per-key brute-force throttle
+ * applied (issue #39). Every public path funnels through here — activate, validate,
+ * deactivate, heartbeat, usage, portal and the LS aliases — so the limit cannot be
+ * sidestepped by probing a different endpoint.
+ */
 export function resolveLicense(deps: AppDeps, keyInput: string): ResolvedLicense {
+	assertKeyNotThrottled(deps, keyInput);
+	try {
+		const resolved = resolveLicenseUnthrottled(deps, keyInput);
+		clearKeyFailures(keyInput);
+		return resolved;
+	} catch (err) {
+		// Only a failed *lookup* counts: a disabled key is a definitive answer, not a probe.
+		if (err instanceof ApiError && (err.code === 'unknown_key' || err.code === 'invalid_key')) {
+			recordKeyFailure(deps, keyInput);
+		}
+		throw err;
+	}
+}
+
+/** The raw lookup, without throttling — for callers that already passed through it. */
+export function resolveLicenseUnthrottled(deps: AppDeps, keyInput: string): ResolvedLicense {
 	const { db } = deps;
 	// Format check before any storage hit (§10, §19): malformed input never reaches the DB.
 	if (!looksLikeKey(keyInput)) throw invalidKey();

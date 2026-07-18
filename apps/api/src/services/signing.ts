@@ -3,13 +3,17 @@
 
 import type { License, Product, SigningKey } from '@coolbeans/db';
 import { signingKeys } from '@coolbeans/db';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { decryptSecret, encryptSecret } from '../domain/crypto.js';
 import { generateSigningKeyPair, signToken, type TokenPayload } from '../domain/token.js';
 
-/** The active signing key for a product (falling back to the global key), creating one if absent. */
+/**
+ * The active signing key for a product, or the global (product_id NULL) key when the
+ * product has none — §11 allows an operator to run one keypair for every product.
+ * Only mints a per-product key when neither exists.
+ */
 export function getOrCreateActiveKey(deps: AppDeps, productId: number | null): SigningKey {
 	const { db } = deps;
 	const scope =
@@ -20,6 +24,15 @@ export function getOrCreateActiveKey(deps: AppDeps, productId: number | null): S
 		.where(and(scope, eq(signingKeys.active, true)))
 		.get();
 	if (existing) return existing;
+
+	if (productId !== null) {
+		const global = db
+			.select()
+			.from(signingKeys)
+			.where(and(isNull(signingKeys.productId), eq(signingKeys.active, true)))
+			.get();
+		if (global) return global;
+	}
 
 	const pair = generateSigningKeyPair();
 	const inserted = db
@@ -35,15 +48,45 @@ export function getOrCreateActiveKey(deps: AppDeps, productId: number | null): S
 	return inserted;
 }
 
-/** All signing keys for a product (active + retired) keyed by kid — for verification/rotation. */
+/**
+ * All signing keys a client may need to verify this product's tokens, keyed by kid:
+ * the product's own keys (active + retired) plus the global keys, since a token may
+ * have been signed by either. Retired keys stay so rotation never breaks verification.
+ */
 export function publicKeysFor(deps: AppDeps, productId: number | null): Record<string, string> {
 	const { db } = deps;
-	const scope =
-		productId === null ? isNull(signingKeys.productId) : eq(signingKeys.productId, productId);
-	const rows = db.select().from(signingKeys).where(scope).all();
+	const rows =
+		productId === null
+			? db.select().from(signingKeys).where(isNull(signingKeys.productId)).all()
+			: db
+					.select()
+					.from(signingKeys)
+					.where(or(eq(signingKeys.productId, productId), isNull(signingKeys.productId)))
+					.all();
 	const out: Record<string, string> = {};
 	for (const row of rows) out[String(row.id)] = row.publicKey;
 	return out;
+}
+
+/**
+ * Boot check: prove SIGNING_KEY_SECRET actually decrypts what is stored. Without this
+ * a wrong or rotated secret is only discovered when a client asks for a token, which
+ * looks like a licensing outage rather than a misconfiguration.
+ */
+export function assertSigningKeysUsable(deps: {
+	db: AppDeps['db'];
+	config: { signingKeySecret: string };
+}): void {
+	const rows = deps.db.select().from(signingKeys).where(eq(signingKeys.active, true)).all();
+	for (const row of rows) {
+		try {
+			decryptSecret(row.privateKey, deps.config.signingKeySecret);
+		} catch {
+			throw new Error(
+				`SIGNING_KEY_SECRET cannot decrypt signing key ${row.id}. It does not match the secret these keys were created with; restoring the original secret is the only way to keep issued offline tokens verifiable.`,
+			);
+		}
+	}
 }
 
 /** Rotate: retire the current active key and create a fresh active one. Returns the new key. */

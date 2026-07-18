@@ -8,6 +8,12 @@ export const providerEvents = sqliteTable('provider_events', {
 	id: text('id').primaryKey(),
 	provider: text('provider').notNull(),
 	type: text('type').notNull(),
+	// 'processing' while a handler owns the event, 'done' once it fully succeeded.
+	// A row is deleted when a handler fails so the provider's retry can re-enter.
+	status: text('status', { enum: ['processing', 'done'] })
+		.notNull()
+		.default('done'),
+	claimedAt: text('claimed_at'),
 	receivedAt: text('received_at').notNull().default(sql`(datetime('now'))`),
 });
 

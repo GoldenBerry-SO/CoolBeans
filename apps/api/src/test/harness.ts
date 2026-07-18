@@ -7,6 +7,7 @@ import { createLogger } from '@coolbeans/logger';
 import { createApp } from '../app.js';
 import type { Config } from '../config.js';
 import type { AppDeps } from '../deps.js';
+import { resetKeyThrottle } from '../services/key-throttle.js';
 
 export interface FakeClock {
 	now(): Date;
@@ -69,6 +70,8 @@ export function fakeStripeGateway(
 		invoiceSubscriptions?: Record<string, string>;
 		chargeSubscriptions?: Record<string, string>;
 		sessions?: Record<string, Record<string, unknown>>;
+		/** Stripe returns no secret when an endpoint already exists; set '' to model that. */
+		connectSecret?: string;
 	} = {},
 ) {
 	return {
@@ -91,11 +94,14 @@ export function fakeStripeGateway(
 		async getCheckoutSession(sessionId: string): Promise<Record<string, unknown> | null> {
 			return extras.sessions?.[sessionId] ?? null;
 		},
+		async billingPortalSession(customerId: string, returnUrl: string): Promise<string> {
+			return `https://billing.stripe.test/${customerId}?return=${encodeURIComponent(returnUrl)}`;
+		},
 		async connect(args: { productSlug: string }) {
 			return {
 				lifetimePriceId: `price_lifetime_${args.productSlug}`,
 				yearlyPriceId: `price_yearly_${args.productSlug}`,
-				webhookSecret: `whsec_${args.productSlug}`,
+				webhookSecret: extras.connectSecret ?? `whsec_${args.productSlug}`,
 			};
 		},
 	};
@@ -103,9 +109,16 @@ export function fakeStripeGateway(
 
 /** A fake PayPal gateway: verify honors a flag; next-billing from a map. */
 export function fakePayPalGateway(
-	opts: { verified?: boolean; nextBilling?: Record<string, string> } = {},
+	opts: {
+		verified?: boolean;
+		nextBilling?: Record<string, string>;
+		orders?: Record<string, Record<string, unknown>>;
+	} = {},
 ) {
 	return {
+		async getOrder(orderId: string): Promise<Record<string, unknown> | null> {
+			return opts.orders?.[orderId] ?? null;
+		},
 		async verify(): Promise<boolean> {
 			return opts.verified ?? true;
 		},
@@ -126,6 +139,8 @@ export interface TestHarness {
 export function makeHarness(
 	overrides: { config?: Partial<Config>; rateLimit?: AppDeps['rateLimit'] } = {},
 ): TestHarness {
+	// Throttle state is module-level, so each harness starts from a clean slate.
+	resetKeyThrottle();
 	const db = createDb(openSqlite(':memory:'));
 	migrate(db);
 	const clock = fakeClock();

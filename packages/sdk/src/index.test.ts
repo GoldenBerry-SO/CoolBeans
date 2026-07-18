@@ -305,3 +305,50 @@ describe('CoolBeans SDK', () => {
 		expect(fetches).toBe(1);
 	});
 });
+
+describe('SDK hardening (issue #45)', () => {
+	it('warns loudly when a non-browser host gets ephemeral storage', () => {
+		const warnings: string[] = [];
+		const original = console.warn;
+		console.warn = (msg: string) => warnings.push(String(msg));
+		try {
+			// No localStorage and no injected storage: the device id would be reborn on
+			// every restart, silently burning a seat each time.
+			new CoolBeans({ product: 'clementine', baseUrl: 'https://keys.test' });
+		} finally {
+			console.warn = original;
+		}
+		expect(warnings.join(' ')).toMatch(/storage/i);
+	});
+
+	it('verifyOffline never touches the network', async () => {
+		let called = false;
+		const client = new CoolBeans({
+			product: 'clementine',
+			baseUrl: 'https://keys.test',
+			storage: memStorage(),
+			fetch: (async () => {
+				called = true;
+				throw new Error('verifyOffline must not fetch');
+			}) as unknown as typeof fetch,
+		});
+		await client.verifyOffline();
+		expect(called).toBe(false);
+	});
+
+	it('deactivate reports failure instead of pretending the seat was freed', async () => {
+		const client = new CoolBeans({
+			product: 'clementine',
+			baseUrl: 'https://keys.test',
+			storage: memStorage(),
+			fetch: (async () =>
+				new Response(JSON.stringify({ ok: false, error: 'unknown_key' }), {
+					status: 404,
+					headers: { 'Content-Type': 'application/json' },
+				})) as unknown as typeof fetch,
+		});
+		await expect(
+			client.deactivate('CLEM-AAAA-BBBB-CCCC-DDDD', { instanceId: 'inst-1' }),
+		).rejects.toThrow();
+	});
+});

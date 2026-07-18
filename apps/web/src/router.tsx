@@ -11,10 +11,12 @@ import {
 import { ConsoleLayout } from './components/ConsoleLayout.js';
 import { AuditPage } from './pages/Audit.js';
 import { CustomersPage } from './pages/Customers.js';
+import { LicenseDetailPage } from './pages/LicenseDetail.js';
 import { LicensesPage } from './pages/Licenses.js';
 import { OverviewPage } from './pages/Overview.js';
 import { PortalPage } from './pages/Portal.js';
 import { ProductsPage } from './pages/Products.js';
+import { TeamPage } from './pages/Team.js';
 import { UsagePage } from './pages/Usage.js';
 import { WebhooksPage } from './pages/Webhooks.js';
 
@@ -36,6 +38,11 @@ const consoleLayout = createRoute({
 const consoleRoutes = consoleLayout.addChildren([
 	createRoute({ getParentRoute: () => consoleLayout, path: '/', component: OverviewPage }),
 	createRoute({ getParentRoute: () => consoleLayout, path: '/licenses', component: LicensesPage }),
+	createRoute({
+		getParentRoute: () => consoleLayout,
+		path: '/licenses/$key',
+		component: LicenseDetailPage,
+	}),
 	createRoute({ getParentRoute: () => consoleLayout, path: '/products', component: ProductsPage }),
 	createRoute({
 		getParentRoute: () => consoleLayout,
@@ -45,6 +52,7 @@ const consoleRoutes = consoleLayout.addChildren([
 	createRoute({ getParentRoute: () => consoleLayout, path: '/usage', component: UsagePage }),
 	createRoute({ getParentRoute: () => consoleLayout, path: '/webhooks', component: WebhooksPage }),
 	createRoute({ getParentRoute: () => consoleLayout, path: '/audit', component: AuditPage }),
+	createRoute({ getParentRoute: () => consoleLayout, path: '/team', component: TeamPage }),
 ]);
 
 const routeTree = rootRoute.addChildren([portalRoute, consoleRoutes]);

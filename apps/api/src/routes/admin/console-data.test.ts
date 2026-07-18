@@ -62,3 +62,48 @@ describe('GET /admin/products', () => {
 		}
 	});
 });
+
+describe('key prefix bounds (PRD §9/§10)', () => {
+	it('rejects a prefix the public key gate could never accept', async () => {
+		// looksLikeKey() only admits 2–12 letter prefixes, so anything outside that
+		// range would issue keys every public endpoint answers with 422 invalid_key.
+		for (const key_prefix of ['X', 'THIRTEENCHARS']) {
+			const res = await h.app.request('/admin/products', {
+				method: 'POST',
+				headers: h.adminHeaders,
+				body: JSON.stringify({
+					slug: `p-${key_prefix.toLowerCase()}`,
+					name: 'Edge',
+					key_prefix,
+					email_from: 'r@edge.email',
+				}),
+			});
+			expect(res.status).toBe(422);
+		}
+	});
+
+	it('a key issued for an accepted prefix always passes the public gate', async () => {
+		await h.app.request('/admin/products', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				slug: 'shortpfx',
+				name: 'Short',
+				key_prefix: 'AB',
+				email_from: 'r@short.email',
+			}),
+		});
+		const issued = await h.app.request('/admin/keys', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({ product: 'shortpfx', email: 'b@example.com', tier: 'lifetime' }),
+		});
+		const key = ((await issued.json()) as { key: string }).key;
+		const act = await h.app.request('/v1/activate', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ license_key: key, instance_name: 'Mac' }),
+		});
+		expect(act.status).toBe(200);
+	});
+});

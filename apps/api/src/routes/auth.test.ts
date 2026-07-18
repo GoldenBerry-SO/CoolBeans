@@ -111,3 +111,44 @@ describe('console magic-code auth', () => {
 		expect(res.status).toBe(401);
 	});
 });
+
+describe('audit attribution (PRD §16)', () => {
+	it('names the signed-in admin as the actor, not a generic "admin"', async () => {
+		await post('/auth/request-code', { email: 'chris@goldenberry.io' });
+		const verify = await post('/auth/verify', {
+			email: 'chris@goldenberry.io',
+			code: lastCode(),
+			name: 'Chris',
+		});
+		const session = verify.body.token as string;
+
+		await post(
+			'/admin/products',
+			{
+				slug: 'clementine',
+				name: 'Clementine',
+				key_prefix: 'CLEM',
+				email_from: 'r@clementine.email',
+			},
+			session,
+		);
+		const issued = await post(
+			'/admin/keys',
+			{ product: 'clementine', email: 'buyer@example.com', tier: 'lifetime' },
+			session,
+		);
+		const key = issued.body.key as string;
+		await post(`/admin/keys/${encodeURIComponent(key)}/disable`, {}, session);
+
+		const res = await h.app.request('/admin/audit', {
+			headers: { Authorization: `Bearer ${session}` },
+		});
+		const audit = (await res.json()) as { audit: { action: string; actor: string }[] };
+		const disabled = audit.audit.find((e) => e.action === 'license.disabled');
+		expect(disabled?.actor).toBe('admin:chris@goldenberry.io');
+
+		// The env admin token stays distinguishable from a human session.
+		const viaToken = await h.app.request('/admin/products', { headers: h.adminHeaders });
+		expect(viaToken.status).toBe(200);
+	});
+});

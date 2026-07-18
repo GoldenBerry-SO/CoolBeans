@@ -16,7 +16,7 @@ import { issueManual, trialExpiry } from '../../services/issuance.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
 import { enqueue } from '../../services/outbox.js';
 import { getProductById, getProductBySlug, listPrefixes } from '../../store/products.js';
-import { readBody } from './util.js';
+import { auditActor, readBody } from './util.js';
 
 const issueBody = z.object({
 	product: z.string().min(1),
@@ -84,7 +84,7 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			tier: body.tier,
 			expiresAt,
 			note: body.note,
-			actor: 'admin',
+			actor: auditActor(c),
 		});
 		// Deliver the key email like any purchase (PRD §14). A send failure never fails
 		// the issuance: the durable outbox retries it.
@@ -104,13 +104,13 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 
 	admin.post('/keys/:key/disable', (c) => {
 		const { license, product } = resolveKey(deps, c.req.param('key'));
-		const updated = disableLicense(deps, { license, reason: 'manual', actor: 'admin' });
+		const updated = disableLicense(deps, { license, reason: 'manual', actor: auditActor(c) });
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 
 	admin.post('/keys/:key/enable', (c) => {
 		const { license, product } = resolveKey(deps, c.req.param('key'));
-		const updated = enableLicense(deps, { license, actor: 'admin' });
+		const updated = enableLicense(deps, { license, actor: auditActor(c) });
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 

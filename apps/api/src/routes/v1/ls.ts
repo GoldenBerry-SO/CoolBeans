@@ -67,6 +67,22 @@ async function readParams(c: {
 	return Object.fromEntries(Object.entries(body).map(([k, v]) => [k, String(v ?? '')]));
 }
 
+/**
+ * The LS license/meta objects for a key we actually know, or undefined when the key
+ * is unknown or malformed — those stay null-shaped so we leak nothing about them.
+ */
+function knownLicenseShape(deps: AppDeps, keyInput: string) {
+	try {
+		const resolved = resolveLicense(deps, keyInput);
+		return {
+			licenseKey: lsLicenseKey(deps, resolved.license, resolved.product),
+			meta: lsMeta(resolved.product, null),
+		};
+	} catch {
+		return undefined;
+	}
+}
+
 function errorShape(err: unknown, base: Record<string, unknown>) {
 	const message = err instanceof ApiError ? err.message : 'Request failed.';
 	// LS returns 400 for most license errors; keep 404 for unknown key.
@@ -91,11 +107,14 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 				meta: lsMeta(result.product, null),
 			});
 		} catch (err) {
+			// LS still returns the license object when it refuses a known key, and a
+			// migrating client reads status off it — so carry it whenever we can.
+			const known = knownLicenseShape(deps, params.license_key ?? '');
 			const { status, body } = errorShape(err, {
 				activated: false,
-				license_key: null,
+				license_key: known?.licenseKey ?? null,
 				instance: null,
-				meta: null,
+				meta: known?.meta ?? null,
 			});
 			return c.json(body, status as never);
 		}

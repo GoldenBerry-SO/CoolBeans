@@ -15,7 +15,7 @@ import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug } from '../../store/products.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
-import { readBody } from './util.js';
+import { auditActor, readBody } from './util.js';
 
 export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	const admin = new OpenAPIHono();
@@ -60,7 +60,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const key = rotateKey(deps, product.id);
 		writeAudit(deps.db, {
 			action: 'signing_key.rotated',
-			actor: 'admin',
+			actor: auditActor(c),
 			productId: product.id,
 			detail: { kid: String(key.id) },
 		});
@@ -71,7 +71,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	admin.post('/products/:slug/token/rotate', (c) => {
 		const product = getProductBySlug(deps.db, c.req.param('slug'));
 		if (!product) throw notFound('No product with that slug.');
-		return c.json({ ok: true, product_token: issueProductToken(deps, product) });
+		return c.json({ ok: true, product_token: issueProductToken(deps, product, auditActor(c)) });
 	});
 
 	const connectBody = z.object({
@@ -85,6 +85,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		if (!product) throw notFound('No product with that slug.');
 		const body = await readBody(c, connectBody);
 		const result = await connectStripe(deps, {
+			actor: auditActor(c),
 			product,
 			webhookUrl: body.webhook_url,
 			lifetimeAmount: body.lifetime_amount,

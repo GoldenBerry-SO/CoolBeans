@@ -19,7 +19,7 @@ const GRID = 'grid-cols-[1.7fr_1fr_0.85fr_0.85fr_0.6fr_1.4fr_auto]';
 
 export function LicensesPage() {
 	const products = useProducts();
-	const { scope } = useScope();
+	const { scope, query } = useScope();
 	const [productFilter, setProductFilter] = useState('all');
 	const [filter, setFilter] = useState<(typeof FILTERS)[number]>('all');
 
@@ -30,7 +30,15 @@ export function LicensesPage() {
 	const licenses = useLicensesAcross(slugs, filter);
 	const setStatus = useSetLicenseStatus();
 	const loading = products.isLoading || licenses.isLoading;
-	const rows = [...licenses.data].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+	const needle = query.trim().toLowerCase();
+	const rows = [...licenses.data]
+		.filter(
+			(l) =>
+				!needle ||
+				l.key.toLowerCase().includes(needle) ||
+				(l.customer_email ?? '').toLowerCase().includes(needle),
+		)
+		.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
 
 	const byProduct = new Map(
 		(products.data ?? []).map((p, i) => [p.slug, { name: p.name, color: productColor(i) }]),
@@ -134,6 +142,8 @@ export function LicensesPage() {
 							</div>
 						);
 					})
+				) : needle ? (
+					<EmptyState>No keys match "{query}".</EmptyState>
 				) : (
 					<EmptyState>No keys here. Nice and quiet.</EmptyState>
 				)}

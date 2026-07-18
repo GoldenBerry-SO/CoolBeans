@@ -9,8 +9,9 @@ import { getUsage, incrementUsage } from '../../services/usage.js';
 
 const incrementBody = z.object({
 	license_key: z.string(),
-	// §9 includes instance_id in the increment request; require it so usage is tied
-	// to a client instance rather than a bare key.
+	// §9 includes instance_id in the increment request, so it is required. Quota is
+	// currently counted per license, not per instance: a live-instance check would
+	// add a rejection the frozen contract does not define. Tracked for a decision.
 	instance_id: z.string().min(1),
 	metric: z.string().min(1),
 	delta: z.number().int().positive().default(1),

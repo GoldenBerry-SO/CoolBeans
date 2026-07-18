@@ -1,8 +1,8 @@
 // ABOUTME: Console chrome — 248px icon sidebar, 64px header with pill search, per docs/DESIGN.md.
 // ABOUTME: Pages render into the Outlet under a 28px page heading; product scope lives here too.
 
-import { Link, Outlet, useRouterState } from '@tanstack/react-router';
-import { type ReactNode, useState } from 'react';
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { getAdminEmail } from '../lib/api.js';
 import { useAuth } from '../lib/auth.js';
 import { useProducts } from '../lib/queries.js';
@@ -188,6 +188,67 @@ function RoundButton({ title, children }: { title: string; children: ReactNode }
 	);
 }
 
+/**
+ * Header search. Typing filters the license table, so it navigates there —
+ * searching from Webhooks and watching nothing happen would be worse than no box.
+ */
+function HeaderSearch() {
+	const { query, setQuery } = useScope();
+	const navigate = useNavigate();
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+				e.preventDefault();
+				inputRef.current?.focus();
+			}
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	}, []);
+
+	return (
+		<div className="flex max-w-[560px] flex-1 items-center gap-2.5 rounded-full border border-transparent bg-canvas px-[15px] py-[9px] text-ink-label focus-within:border-positive/45 focus-within:bg-card">
+			<svg
+				width="15"
+				height="15"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				aria-hidden="true"
+			>
+				<circle cx="10.5" cy="10.5" r="6.5" />
+				<path d="M20 20l-4.5-4.5" />
+			</svg>
+			<input
+				ref={inputRef}
+				value={query}
+				onChange={(e) => {
+					setQuery(e.target.value);
+					if (e.target.value) navigate({ to: '/licenses' });
+				}}
+				placeholder="Search keys, emails…"
+				aria-label="Search keys and emails"
+				className="flex-1 border-none bg-transparent text-[13px] text-ink outline-none"
+			/>
+			{query ? (
+				<button
+					type="button"
+					onClick={() => setQuery('')}
+					aria-label="Clear search"
+					className="cursor-pointer border-none bg-transparent p-0 text-[13px] text-ink-faint hover:text-ink"
+				>
+					✕
+				</button>
+			) : (
+				<kbd className="rounded border border-ink/14 px-[5px] py-px font-mono text-[10px]">⌘K</kbd>
+			)}
+		</div>
+	);
+}
+
 export function Shell() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const page = TITLES[pathname] ?? TITLES['/'];
@@ -272,27 +333,7 @@ export function Shell() {
 
 				<div className="flex h-screen flex-col overflow-hidden">
 					<header className="flex h-16 flex-none items-center gap-3.5 bg-card px-10">
-						<div className="flex max-w-[560px] flex-1 items-center gap-2.5 rounded-full border border-transparent bg-canvas px-[15px] py-[9px] text-ink-label focus-within:border-positive/45 focus-within:bg-card">
-							<svg
-								width="15"
-								height="15"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="1.9"
-								aria-hidden="true"
-							>
-								<circle cx="10.5" cy="10.5" r="6.5" />
-								<path d="M20 20l-4.5-4.5" />
-							</svg>
-							<input
-								placeholder="Search keys, emails…"
-								className="flex-1 border-none bg-transparent text-[13px] text-ink outline-none"
-							/>
-							<kbd className="rounded border border-ink/14 px-[5px] py-px font-mono text-[10px]">
-								⌘K
-							</kbd>
-						</div>
+						<HeaderSearch />
 						<div className="flex-1" />
 						<RoundButton title="Help">
 							<span className="font-semibold text-[14px]">?</span>

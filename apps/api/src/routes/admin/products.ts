@@ -10,7 +10,7 @@ import { badRequest, conflict, notFound } from '../../http/errors.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
 import { getProductBySlug, listProducts } from '../../store/products.js';
-import { readBody } from './util.js';
+import { auditActor, readBody } from './util.js';
 
 const createProductBody = z.object({
 	slug: z
@@ -18,9 +18,12 @@ const createProductBody = z.object({
 		.min(1)
 		.regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, numbers, and dashes'),
 	name: z.string().min(1),
+	// Bounds match the public format gate (looksLikeKey, PRD §10): a prefix outside
+	// 2–12 letters would issue keys every public endpoint rejects as invalid_key.
 	key_prefix: z
 		.string()
-		.min(1)
+		.min(2, 'key_prefix must be 2-12 letters')
+		.max(12, 'key_prefix must be 2-12 letters')
 		.regex(/^[A-Za-z]+$/, 'key_prefix must be letters only'),
 	activation_limit: z.number().int().positive().optional(),
 	activation_model: z.enum(['node_locked', 'floating']).optional(),
@@ -69,7 +72,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 				.get();
 			writeAudit(deps.db, {
 				action: 'product.created',
-				actor: 'admin',
+				actor: auditActor(c),
 				productId: product.id,
 				detail: { slug: product.slug, prefix: product.keyPrefix },
 			});
@@ -117,7 +120,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			.get();
 		writeAudit(deps.db, {
 			action: 'product.updated',
-			actor: 'admin',
+			actor: auditActor(c),
 			productId: product.id,
 			detail: { fields: Object.keys(patch) },
 		});
@@ -181,7 +184,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			.get();
 		writeAudit(deps.db, {
 			action: 'metric.created',
-			actor: 'admin',
+			actor: auditActor(c),
 			productId: product.id,
 			detail: { key: metric.key, default_limit: metric.defaultLimit },
 		});

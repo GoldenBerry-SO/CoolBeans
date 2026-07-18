@@ -67,6 +67,9 @@ describe('LS parity: /v1/licenses/*', () => {
 		const r = await ls('/v1/licenses/activate', { license_key: key, instance_name: 'Mac' });
 		expect(r.body.activated).toBe(false);
 		expect(r.body.error).toBeTruthy();
+		// A base-URL-swap client reads status off the license object; LS returns it on
+		// a refused activation, so a null license_key here breaks the migration promise.
+		expect((r.body.license_key as { status: string } | null)?.status).toBe('disabled');
 	});
 
 	it('maps an expired trial to status expired', async () => {

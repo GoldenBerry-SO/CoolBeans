@@ -9,7 +9,14 @@ import type { PayPalEvent } from '../../services/paypal-gateway.js';
 export function registerPayPalWebhook(app: OpenAPIHono, deps: AppDeps): void {
 	app.post('/v1/paypal/webhook', async (c) => {
 		if (!deps.paypal || !deps.config.paypal) {
-			return c.json({ ok: false, error: 'paypal_not_configured' }, 503);
+			return c.json(
+				{
+					ok: false,
+					error: 'paypal_not_configured',
+					message: 'PayPal is not configured on this server.',
+				},
+				503,
+			);
 		}
 		const rawBody = await c.req.text();
 		const verified = await deps.paypal.verify({
@@ -21,7 +28,11 @@ export function registerPayPalWebhook(app: OpenAPIHono, deps: AppDeps): void {
 			webhookId: deps.config.paypal.webhookId,
 			body: rawBody,
 		});
-		if (!verified) return c.json({ ok: false, error: 'invalid_signature' }, 400);
+		if (!verified)
+			return c.json(
+				{ ok: false, error: 'invalid_signature', message: 'The PayPal signature did not verify.' },
+				400,
+			);
 		const event = JSON.parse(rawBody) as PayPalEvent;
 		await handlePayPalEvent(deps, event);
 		return c.json({ ok: true, received: true });

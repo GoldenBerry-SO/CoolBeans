@@ -22,6 +22,19 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	registerAdminProductRoutes(admin, deps);
 	registerAdminKeyRoutes(admin, deps);
 
+	admin.get('/stats', (c) => {
+		const count = (sqlText: string) => (deps.db.$client.prepare(sqlText).get() as { n: number }).n;
+		return c.json({
+			ok: true,
+			stats: {
+				products: count('SELECT COUNT(*) n FROM products'),
+				active_licenses: count("SELECT COUNT(*) n FROM licenses WHERE status = 'active'"),
+				total_licenses: count('SELECT COUNT(*) n FROM licenses'),
+				live_activations: count('SELECT COUNT(*) n FROM activations WHERE deactivated_at IS NULL'),
+			},
+		});
+	});
+
 	admin.get('/audit', (c) => {
 		const limit = Math.min(Number(c.req.query('limit') ?? 100), 500);
 		const rows = deps.db.select().from(auditLog).orderBy(desc(auditLog.id)).limit(limit).all();

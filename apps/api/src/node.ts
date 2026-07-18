@@ -9,6 +9,7 @@ import { serve } from '@hono/node-server';
 import { Redis } from 'ioredis';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
+import { mountConsole } from './console-static.js';
 import type { AppDeps } from './deps.js';
 import { publicRateLimiter } from './middleware/rate-limit.js';
 import { createRedisStore } from './middleware/redis-store.js';
@@ -55,6 +56,11 @@ const deps: AppDeps = {
 };
 
 const app = createApp(deps);
+
+// Serve the built console SPA if present (production image / after `pnpm build`).
+const webRoot = process.env.WEB_ROOT ?? 'apps/web/dist';
+mountConsole(app, deps, webRoot);
+
 serve({ fetch: app.fetch, port: config.port }, (info) => {
 	logger.info('Cool Beans listening', { port: info.port });
 });

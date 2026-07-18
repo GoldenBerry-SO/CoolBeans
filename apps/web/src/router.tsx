@@ -1,32 +1,53 @@
-// ABOUTME: TanStack Router setup (code-based) — the Shell wraps all console pages.
+// ABOUTME: TanStack Router setup (code-based) — gated console pages plus the public portal route.
 // ABOUTME: createConsoleRouter takes a history so tests can drive it with memory history.
 
 import {
 	createRootRoute,
 	createRoute,
 	createRouter,
+	Outlet,
 	type RouterHistory,
 } from '@tanstack/react-router';
-import { Shell } from './components/Shell.js';
+import { ConsoleLayout } from './components/ConsoleLayout.js';
 import { AuditPage } from './pages/Audit.js';
 import { CustomersPage } from './pages/Customers.js';
 import { LicensesPage } from './pages/Licenses.js';
 import { OverviewPage } from './pages/Overview.js';
+import { PortalPage } from './pages/Portal.js';
 import { ProductsPage } from './pages/Products.js';
 import { UsagePage } from './pages/Usage.js';
 import { WebhooksPage } from './pages/Webhooks.js';
 
-const rootRoute = createRootRoute({ component: Shell });
+const rootRoute = createRootRoute({ component: Outlet });
 
-const routeTree = rootRoute.addChildren([
-	createRoute({ getParentRoute: () => rootRoute, path: '/', component: OverviewPage }),
-	createRoute({ getParentRoute: () => rootRoute, path: '/licenses', component: LicensesPage }),
-	createRoute({ getParentRoute: () => rootRoute, path: '/products', component: ProductsPage }),
-	createRoute({ getParentRoute: () => rootRoute, path: '/customers', component: CustomersPage }),
-	createRoute({ getParentRoute: () => rootRoute, path: '/usage', component: UsagePage }),
-	createRoute({ getParentRoute: () => rootRoute, path: '/webhooks', component: WebhooksPage }),
-	createRoute({ getParentRoute: () => rootRoute, path: '/audit', component: AuditPage }),
+// The customer portal is public (key is the credential) and lives outside the admin gate.
+const portalRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: '/portal',
+	component: PortalPage,
+});
+
+// The console pages sit behind the admin-token gate.
+const consoleLayout = createRoute({
+	getParentRoute: () => rootRoute,
+	id: 'console',
+	component: ConsoleLayout,
+});
+const consoleRoutes = consoleLayout.addChildren([
+	createRoute({ getParentRoute: () => consoleLayout, path: '/', component: OverviewPage }),
+	createRoute({ getParentRoute: () => consoleLayout, path: '/licenses', component: LicensesPage }),
+	createRoute({ getParentRoute: () => consoleLayout, path: '/products', component: ProductsPage }),
+	createRoute({
+		getParentRoute: () => consoleLayout,
+		path: '/customers',
+		component: CustomersPage,
+	}),
+	createRoute({ getParentRoute: () => consoleLayout, path: '/usage', component: UsagePage }),
+	createRoute({ getParentRoute: () => consoleLayout, path: '/webhooks', component: WebhooksPage }),
+	createRoute({ getParentRoute: () => consoleLayout, path: '/audit', component: AuditPage }),
 ]);
+
+const routeTree = rootRoute.addChildren([portalRoute, consoleRoutes]);
 
 export function createConsoleRouter(history?: RouterHistory) {
 	return createRouter({ routeTree, history });

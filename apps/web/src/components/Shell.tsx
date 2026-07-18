@@ -1,8 +1,9 @@
 // ABOUTME: Console chrome — 248px sidebar, 61px header, scrolling main column per docs/DESIGN.md.
 // ABOUTME: Pages render into the Outlet; titles come from each route's static data.
 
-import { Link, Outlet, useRouterState } from '@tanstack/react-router';
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
+import { useAuth } from '../lib/auth.js';
 import { AccentButton, BeanMark, SectionLabel } from './ui.js';
 
 const NAV = [
@@ -41,6 +42,8 @@ function NavItem({ to, children }: { to: string; children: ReactNode }) {
 export function Shell() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const page = TITLES[pathname] ?? TITLES['/'];
+	const { signOut } = useAuth();
+	const navigate = useNavigate();
 
 	return (
 		<div className="grid h-screen grid-cols-[248px_1fr]">
@@ -63,7 +66,13 @@ export function Shell() {
 					))}
 				</nav>
 				<div className="mt-auto px-3 pt-3.5 pb-4">
-					<div className="mx-2 flex items-center gap-2.5 border-ink/8 border-t pt-3">
+					<a
+						href="/portal"
+						className="flex items-center gap-[11px] rounded-[9px] px-[11px] py-[9px] font-medium text-[13.5px] text-ink-muted no-underline hover:bg-ink/5 hover:text-ink"
+					>
+						Customer portal →
+					</a>
+					<div className="mx-2 mt-2.5 flex items-center gap-2.5 border-ink/8 border-t pt-3">
 						<span className="inline-flex h-[29px] w-[29px] flex-none items-center justify-center rounded-full bg-positive-tint font-semibold text-[12px] text-positive">
 							G
 						</span>
@@ -71,6 +80,13 @@ export function Shell() {
 							<div className="font-medium text-[12.5px]">Goldenberry</div>
 							<div className="truncate text-[10.5px] text-ink-faint">admin · global token</div>
 						</div>
+						<button
+							type="button"
+							onClick={signOut}
+							className="cursor-pointer border-none bg-transparent text-[11px] text-ink-faint hover:text-ink"
+						>
+							Sign out
+						</button>
 					</div>
 				</div>
 			</aside>
@@ -90,7 +106,7 @@ export function Shell() {
 							⌘K
 						</kbd>
 					</div>
-					<AccentButton>Issue key</AccentButton>
+					<AccentButton onClick={() => navigate({ to: '/licenses' })}>Issue key</AccentButton>
 				</header>
 				<main className="flex-1 overflow-y-auto p-7">
 					<Outlet />

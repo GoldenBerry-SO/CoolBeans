@@ -563,6 +563,52 @@ describe('Stripe webhook', () => {
 		expect(keys[0]?.disabled_reason).toBe('refund');
 	});
 
+	it('does not lock out a subscriber who lapsed and paid up before their checkout landed', async () => {
+		// Both events arrive before the checkout. Parking the lapse but ignoring the
+		// recovery leaves a revocation that fires the moment the licence is created.
+		await webhook(h.app, {
+			id: 'evt_early_unpaid',
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_1', status: 'unpaid' } },
+		});
+		await webhook(h.app, {
+			id: 'evt_early_recovered',
+			type: 'customer.subscription.updated',
+			data: { object: { id: 'sub_1', status: 'active' } },
+		});
+		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'they are paying again by the time we issue').toBe('active');
+	});
+
+	it('drops a parked chargeback when we win, even if the licence already exists', async () => {
+		// The won event can land while a licence is active (issuance commits before the
+		// key email). restoreLicense no-ops on an active licence, so if that is the only
+		// place we clear the parked chargeback, issuance later disables a paying customer.
+		await webhook(h.app, {
+			id: 'evt_dispute_race',
+			type: 'charge.dispute.created',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1' } },
+		});
+		await webhook(h.app, checkout());
+		// The licence exists and is disabled by the parked chargeback.
+		expect((await keysForEmail(h, 'buyer@example.com'))[0]?.status).toBe('disabled');
+
+		await webhook(h.app, {
+			id: 'evt_won_race',
+			type: 'charge.dispute.closed',
+			data: { object: { id: 'dp_1', payment_intent: 'pi_1', status: 'won' } },
+		});
+		const keys = await keysForEmail(h, 'buyer@example.com');
+		expect(keys[0]?.status, 'we kept the money').toBe('active');
+
+		// And nothing is left parked to re-disable them later.
+		const stranded = h.deps.db.$client
+			.prepare('SELECT COUNT(*) n FROM pending_revocations WHERE consumed_at IS NULL')
+			.get() as { n: number };
+		expect(stranded.n).toBe(0);
+	});
+
 	it('flags a checkout that paid for several units but gets one key', async () => {
 		// A landing page with adjustable quantity (or quantity: 3) charges three times
 		// and still gets exactly one licence. We cannot un-charge them, but leaving no

@@ -285,12 +285,23 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// Only an explicitly healthy status gives access back. past_due means they
 			// still have not paid, and treating every other status as recovery would let
 			// a stale 'active' delivered after a cancellation resurrect a dead licence.
-			if (found && PAYING_SUBSCRIPTION_STATUSES.has(status ?? '')) {
-				restoreLicense(deps, {
-					license: found.license,
-					trigger: 'subscription_recovered',
-					actor: `stripe:${event.id}`,
-				});
+			if (PAYING_SUBSCRIPTION_STATUSES.has(status ?? '')) {
+				if (found) {
+					restoreLicense(deps, {
+						license: found.license,
+						trigger: 'subscription_recovered',
+						actor: `stripe:${event.id}`,
+					});
+				} else {
+					// They lapsed and paid up, both before the checkout landed. The parked
+					// lapse would otherwise fire the moment the licence is created and lock
+					// out someone who is paying.
+					dropPendingRevocation(deps, {
+						provider: 'stripe',
+						reference: subId,
+						reason: 'subscription_canceled',
+					});
+				}
 			}
 			const periodEnd = subscriptionPeriodEnd(obj);
 			if (periodEnd) advanceSubscriptionExpiry(deps, subId, periodEnd, `stripe:${event.id}`);
@@ -349,6 +360,20 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// 'won' means the bank sided with us and we keep the money, so the customer
 			// paid after all and must get their access back. 'lost' stays revoked.
 			if (str(obj, 'status') !== 'won') break;
+
+			// Always drop a parked chargeback, licence or no licence. Issuance commits the
+			// licence before it sends the key email, so a won event can arrive while the
+			// row is active and unconsumed; restoring alone would no-op on an active
+			// licence and leave the parked cause to disable a paying customer afterwards.
+			const reference = str(obj, 'payment_intent');
+			if (reference) {
+				dropPendingRevocation(deps, {
+					provider: 'stripe',
+					reference,
+					reason: 'chargeback',
+				});
+			}
+
 			const found = await findLicenseForDispute(deps, obj);
 			if (found) {
 				restoreLicense(deps, {
@@ -356,18 +381,6 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 					trigger: 'dispute_won',
 					actor: `stripe:${event.id}`,
 				});
-			} else {
-				// The dispute was opened before the checkout landed, so a chargeback is
-				// parked waiting to revoke a licence that does not exist yet. We won, so
-				// drop it: otherwise issuance later disables a customer who paid.
-				const reference = str(obj, 'payment_intent');
-				if (reference) {
-					dropPendingRevocation(deps, {
-						provider: 'stripe',
-						reference,
-						reason: 'chargeback',
-					});
-				}
 			}
 			break;
 		}

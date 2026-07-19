@@ -1,9 +1,16 @@
 // ABOUTME: Console auth (PRD §16, design v2) — magic-code sign-in: email, then a six-digit code.
 // ABOUTME: The first-ever sign-in creates the account; sessions are bearer tokens in storage.
 
-import { createContext, type ReactNode, useContext, useState } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 import { AccentButton, BeanMark, InkButton } from '../components/ui.js';
-import { clearToken, getToken, publicApi, setAdminEmail, setToken } from './api.js';
+import {
+	AUTH_INVALID_EVENT,
+	clearToken,
+	getToken,
+	publicApi,
+	setAdminEmail,
+	setToken,
+} from './api.js';
 
 interface AuthState {
 	token: string | null;
@@ -21,6 +28,13 @@ export function useAuth(): AuthState {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [token, setTok] = useState<string | null>(getToken());
+
+	useEffect(() => {
+		const invalidated = () => setTok(null);
+		window.addEventListener(AUTH_INVALID_EVENT, invalidated);
+		return () => window.removeEventListener(AUTH_INVALID_EVENT, invalidated);
+	}, []);
+
 	const value: AuthState = {
 		token,
 		signIn: (t, email) => {

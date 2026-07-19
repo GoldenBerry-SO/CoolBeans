@@ -14,7 +14,7 @@ import {
 import { getAdminEmail } from '../lib/api.js';
 import { useInviteAdmin, useRevokeAdmin, useTeam } from '../lib/queries.js';
 
-const GRID = 'grid-cols-[1.6fr_1.2fr_1fr_auto]';
+const GRID = 'min-w-[680px] grid-cols-[1.6fr_1.2fr_1fr_auto]';
 
 export function TeamPage() {
 	const team = useTeam();
@@ -31,7 +31,7 @@ export function TeamPage() {
 					Invite admin
 				</AccentButton>
 			</div>
-			<Card className="overflow-hidden">
+			<Card className="overflow-x-auto">
 				<TableHead gridClass={GRID} columns={['Admin', 'Added', 'Last signed in', '']} />
 				{team.isLoading ? (
 					<EmptyState>Loading…</EmptyState>

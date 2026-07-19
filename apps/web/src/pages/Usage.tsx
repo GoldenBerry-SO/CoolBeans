@@ -6,7 +6,7 @@ import { Card, CardHeader, EmptyState } from '../components/ui.js';
 import { useUsage } from '../lib/queries.js';
 import { useScope } from '../lib/scope.js';
 
-const GRID = 'grid-cols-[1.4fr_0.8fr_2fr_0.8fr]';
+const GRID = 'grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[1.4fr_0.8fr_2fr_0.8fr]';
 
 function Meter({ current, limit }: { current: number; limit: number | null }) {
 	if (limit === null) return <div className="text-[12px] text-ink-faint">no cap</div>;
@@ -71,7 +71,7 @@ export function UsagePage() {
 						<div
 							key={`${u.key}-${u.metric}`}
 							className={clsx(
-								'grid items-center gap-[18px] border-ink/5 border-b px-5 py-[15px] last:border-b-0',
+								'grid items-center gap-x-4 gap-y-3 border-ink/5 border-b px-4 py-[15px] last:border-b-0 sm:gap-[18px] sm:px-5',
 								GRID,
 							)}
 						>

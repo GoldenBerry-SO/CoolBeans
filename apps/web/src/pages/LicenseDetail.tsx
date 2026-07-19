@@ -8,9 +8,14 @@ import { useLicenseDetail, useSetLicenseStatus } from '../lib/queries.js';
 
 function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
 	return (
-		<div className="border-ink/6 border-r px-4 py-3.5 last:border-r-0">
+		<div className="min-w-0 border-ink/6 border-r px-3 py-3.5 last:border-r-0 sm:px-4">
 			<div className="font-medium text-[12px] text-ink-muted">{label}</div>
-			<div className={clsx('mt-1.5 font-medium text-[14px]', mono && 'font-mono text-[13px]')}>
+			<div
+				className={clsx(
+					'mt-1.5 break-words font-medium text-[14px]',
+					mono && 'font-mono text-[12px] sm:text-[13px]',
+				)}
+			>
 				{value}
 			</div>
 		</div>
@@ -44,9 +49,9 @@ export function LicenseDetailPage() {
 			</Link>
 
 			<div className="mb-[22px] flex flex-wrap items-start gap-4">
-				<div className="min-w-[280px] flex-1">
+				<div className="min-w-0 flex-1 basis-full sm:basis-auto">
 					<div className="flex flex-wrap items-center gap-3">
-						<span className="font-mono font-semibold text-[22px] tracking-[-0.01em]">
+						<span className="break-all font-mono font-semibold text-[18px] tracking-[-0.01em] sm:text-[22px]">
 							{license.key}
 						</span>
 						<SecondaryButton
@@ -61,7 +66,7 @@ export function LicenseDetailPage() {
 						{license.customer_email ?? 'no buyer on record'}
 					</div>
 				</div>
-				<div className="flex gap-2.5">
+				<div className="flex w-full gap-2.5 sm:w-auto">
 					{license.status === 'active' ? (
 						<SecondaryButton
 							destructive
@@ -79,7 +84,7 @@ export function LicenseDetailPage() {
 				</div>
 			</div>
 
-			<Card className="mb-4 grid grid-cols-4 overflow-hidden">
+			<Card className="mb-4 grid grid-cols-2 overflow-hidden sm:grid-cols-4">
 				<Fact label="Tier" value={license.tier} />
 				<Fact label="Product" value={license.product} />
 				<Fact
@@ -90,7 +95,7 @@ export function LicenseDetailPage() {
 				<Fact label="Seats" value={`${live.length}/${license.activation_limit}`} mono />
 			</Card>
 
-			<div className="grid grid-cols-[1.4fr_1fr] items-start gap-4">
+			<div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
 				<Card className="overflow-hidden">
 					<CardHeader
 						title="Activations"

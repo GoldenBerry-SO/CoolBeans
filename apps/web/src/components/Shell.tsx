@@ -2,13 +2,35 @@
 // ABOUTME: Pages render into the Outlet under a 28px page heading; product scope lives here too.
 
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '#components/shadcn/dropdown-menu';
+import {
+	Sidebar as ShadcnSidebar,
+	SidebarContent as ShadcnSidebarContent,
+	SidebarFooter,
+	SidebarGroup,
+	SidebarGroupContent,
+	SidebarGroupLabel,
+	SidebarHeader,
+	SidebarInset,
+	SidebarMenu,
+	SidebarMenuButton,
+	SidebarMenuItem,
+	SidebarProvider,
+	SidebarTrigger,
+	useSidebar,
+} from '#components/shadcn/sidebar';
 import { getAdminEmail } from '../lib/api.js';
 import { useAuth } from '../lib/auth.js';
 import { useProducts } from '../lib/queries.js';
 import { productColor, ScopeProvider, useScope } from '../lib/scope.js';
 import { IssueKeyDialog } from './IssueKeyDialog.js';
-import { AccentButton, BeanMark, PlusIcon, SectionLabel } from './ui.js';
+import { AccentButton, BeanMark, PlusIcon } from './ui.js';
 
 const ICONS: Record<string, ReactNode> = {
 	overview: (
@@ -88,23 +110,38 @@ function NavIcon({ name }: { name: string }) {
 	);
 }
 
-function NavItem({ to, icon, children }: { to: string; icon: string; children: ReactNode }) {
+function NavItem({
+	to,
+	icon,
+	children,
+	onNavigate,
+}: {
+	to: string;
+	icon: string;
+	children: ReactNode;
+	onNavigate?: () => void;
+}) {
+	const pathname = useRouterState({ select: (state) => state.location.pathname });
+	const isActive = to === '/' ? pathname === to : pathname === to || pathname.startsWith(`${to}/`);
+
 	return (
-		<Link
-			to={to}
-			className="flex items-center gap-3 rounded-[8px] px-3 py-2 font-medium text-[14px] text-ink-body hover:bg-ink/5 [&.active]:text-positive-nav"
-			activeOptions={{ exact: to === '/' }}
-			activeProps={{ className: 'active' }}
-		>
-			<NavIcon name={icon} />
-			<span>{children}</span>
-		</Link>
+		<SidebarMenuItem>
+			<SidebarMenuButton
+				asChild
+				isActive={isActive}
+				className="h-auto gap-3 rounded-[8px] px-3 py-2 font-medium text-[14px] text-ink-body hover:bg-ink/5 hover:text-ink data-[active=true]:bg-transparent data-[active=true]:text-positive-nav"
+			>
+				<Link to={to} onClick={onNavigate}>
+					<NavIcon name={icon} />
+					<span>{children}</span>
+				</Link>
+			</SidebarMenuButton>
+		</SidebarMenuItem>
 	);
 }
 
-function ScopeSwitcher() {
+function ScopeSwitcher({ onSelect }: { onSelect?: () => void }) {
 	const { scope, setScope } = useScope();
-	const [open, setOpen] = useState(false);
 	const products = useProducts();
 	const items = [
 		{ slug: 'all', name: 'All products', color: '#9a9a92' },
@@ -117,40 +154,27 @@ function ScopeSwitcher() {
 	const current = items.find((i) => i.slug === scope) ?? items[0];
 
 	return (
-		<div className="relative px-4 pt-3.5 pb-2.5">
-			<button
-				type="button"
-				onClick={() => setOpen((o) => !o)}
-				className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-[9px] border border-ink/11 bg-card px-[11px] py-[9px] text-[13px] text-ink hover:border-ink/24"
-			>
-				<span className="flex min-w-0 items-center gap-2">
-					<span
-						className="h-[7px] w-[7px] flex-none rounded-[2px]"
-						style={{ background: current.color }}
-					/>
-					<span className="truncate">{current.name}</span>
-				</span>
-				<span className="flex-none text-[11px] text-ink-faint">▾</span>
-			</button>
-			{open ? (
-				<button
-					type="button"
-					aria-label="Close product switcher"
-					className="fixed inset-0 z-10 cursor-default border-none bg-transparent"
-					onClick={() => setOpen(false)}
-				/>
-			) : null}
-			{open ? (
-				<div className="cbin absolute top-[52px] right-4 left-4 z-20 rounded-[11px] border border-ink/12 bg-card p-[5px] shadow-[0_12px_34px_rgba(26,26,25,0.16)]">
+		<div className="px-4 pt-3.5 pb-2.5">
+			<DropdownMenu>
+				<DropdownMenuTrigger className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-[9px] border border-ink/11 bg-card px-[11px] py-[9px] text-[13px] text-ink outline-none hover:border-ink/24 focus-visible:border-ink/24">
+					<span className="flex min-w-0 items-center gap-2">
+						<span
+							className="h-[7px] w-[7px] flex-none rounded-[2px]"
+							style={{ background: current.color }}
+						/>
+						<span className="truncate">{current.name}</span>
+					</span>
+					<span className="flex-none text-[11px] text-ink-faint">▾</span>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="start" className="cbin">
 					{items.map((i) => (
-						<button
+						<DropdownMenuItem
 							key={i.slug}
-							type="button"
-							onClick={() => {
+							onSelect={() => {
 								setScope(i.slug);
-								setOpen(false);
+								onSelect?.();
 							}}
-							className={`flex w-full cursor-pointer items-center gap-[9px] rounded-[8px] border-none bg-transparent px-[9px] py-2 text-left text-[13px] text-ink hover:bg-ink/4 ${scope === i.slug ? 'font-semibold' : 'font-normal'}`}
+							className={scope === i.slug ? 'font-semibold' : 'font-normal'}
 						>
 							<span
 								className="h-[7px] w-[7px] flex-none rounded-[2px]"
@@ -170,11 +194,108 @@ function ScopeSwitcher() {
 									<path d="M5 12.5l4.5 4.5L19 7" />
 								</svg>
 							) : null}
-						</button>
+						</DropdownMenuItem>
 					))}
-				</div>
-			) : null}
+				</DropdownMenuContent>
+			</DropdownMenu>
 		</div>
+	);
+}
+
+function AppSidebar({ onSignOut }: { onSignOut: () => void }) {
+	const adminEmail = getAdminEmail();
+	const { isMobile, setOpenMobile } = useSidebar();
+	const closeMobile = () => {
+		if (isMobile) setOpenMobile(false);
+	};
+
+	return (
+		<ShadcnSidebar
+			collapsible="offcanvas"
+			className="border-ink/9 bg-card [&_[data-sidebar=sidebar]]:bg-card"
+		>
+			<SidebarHeader className="gap-0 p-0">
+				<div className="flex h-16 flex-none items-center gap-2.5 px-[18px]">
+					<BeanMark />
+					<div className="font-semibold text-[15px] tracking-[-0.01em]">Cool Beans</div>
+				</div>
+				<ScopeSwitcher onSelect={closeMobile} />
+			</SidebarHeader>
+			<ShadcnSidebarContent className="gap-0">
+				<SidebarGroup className="p-0">
+					<SidebarGroupLabel className="h-auto px-4 pt-2.5 pb-1 font-semibold text-[10px] text-ink-faint uppercase tracking-[0.13em]">
+						Manage
+					</SidebarGroupLabel>
+					<SidebarGroupContent>
+						<nav aria-label="Console pages">
+							<SidebarMenu className="gap-px px-3 pt-0.5">
+								{NAV.map((item) => (
+									<NavItem key={item.to} to={item.to} icon={item.icon} onNavigate={closeMobile}>
+										{item.label}
+									</NavItem>
+								))}
+							</SidebarMenu>
+						</nav>
+					</SidebarGroupContent>
+				</SidebarGroup>
+			</ShadcnSidebarContent>
+			<SidebarFooter className="gap-0 px-3 pt-3.5 pb-4">
+				<a
+					href="/portal"
+					onClick={closeMobile}
+					className="flex items-center gap-[11px] rounded-[9px] px-[11px] py-[9px] font-medium text-[13.5px] text-ink-muted no-underline hover:bg-ink/5 hover:text-ink"
+				>
+					<svg
+						width="17"
+						height="17"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.7"
+						strokeLinecap="round"
+						className="flex-none"
+						aria-hidden="true"
+					>
+						<path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" />
+					</svg>
+					<span>Customer portal</span>
+				</a>
+				<div className="mx-2 mt-2.5 flex items-center gap-2.5 border-ink/8 border-t pt-3">
+					<span className="inline-flex h-[29px] w-[29px] flex-none items-center justify-center rounded-full bg-positive-tint font-semibold text-[12px] text-positive">
+						{(adminEmail ?? 'G').charAt(0).toUpperCase()}
+					</span>
+					<div className="min-w-0 flex-1 leading-[1.2]">
+						<div className="truncate font-medium text-[12.5px]">{adminEmail ?? 'Goldenberry'}</div>
+						<div className="truncate text-[10.5px] text-ink-faint">
+							{adminEmail ? 'admin · magic code' : 'admin · global token'}
+						</div>
+					</div>
+					<button
+						type="button"
+						onClick={() => {
+							onSignOut();
+							closeMobile();
+						}}
+						title="Sign out"
+						className="inline-flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-[7px] border-none bg-transparent text-ink-faint hover:bg-ink/6 hover:text-ink"
+					>
+						<svg
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="1.8"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							aria-hidden="true"
+						>
+							<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+						</svg>
+					</button>
+				</div>
+			</SidebarFooter>
+		</ShadcnSidebar>
 	);
 }
 
@@ -211,7 +332,7 @@ function HeaderSearch() {
 	}, []);
 
 	return (
-		<div className="flex max-w-[560px] flex-1 items-center gap-2.5 rounded-full border border-transparent bg-canvas px-[15px] py-[9px] text-ink-label focus-within:border-positive/45 focus-within:bg-card">
+		<div className="flex min-w-0 max-w-[560px] flex-1 items-center gap-2 rounded-full border border-transparent bg-canvas px-3 py-[9px] text-ink-label focus-within:border-positive/45 focus-within:bg-card sm:gap-2.5 sm:px-[15px]">
 			<svg
 				width="15"
 				height="15"
@@ -233,7 +354,7 @@ function HeaderSearch() {
 				}}
 				placeholder="Search keys, emails…"
 				aria-label="Search keys and emails"
-				className="flex-1 border-none bg-transparent text-[13px] text-ink outline-none"
+				className="min-w-0 flex-1 border-none bg-transparent text-[13px] text-ink outline-none"
 			/>
 			{query ? (
 				<button
@@ -245,7 +366,9 @@ function HeaderSearch() {
 					✕
 				</button>
 			) : (
-				<kbd className="rounded border border-ink/14 px-[5px] py-px font-mono text-[10px]">⌘K</kbd>
+				<kbd className="hidden rounded border border-ink/14 px-[5px] py-px font-mono text-[10px] sm:inline">
+					⌘K
+				</kbd>
 			)}
 		</div>
 	);
@@ -259,123 +382,58 @@ export function Shell() {
 	const showHeading = Boolean(page);
 	const { signOut } = useAuth();
 	const [showIssue, setShowIssue] = useState(false);
-	const adminEmail = getAdminEmail();
 
 	return (
 		<ScopeProvider>
-			<div className="grid h-screen grid-cols-[248px_1fr]">
-				<aside className="flex flex-col overflow-y-auto border-ink/9 border-r bg-card">
-					<div className="flex h-16 flex-none items-center gap-2.5 px-[18px]">
-						<BeanMark />
-						<div className="font-semibold text-[15px] tracking-[-0.01em]">Cool Beans</div>
-					</div>
-					<ScopeSwitcher />
-					<div className="px-4 pt-2.5 pb-1">
-						<SectionLabel>Manage</SectionLabel>
-					</div>
-					<nav className="flex flex-col gap-px px-3 pt-0.5">
-						{NAV.map((item) => (
-							<NavItem key={item.to} to={item.to} icon={item.icon}>
-								{item.label}
-							</NavItem>
-						))}
-					</nav>
-					<div className="mt-auto px-3 pt-3.5 pb-4">
-						<a
-							href="/portal"
-							className="flex items-center gap-[11px] rounded-[9px] px-[11px] py-[9px] font-medium text-[13.5px] text-ink-muted no-underline hover:bg-ink/5 hover:text-ink"
-						>
-							<svg
-								width="17"
-								height="17"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="1.7"
-								strokeLinecap="round"
-								className="flex-none"
-								aria-hidden="true"
-							>
-								<path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" />
-							</svg>
-							<span>Customer portal</span>
-						</a>
-						<div className="mx-2 mt-2.5 flex items-center gap-2.5 border-ink/8 border-t pt-3">
-							<span className="inline-flex h-[29px] w-[29px] flex-none items-center justify-center rounded-full bg-positive-tint font-semibold text-[12px] text-positive">
-								{(adminEmail ?? 'G').charAt(0).toUpperCase()}
-							</span>
-							<div className="min-w-0 flex-1 leading-[1.2]">
-								<div className="truncate font-medium text-[12.5px]">
-									{adminEmail ?? 'Goldenberry'}
-								</div>
-								<div className="truncate text-[10.5px] text-ink-faint">
-									{adminEmail ? 'admin · magic code' : 'admin · global token'}
-								</div>
-							</div>
-							<button
-								type="button"
-								onClick={signOut}
-								title="Sign out"
-								className="inline-flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-[7px] border-none bg-transparent text-ink-faint hover:bg-ink/6 hover:text-ink"
-							>
+			<SidebarProvider
+				className="h-dvh min-h-0 overflow-hidden"
+				style={{ '--sidebar-width': '248px' } as CSSProperties}
+			>
+				<AppSidebar onSignOut={signOut} />
+				<SidebarInset className="h-dvh min-w-0 overflow-hidden bg-card">
+					<header className="flex h-16 flex-none items-center gap-2.5 border-ink/8 border-b bg-card px-3.5 sm:gap-3.5 sm:px-6 lg:border-b-0 lg:px-10">
+						<SidebarTrigger className="h-9 w-9 flex-none rounded-[9px] border border-ink/10 bg-card text-ink-muted hover:bg-ink/4 hover:text-ink" />
+						<HeaderSearch />
+						<div className="hidden flex-1 lg:block" />
+						<div className="hidden items-center sm:flex">
+							<RoundButton title="Help">
+								<span className="font-semibold text-[14px]">?</span>
+							</RoundButton>
+							<RoundButton title="Notifications">
 								<svg
-									width="16"
-									height="16"
+									width="17"
+									height="17"
 									viewBox="0 0 24 24"
 									fill="none"
 									stroke="currentColor"
-									strokeWidth="1.8"
+									strokeWidth="1.7"
 									strokeLinecap="round"
-									strokeLinejoin="round"
 									aria-hidden="true"
 								>
-									<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+									<path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6" />
+									<path d="M10.3 20a2 2 0 003.4 0" />
 								</svg>
-							</button>
+							</RoundButton>
 						</div>
-					</div>
-				</aside>
-
-				<div className="flex h-screen flex-col overflow-hidden">
-					<header className="flex h-16 flex-none items-center gap-3.5 bg-card px-10">
-						<HeaderSearch />
-						<div className="flex-1" />
-						<RoundButton title="Help">
-							<span className="font-semibold text-[14px]">?</span>
-						</RoundButton>
-						<RoundButton title="Notifications">
-							<svg
-								width="17"
-								height="17"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="1.7"
-								strokeLinecap="round"
-								aria-hidden="true"
-							>
-								<path d="M6 9a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6" />
-								<path d="M10.3 20a2 2 0 003.4 0" />
-							</svg>
-						</RoundButton>
-						<AccentButton onClick={() => setShowIssue(true)}>
+						<AccentButton onClick={() => setShowIssue(true)} className="flex-none px-2.5 sm:px-3.5">
 							<PlusIcon />
-							Issue key
+							<span className="hidden sm:inline">Issue key</span>
+							<span className="sm:hidden">Issue</span>
 						</AccentButton>
 					</header>
-					<main className="flex-1 overflow-y-auto px-10 pt-[30px] pb-12">
+					<div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pt-5 pb-8 sm:px-6 sm:pt-7 lg:px-10 lg:pt-[30px] lg:pb-12">
 						{showHeading ? (
-							<div className="mt-0.5 mb-[26px]">
-								<h1 className="m-0 font-bold text-[28px] text-ink tracking-[-0.02em]">
+							<div className="mt-0.5 mb-5 sm:mb-[26px]">
+								<h1 className="m-0 font-bold text-[24px] text-ink tracking-[-0.02em] sm:text-[28px]">
 									{page?.title}
 								</h1>
-								<p className="m-0 mt-[5px] text-[14px] text-ink-soft">{page?.sub}</p>
+								<p className="m-0 mt-[5px] text-[13px] text-ink-soft sm:text-[14px]">{page?.sub}</p>
 							</div>
 						) : null}
 						<Outlet />
-					</main>
-				</div>
-			</div>
+					</div>
+				</SidebarInset>
+			</SidebarProvider>
 			{showIssue ? <IssueKeyDialog onClose={() => setShowIssue(false)} /> : null}
 		</ScopeProvider>
 	);

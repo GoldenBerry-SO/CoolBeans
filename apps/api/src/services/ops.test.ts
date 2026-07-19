@@ -35,6 +35,18 @@ describe('sweeps', () => {
 		expect(body.license.disabled_reason).toBe('trial_expired');
 	});
 
+	it('disables a trial at the exact expiry boundary', async () => {
+		const expiresAt = new Date(h.clock.now().getTime() + 60_000);
+		await issueKey(h.app, {
+			product: 'clementine',
+			email: 'boundary@example.com',
+			tier: 'trial',
+			expires_at: expiresAt.toISOString(),
+		});
+		h.clock.set(expiresAt);
+		expect(sweepExpiredTrials(h.deps)).toBe(1);
+	});
+
 	it('reaps expired floating leases', async () => {
 		await createProduct(h.app, {
 			slug: 'hexis',
@@ -47,6 +59,28 @@ describe('sweeps', () => {
 		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', tier: 'yearly' });
 		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'a' });
 		h.clock.advance(31 * 60_000);
+		expect(reapFloatingLeases(h.deps)).toBe(1);
+	});
+
+	it('reaps a floating lease at the exact expiry boundary', async () => {
+		await createProduct(h.app, {
+			slug: 'boundary-floating',
+			name: 'Boundary Floating',
+			key_prefix: 'BND',
+			email_from: 'k@boundary.test',
+			activation_model: 'floating',
+			floating_lease_minutes: 30,
+		});
+		const key = await issueKey(h.app, {
+			product: 'boundary-floating',
+			email: 'boundary@example.com',
+			tier: 'yearly',
+		});
+		await post(h.app, '/v1/activate', {
+			license_key: key,
+			instance_name: 'boundary',
+		});
+		h.clock.advance(30 * 60_000);
 		expect(reapFloatingLeases(h.deps)).toBe(1);
 	});
 });

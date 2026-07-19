@@ -3,6 +3,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
+import { Toaster } from '#components/shadcn/sonner';
 import { AuthProvider } from './lib/auth.js';
 import { createConsoleRouter } from './router.js';
 
@@ -16,6 +17,7 @@ export function App() {
 		<QueryClientProvider client={queryClient}>
 			<AuthProvider>
 				<RouterProvider router={router} />
+				<Toaster />
 			</AuthProvider>
 		</QueryClientProvider>
 	);

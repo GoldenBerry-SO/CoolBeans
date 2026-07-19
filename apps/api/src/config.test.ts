@@ -9,6 +9,61 @@ const base = {
 	SIGNING_KEY_SECRET: 'b'.repeat(20),
 } as NodeJS.ProcessEnv;
 
+describe('core configuration boundaries', () => {
+	it.each(['ADMIN_TOKEN', 'SIGNING_KEY_SECRET'] as const)(
+		'requires %s and refuses short credentials',
+		(name) => {
+			const missing = { ...base };
+			delete missing[name];
+			expect(() => loadConfig(missing)).toThrow(name);
+			expect(() => loadConfig({ ...base, [name]: 'too-short' })).toThrow(/16 characters/);
+		},
+	);
+
+	it.each(['-1', '1.5', '65536', 'not-a-number'])('rejects invalid PORT=%s', (PORT) => {
+		expect(() => loadConfig({ ...base, PORT })).toThrow(/PORT/);
+	});
+
+	it.each(['0', '-1', 'Infinity', 'not-a-number'])(
+		'rejects invalid OFFLINE_TOKEN_TTL_DAYS=%s',
+		(OFFLINE_TOKEN_TTL_DAYS) => {
+			expect(() => loadConfig({ ...base, OFFLINE_TOKEN_TTL_DAYS })).toThrow(
+				/OFFLINE_TOKEN_TTL_DAYS/,
+			);
+		},
+	);
+
+	it('accepts the supported server-port boundaries', () => {
+		expect(loadConfig({ ...base, PORT: '0' }).port).toBe(0);
+		expect(loadConfig({ ...base, PORT: '65535' }).port).toBe(65_535);
+	});
+});
+
+describe('SMTP configuration boundaries', () => {
+	it('uses port 587 by default and accepts a valid override', () => {
+		expect(
+			loadConfig({ ...base, EMAIL_PROVIDER: 'smtp', SMTP_HOST: 'smtp.test' }).email,
+		).toMatchObject({ provider: 'smtp', port: 587 });
+		expect(
+			loadConfig({
+				...base,
+				EMAIL_PROVIDER: 'smtp',
+				SMTP_HOST: 'smtp.test',
+				SMTP_PORT: '465',
+			}).email,
+		).toMatchObject({ provider: 'smtp', port: 465 });
+	});
+
+	it.each(['0', '-1', '1.5', '65536', 'not-a-number'])(
+		'rejects invalid SMTP_PORT=%s',
+		(SMTP_PORT) => {
+			expect(() =>
+				loadConfig({ ...base, EMAIL_PROVIDER: 'smtp', SMTP_HOST: 'smtp.test', SMTP_PORT }),
+			).toThrow(/SMTP_PORT/);
+		},
+	);
+});
+
 describe('STRIPE_API_BASE (journey tests, stripe-mock)', () => {
 	it('is carried into config so the gateway can be pointed at a local mock', () => {
 		const config = loadConfig({

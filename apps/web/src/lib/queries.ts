@@ -2,7 +2,14 @@
 // ABOUTME: Query keys are coarse; mutations invalidate the lists they affect.
 
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { api } from './api.js';
+
+/** Server messages are the useful half of an error; the class name is not. */
+function message(err: unknown): string {
+	return err instanceof Error ? err.message : 'Something went wrong.';
+}
+
 import type { AuditEntry, LicenseRow, Product, PurchaseRow } from './types.js';
 
 export function useProducts() {
@@ -70,7 +77,11 @@ export function useRevokeAdmin() {
 	const qc = useQueryClient();
 	return useMutation({
 		mutationFn: (id: number) => api('DELETE', `/admin/team/${id}`),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['team'] });
+			toast.success('Admin revoked', { description: 'Their sessions were dropped straight away.' });
+		},
+		onError: (err) => toast.error('Could not revoke that admin', { description: message(err) }),
 	});
 }
 
@@ -145,7 +156,11 @@ export function useArchiveProduct() {
 	const qc = useQueryClient();
 	return useMutation({
 		mutationFn: (slug: string) => api('DELETE', `/admin/products/${slug}`),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['products'] });
+			toast.success('Product archived', { description: 'Issued keys keep working.' });
+		},
+		onError: (err) => toast.error('Could not archive that product', { description: message(err) }),
 	});
 }
 
@@ -223,10 +238,12 @@ export function useSetLicenseStatus() {
 			qc.invalidateQueries({ queryKey: ['licenses'] });
 			qc.invalidateQueries({ queryKey: ['products'] });
 			qc.invalidateQueries({ queryKey: ['stats'] });
+			toast.success(variables.action === 'disable' ? 'Key disabled' : 'Key re-enabled');
 			// The detail page reads its own query; without this it keeps showing the old
 			// status and the wrong action button until a reload.
 			qc.invalidateQueries({ queryKey: ['license', variables.key] });
 		},
+		onError: (err) => toast.error('Could not change that key', { description: message(err) }),
 	});
 }
 

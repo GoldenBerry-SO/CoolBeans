@@ -33,7 +33,7 @@ function MiniStat({ value, label }: { value: number | string; label: string }) {
 function Chip({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
 	return (
 		<span
-			className={`rounded-[20px] border border-ink/10 px-[9px] py-1 text-ink-secondary ${mono ? 'font-mono' : ''}`}
+			className={`max-w-full truncate rounded-[20px] border border-ink/10 px-[9px] py-1 text-ink-secondary ${mono ? 'font-mono' : ''}`}
 		>
 			{children}
 		</span>
@@ -56,11 +56,11 @@ export function ProductsPage() {
 				</InkButton>
 			</div>
 			{products.data?.length ? (
-				<div className="grid grid-cols-2 gap-4">
+				<div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
 					{products.data.map((p, i) => {
 						const connected = Boolean(p.stripePriceLifetime || p.stripePriceYearly);
 						return (
-							<Card key={p.slug} className="p-5">
+							<Card key={p.slug} className="p-4 sm:p-5">
 								<div className="mb-4 flex items-center gap-3">
 									<span
 										className="inline-flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] font-semibold text-white"
@@ -86,7 +86,7 @@ export function ProductsPage() {
 									<Chip>{p.activationLimit} seats/key</Chip>
 									<Chip mono>{p.emailFrom}</Chip>
 								</div>
-								<div className="mt-3.5 flex items-center gap-2 border-ink/6 border-t pt-3.5">
+								<div className="mt-3.5 flex flex-wrap items-center gap-2 border-ink/6 border-t pt-3.5">
 									<SecondaryButton
 										className="px-3 py-[7px] text-[12.5px]"
 										onClick={() => setEditing(p)}
@@ -188,7 +188,7 @@ function ProductDialog({ product, onClose }: { product?: Product; onClose: () =>
 					className={inputClass}
 				/>
 			</Field>
-			<div className="grid grid-cols-2 gap-3">
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<Field label="Slug">
 					<input
 						value={form.slug}
@@ -208,7 +208,7 @@ function ProductDialog({ product, onClose }: { product?: Product; onClose: () =>
 					/>
 				</Field>
 			</div>
-			<div className="grid grid-cols-2 gap-3">
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<Field label="Seat model">
 					<select
 						value={form.activation_model}
@@ -313,7 +313,7 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 					className={`${inputClass} font-mono text-[13px]`}
 				/>
 			</Field>
-			<div className="grid grid-cols-2 gap-3">
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<Field label="Price · lifetime (cents)">
 					<input
 						value={lifetime}

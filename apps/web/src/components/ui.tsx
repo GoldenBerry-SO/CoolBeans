@@ -53,18 +53,22 @@ export function TierText({ tier }: { tier: 'lifetime' | 'yearly' | 'trial' }) {
 export function AccentButton({
 	children,
 	onClick,
+	disabled,
 	className,
 }: {
 	children: ReactNode;
 	onClick?: () => void;
+	disabled?: boolean;
 	className?: string;
 }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
+			disabled={disabled}
 			className={clsx(
-				'flex cursor-pointer items-center gap-[7px] rounded-[9px] border border-accent-border bg-accent px-3.5 py-[9px] font-semibold text-[13px] text-ink shadow-[0_1px_2px_rgba(26,26,25,0.08)] hover:bg-accent-hover',
+				'flex items-center gap-[7px] rounded-[9px] border border-accent-border bg-accent px-3.5 py-[9px] font-semibold text-[13px] text-ink shadow-[0_1px_2px_rgba(26,26,25,0.08)]',
+				disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-accent-hover',
 				className,
 			)}
 		>
@@ -76,18 +80,22 @@ export function AccentButton({
 export function InkButton({
 	children,
 	onClick,
+	disabled,
 	className,
 }: {
 	children: ReactNode;
 	onClick?: () => void;
+	disabled?: boolean;
 	className?: string;
 }) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
+			disabled={disabled}
 			className={clsx(
-				'flex cursor-pointer items-center gap-[7px] rounded-[9px] border-none bg-ink px-3.5 py-[9px] font-medium text-[13px] text-white hover:bg-black',
+				'flex items-center gap-[7px] rounded-[9px] border-none bg-ink px-3.5 py-[9px] font-medium text-[13px] text-white',
+				disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-black',
 				className,
 			)}
 		>
@@ -130,6 +138,49 @@ export function SecondaryButton({
 		>
 			{children}
 		</button>
+	);
+}
+
+/**
+ * A usage bar against a limit. `null` means no cap, which is how both the metered-usage
+ * API and the plan API say "unlimited" — Pro and self-host both land here.
+ * Thresholds follow docs/DESIGN.md: warn above 85%, danger at or over the limit.
+ */
+export function Meter({ current, limit }: { current: number; limit: number | null }) {
+	if (limit === null) return <div className="text-[12px] text-ink-faint">no cap</div>;
+	const pct = Math.min(100, Math.round((current / limit) * 100));
+	const over = current >= limit;
+	return (
+		<div className="h-2 overflow-hidden rounded-[5px] bg-track">
+			<div
+				className={clsx(
+					'h-full rounded-[5px]',
+					over ? 'bg-danger-cue' : pct > 85 ? 'bg-meter-near' : 'bg-meter-ok',
+				)}
+				style={{ width: `${pct}%` }}
+			/>
+		</div>
+	);
+}
+
+/** The OK / percentage / over-limit chip that sits beside a Meter. */
+export function LimitBadge({ current, limit }: { current: number; limit: number | null }) {
+	if (limit === null) return null;
+	const pct = Math.min(100, Math.round((current / limit) * 100));
+	const over = current >= limit;
+	return (
+		<span
+			className={clsx(
+				'inline-flex rounded-full px-[9px] py-[3px] font-semibold text-[11px]',
+				over
+					? 'bg-danger-tint text-danger'
+					: pct > 85
+						? 'bg-warn-tint text-warn'
+						: 'bg-positive-tint text-positive-deep',
+			)}
+		>
+			{over ? 'Over limit' : pct > 85 ? `${pct}%` : 'OK'}
+		</span>
 	);
 }
 

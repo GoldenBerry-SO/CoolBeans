@@ -2,48 +2,11 @@
 // ABOUTME: Meters follow docs/DESIGN.md (warn near the limit, danger over it).
 
 import { clsx } from 'clsx';
-import { Card, CardHeader, EmptyState } from '../components/ui.js';
+import { Card, CardHeader, EmptyState, LimitBadge, Meter } from '../components/ui.js';
 import { useUsage } from '../lib/queries.js';
 import { useScope } from '../lib/scope.js';
 
 const GRID = 'grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[1.4fr_0.8fr_2fr_0.8fr]';
-
-function Meter({ current, limit }: { current: number; limit: number | null }) {
-	if (limit === null) return <div className="text-[12px] text-ink-faint">no cap</div>;
-	const pct = Math.min(100, Math.round((current / limit) * 100));
-	const over = current >= limit;
-	return (
-		<div className="h-2 overflow-hidden rounded-[5px] bg-track">
-			<div
-				className={clsx(
-					'h-full rounded-[5px]',
-					over ? 'bg-danger-cue' : pct > 85 ? 'bg-meter-near' : 'bg-meter-ok',
-				)}
-				style={{ width: `${pct}%` }}
-			/>
-		</div>
-	);
-}
-
-function Badge({ current, limit }: { current: number; limit: number | null }) {
-	if (limit === null) return null;
-	const pct = Math.min(100, Math.round((current / limit) * 100));
-	const over = current >= limit;
-	return (
-		<span
-			className={clsx(
-				'inline-flex rounded-full px-[9px] py-[3px] font-semibold text-[11px]',
-				over
-					? 'bg-danger-tint text-danger'
-					: pct > 85
-						? 'bg-warn-tint text-warn'
-						: 'bg-positive-tint text-positive-deep',
-			)}
-		>
-			{over ? 'Over limit' : pct > 85 ? `${pct}%` : 'OK'}
-		</span>
-	);
-}
 
 export function UsagePage() {
 	const usage = useUsage();
@@ -92,7 +55,7 @@ export function UsagePage() {
 							</div>
 							<Meter current={u.current} limit={u.limit} />
 							<div className="text-right">
-								<Badge current={u.current} limit={u.limit} />
+								<LimitBadge current={u.current} limit={u.limit} />
 							</div>
 						</div>
 					))

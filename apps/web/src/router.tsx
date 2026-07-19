@@ -10,6 +10,7 @@ import {
 } from '@tanstack/react-router';
 import { ConsoleLayout } from './components/ConsoleLayout.js';
 import { AuditPage } from './pages/Audit.js';
+import { BillingPage } from './pages/Billing.js';
 import { CustomersPage } from './pages/Customers.js';
 import { LicenseDetailPage } from './pages/LicenseDetail.js';
 import { LicensesPage } from './pages/Licenses.js';
@@ -53,6 +54,9 @@ const consoleRoutes = consoleLayout.addChildren([
 	createRoute({ getParentRoute: () => consoleLayout, path: '/webhooks', component: WebhooksPage }),
 	createRoute({ getParentRoute: () => consoleLayout, path: '/audit', component: AuditPage }),
 	createRoute({ getParentRoute: () => consoleLayout, path: '/team', component: TeamPage }),
+	// The page itself states the self-host case rather than 404ing, so a bookmarked link
+	// from a hosted instance does not look broken after someone moves to self-hosting.
+	createRoute({ getParentRoute: () => consoleLayout, path: '/billing', component: BillingPage }),
 ]);
 
 const routeTree = rootRoute.addChildren([portalRoute, consoleRoutes]);

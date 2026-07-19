@@ -10,7 +10,7 @@ function message(err: unknown): string {
 	return err instanceof Error ? err.message : 'Something went wrong.';
 }
 
-import type { AuditEntry, LicenseRow, Product, PurchaseRow } from './types.js';
+import type { AuditEntry, Billing, LicenseRow, Product, PurchaseRow } from './types.js';
 
 export function useProducts() {
 	return useQuery({
@@ -293,5 +293,40 @@ export function useConnectStripe() {
 		mutationFn: ({ slug, ...input }: ConnectStripeInput) =>
 			api<ConnectStripeResult>('POST', `/admin/products/${slug}/stripe/connect`, input),
 		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+	});
+}
+
+/**
+ * The account's plan, usage and billing state.
+ *
+ * `pollWhileFree` is what the ?upgraded=1 return uses: Stripe's webhook can land a beat
+ * after the browser redirect, and a page that still says "Free" straight after payment
+ * generates a support ticket every single time.
+ */
+export function useBilling(pollWhileFree = false) {
+	return useQuery({
+		queryKey: ['billing'],
+		queryFn: () => api<{ billing: Billing }>('GET', '/admin/billing').then((r) => r.billing),
+		refetchInterval: (query) => (pollWhileFree && query.state.data?.plan === 'free' ? 2000 : false),
+	});
+}
+
+export function useStartCheckout() {
+	return useMutation({
+		mutationFn: () => api<{ url: string }>('POST', '/admin/billing/checkout'),
+		onSuccess: (result) => {
+			window.location.href = result.url;
+		},
+		onError: (err) => toast.error(message(err)),
+	});
+}
+
+export function useOpenPortal() {
+	return useMutation({
+		mutationFn: () => api<{ url: string }>('POST', '/admin/billing/portal'),
+		onSuccess: (result) => {
+			window.location.href = result.url;
+		},
+		onError: (err) => toast.error(message(err)),
 	});
 }

@@ -4,7 +4,7 @@
 import type { License, Product } from '@coolbeans/db';
 import type { AppDeps } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
-import { getProductBySlug, getProductByStripePrice } from '../store/products.js';
+import { getProductBySlugGlobal, getProductByStripePrice } from '../store/products.js';
 import {
 	lastSubscriptionEventAt,
 	markSubscriptionEventApplied,
@@ -97,7 +97,7 @@ export async function ensureLicenseForSession(
 		}
 	}
 	if (!product && slug) {
-		product = getProductBySlug(deps.db, slug);
+		product = getProductBySlugGlobal(deps.db, slug);
 		if (product) {
 			deps.logger.info('Stripe checkout resolved by metadata, no price matched', {
 				slug,

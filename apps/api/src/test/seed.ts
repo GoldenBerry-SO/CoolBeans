@@ -11,10 +11,13 @@ const ADMIN = {
 export async function createProduct(
 	app: App,
 	body: Record<string, unknown>,
+	// Defaults to the instance admin token, which is what every single-account test wants.
+	// Multi-account tests pass a session's headers instead.
+	headers: Record<string, string> = ADMIN,
 ): Promise<Record<string, unknown>> {
 	const res = await app.request('/admin/products', {
 		method: 'POST',
-		headers: ADMIN,
+		headers,
 		body: JSON.stringify(body),
 	});
 	if (res.status !== 200)
@@ -25,10 +28,11 @@ export async function createProduct(
 export async function issueKey(
 	app: App,
 	body: { product: string; email: string; tier: string; trial_days?: number; expires_at?: string },
+	headers: Record<string, string> = ADMIN,
 ): Promise<string> {
 	const res = await app.request('/admin/keys', {
 		method: 'POST',
-		headers: ADMIN,
+		headers,
 		body: JSON.stringify(body),
 	});
 	if (res.status !== 200) throw new Error(`issueKey failed: ${res.status} ${await res.text()}`);
@@ -46,6 +50,40 @@ export async function defineMetric(
 		body: JSON.stringify(body),
 	});
 	if (res.status !== 200) throw new Error(`defineMetric failed: ${res.status} ${await res.text()}`);
+}
+
+/**
+ * Sign up through the real magic-code flow and return that account's request headers.
+ *
+ * Needs a harness with billing configured (which is what puts the instance in cloud mode
+ * and opens signup) and logMagicCodes on, since the code is read back off the logger the
+ * same way a developer reads it locally.
+ */
+export async function signUp(
+	app: App,
+	logger: { lines: { message: string; fields?: Record<string, unknown> }[] },
+	email: string,
+	accountName?: string,
+): Promise<Record<string, string>> {
+	const asked = await app.request('/auth/request-code', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ email }),
+	});
+	if (asked.status !== 200) throw new Error(`request-code failed: ${asked.status}`);
+	const line = [...logger.lines].reverse().find((l) => l.fields?.email === email);
+	const code = line?.fields?.code as string | undefined;
+	if (!code) throw new Error(`no magic code logged for ${email} (is logMagicCodes on?)`);
+
+	const verified = await app.request('/auth/verify', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ email, code, ...(accountName ? { account_name: accountName } : {}) }),
+	});
+	if (verified.status !== 200)
+		throw new Error(`verify failed: ${verified.status} ${await verified.text()}`);
+	const { token } = (await verified.json()) as { token: string };
+	return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
 export async function post(app: App, path: string, body: unknown) {

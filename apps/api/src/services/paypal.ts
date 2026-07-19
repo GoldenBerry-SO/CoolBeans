@@ -2,7 +2,7 @@
 // ABOUTME: Issues only on completed captures; refund/cancel disable. Only the adapter differs.
 
 import type { AppDeps } from '../deps.js';
-import { getProductBySlug } from '../store/products.js';
+import { getProductBySlugGlobal } from '../store/products.js';
 import { disableLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
@@ -92,7 +92,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 				pickString(resource, ['custom_id']) ??
 				pickString(resource, ['purchase_units', '0', 'custom_id']);
 			const [slug, tierRaw] = (custom ?? '').split(':');
-			const product = slug ? getProductBySlug(deps.db, slug) : undefined;
+			const product = slug ? getProductBySlugGlobal(deps.db, slug) : undefined;
 			if (!product) {
 				deps.logger.error('PayPal capture for unknown product', { custom, event: event.id });
 				break;
@@ -125,7 +125,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 		case 'BILLING.SUBSCRIPTION.ACTIVATED': {
 			const subId = pickString(resource, ['id']);
 			const slug = (pickString(resource, ['custom_id']) ?? '').split(':')[0];
-			const product = slug ? getProductBySlug(deps.db, slug) : undefined;
+			const product = slug ? getProductBySlugGlobal(deps.db, slug) : undefined;
 			if (!product || !subId) break;
 			const email = pickString(resource, ['subscriber', 'email_address']) ?? '';
 			let expiresAt: string | null = null;
@@ -249,7 +249,7 @@ export async function ensureLicenseForOrder(
 	const custom =
 		pickString(order, ['purchase_units', '0', 'custom_id']) ?? pickString(order, ['custom_id']);
 	const [slug, tierRaw] = (custom ?? '').split(':');
-	const product = slug ? getProductBySlug(deps.db, slug) : undefined;
+	const product = slug ? getProductBySlugGlobal(deps.db, slug) : undefined;
 	if (!product) {
 		deps.logger.error('PayPal order resolves to no product', { custom, order: orderId });
 		return false;

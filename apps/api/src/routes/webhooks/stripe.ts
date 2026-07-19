@@ -4,7 +4,7 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppDeps } from '../../deps.js';
 import { handleStripeEvent } from '../../services/stripe.js';
-import { getProductBySlug } from '../../store/products.js';
+import { getProductBySlugGlobal } from '../../store/products.js';
 
 async function process(
 	deps: AppDeps,
@@ -70,7 +70,7 @@ export function registerStripeWebhook(app: OpenAPIHono, deps: AppDeps): void {
 	});
 
 	app.post('/v1/stripe/webhook/:product', async (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('product'));
+		const product = getProductBySlugGlobal(deps.db, c.req.param('product'));
 		const rawBody = await c.req.text();
 		const result = await process(
 			deps,

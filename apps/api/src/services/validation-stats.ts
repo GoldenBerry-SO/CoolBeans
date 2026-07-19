@@ -2,7 +2,7 @@
 // ABOUTME: One upsert per validate; a counter failure must never fail the validation itself.
 
 import { validationCounters } from '@coolbeans/db';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 
@@ -37,11 +37,15 @@ export interface ValidationDay {
 
 /**
  * The last N days of validation counts, oldest first, with missing days filled as zero so
- * the chart has no gaps. Omit productId to total across every product.
+ * the chart has no gaps.
+ *
+ * Pass `productId` for one product, or `productIds` to total across a set (an account's
+ * products). Passing neither totals across the whole instance, which only the self-host
+ * single-account case should be doing.
  */
 export function recentValidationCounts(
 	deps: AppDeps,
-	args: { days: number; productId?: number },
+	args: { days: number; productId?: number; productIds?: number[] },
 ): ValidationDay[] {
 	const today = nowDate(deps);
 	const window: string[] = [];
@@ -51,16 +55,22 @@ export function recentValidationCounts(
 	}
 
 	const oldest = window[0] ?? dayOf(today);
+	// An empty productIds list means the account owns nothing, which is not the same as
+	// "no filter" — without this it would fall through and total the whole instance.
+	if (args.productIds && args.productIds.length === 0) {
+		return window.map((day) => ({ day, count: 0 }));
+	}
+	const scope =
+		args.productId !== undefined
+			? eq(validationCounters.productId, args.productId)
+			: args.productIds
+				? inArray(validationCounters.productId, args.productIds)
+				: undefined;
 	const rows = deps.db
 		.select({ day: validationCounters.day, count: validationCounters.count })
 		.from(validationCounters)
 		.where(
-			args.productId === undefined
-				? gte(validationCounters.day, oldest)
-				: and(
-						gte(validationCounters.day, oldest),
-						eq(validationCounters.productId, args.productId),
-					),
+			scope ? and(gte(validationCounters.day, oldest), scope) : gte(validationCounters.day, oldest),
 		)
 		.all();
 

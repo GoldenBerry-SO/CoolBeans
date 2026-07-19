@@ -3,23 +3,23 @@
 
 import { auditLog } from '@coolbeans/db';
 import { OpenAPIHono } from '@hono/zod-openapi';
-import { desc } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
-import { badRequest, notFound } from '../../http/errors.js';
+import { badRequest } from '../../http/errors.js';
 import { consoleAuth } from '../../middleware/console-auth.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { rotateKey } from '../../services/signing.js';
 import { connectStripe } from '../../services/stripe-connect.js';
 import { recentValidationCounts } from '../../services/validation-stats.js';
 import { writeAudit } from '../../store/audit.js';
-import { getProductBySlug } from '../../store/products.js';
+import { accountProductIds } from '../../store/products.js';
 import { registerAdminExportRoutes } from './export.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
 import { registerAdminSurfaceRoutes } from './surfaces.js';
 import { registerAdminTeamRoutes } from './team.js';
-import { assertScope, auditActor, readBody } from './util.js';
+import { accountScope, auditActor, readBody, requireProduct } from './util.js';
 
 export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	const admin = new OpenAPIHono();
@@ -31,15 +31,26 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	registerAdminTeamRoutes(admin, deps);
 	registerAdminSurfaceRoutes(admin, deps);
 
+	// Raw SQL, so it sidesteps every store helper and type-level guard in the scoping
+	// layer. Each count therefore has to carry its own account filter — licences and
+	// activations reach it by joining back through products.
 	admin.get('/stats', (c) => {
-		const count = (sqlText: string) => (deps.db.$client.prepare(sqlText).get() as { n: number }).n;
+		const accountId = accountScope(c).id;
+		const count = (sqlText: string) =>
+			(deps.db.$client.prepare(sqlText).get(accountId) as { n: number }).n;
 		return c.json({
 			ok: true,
 			stats: {
-				products: count('SELECT COUNT(*) n FROM products'),
-				active_licenses: count("SELECT COUNT(*) n FROM licenses WHERE status = 'active'"),
-				total_licenses: count('SELECT COUNT(*) n FROM licenses'),
-				live_activations: count('SELECT COUNT(*) n FROM activations WHERE deactivated_at IS NULL'),
+				products: count('SELECT COUNT(*) n FROM products WHERE account_id = ?'),
+				active_licenses: count(
+					"SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ? AND l.status = 'active'",
+				),
+				total_licenses: count(
+					'SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ?',
+				),
+				live_activations: count(
+					'SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ? AND a.deactivated_at IS NULL',
+				),
 			},
 		});
 	});
@@ -47,12 +58,18 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	// Validation traffic for the Overview chart (issue #37). Sixteen days to match the
 	// design; missing days come back as zero so the chart never has holes in it.
 	admin.get('/validations', (c) => {
+		const accountId = accountScope(c).id;
 		const productSlug = c.req.query('product');
-		const product = productSlug ? getProductBySlug(deps.db, productSlug) : undefined;
-		if (productSlug && !product) throw notFound('No product with that slug.');
+		const product = productSlug ? requireProduct(c, deps, productSlug) : undefined;
 		return c.json({
 			ok: true,
-			validations: recentValidationCounts(deps, { days: 16, productId: product?.id }),
+			validations: recentValidationCounts(deps, {
+				days: 16,
+				productId: product?.id,
+				// With no slug the chart covers the whole account, which means every product
+				// it owns and no one else's.
+				...(product ? {} : { productIds: accountProductIds(deps.db, accountId) }),
+			}),
 		});
 	});
 
@@ -62,7 +79,13 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			throw badRequest('limit must be a positive integer.');
 		}
 		const limit = Math.min(requestedLimit, 500);
-		const rows = deps.db.select().from(auditLog).orderBy(desc(auditLog.id)).limit(limit).all();
+		const rows = deps.db
+			.select()
+			.from(auditLog)
+			.where(eq(auditLog.accountId, accountScope(c).id))
+			.orderBy(desc(auditLog.id))
+			.limit(limit)
+			.all();
 		return c.json({
 			ok: true,
 			audit: rows.map((r) => ({
@@ -78,13 +101,12 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	});
 
 	admin.post('/products/:slug/signing-keys/rotate', (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
-		assertScope(c, product);
+		const product = requireProduct(c, deps, c.req.param('slug'));
 		const key = rotateKey(deps, product.id);
 		writeAudit(deps.db, {
 			action: 'signing_key.rotated',
 			actor: auditActor(c),
+			accountId: product.accountId,
 			productId: product.id,
 			detail: { kid: String(key.id) },
 		});
@@ -93,8 +115,10 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	// Rotate the per-product token (success-page scope). The plaintext is returned ONCE.
 	admin.post('/products/:slug/token/rotate', (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
+		// This one never called assertScope. It was covered by the PRODUCT_SCOPED
+		// allowlist rather than by the handler defending itself; requireProduct closes
+		// both the account and the product-token hole in one call.
+		const product = requireProduct(c, deps, c.req.param('slug'));
 		return c.json({ ok: true, product_token: issueProductToken(deps, product, auditActor(c)) });
 	});
 
@@ -105,9 +129,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		currency: z.string().optional(),
 	});
 	admin.post('/products/:slug/stripe/connect', async (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
-		assertScope(c, product);
+		const product = requireProduct(c, deps, c.req.param('slug'));
 		const body = await readBody(c, connectBody);
 		const result = await connectStripe(deps, {
 			actor: auditActor(c),

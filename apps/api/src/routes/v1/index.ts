@@ -13,7 +13,7 @@ import { ensureLicenseForOrder } from '../../services/paypal.js';
 import { productForToken } from '../../services/product-tokens.js';
 import { publicKeysFor } from '../../services/signing.js';
 import { ensureLicenseForSession } from '../../services/stripe.js';
-import { getProductBySlug } from '../../store/products.js';
+import { getProductBySlugGlobal } from '../../store/products.js';
 import { registerLemonSqueezyRoutes } from './ls.js';
 import { registerPortalRoutes } from './portal.js';
 import { registerUsageRoutes } from './usage.js';
@@ -83,7 +83,7 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	app.get('/v1/pubkey', (c) => {
 		const slug = c.req.query('product');
 		if (!slug) throw notFound('A product query parameter is required.');
-		const product = getProductBySlug(deps.db, slug);
+		const product = getProductBySlugGlobal(deps.db, slug);
 		if (!product) throw notFound('No product with that slug.');
 		return c.json({ ok: true, algorithm: 'ed25519', keys: publicKeysFor(deps, product.id) });
 	});

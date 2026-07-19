@@ -5,10 +5,8 @@ import { licenses } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { desc, eq } from 'drizzle-orm';
 import type { AppDeps } from '../../deps.js';
-import { notFound } from '../../http/errors.js';
-import { getProductBySlug } from '../../store/products.js';
 import { adminLicenseView } from './keys.js';
-import { assertScope } from './util.js';
+import { requireProduct } from './util.js';
 
 /**
  * One CSV row, quoted the way RFC 4180 wants and defused for spreadsheets.
@@ -42,9 +40,7 @@ const COLUMNS = [
 
 export function registerAdminExportRoutes(admin: OpenAPIHono, deps: AppDeps): void {
 	admin.get('/products/:slug/keys/export', (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
-		assertScope(c, product);
+		const product = requireProduct(c, deps, c.req.param('slug'));
 
 		const rows = deps.db
 			.select()

@@ -73,6 +73,21 @@ export function trialExpiry(deps: AppDeps, days: number): string {
 	return new Date(nowDate(deps).getTime() + days * 86_400_000).toISOString();
 }
 
+/**
+ * A year from now, for a manually issued yearly licence.
+ *
+ * A yearly key with no expiry never lapses: only trials are swept, and validate only
+ * expires trials lazily, so it behaves as a lifetime key. A subscription supplies its own
+ * period end; a manual issue has no subscription, so it needs a default rather than null.
+ * Calendar arithmetic, not 365 days, so a leap year does not shift the date.
+ */
+export function yearlyExpiry(deps: AppDeps): string {
+	const now = nowDate(deps);
+	const next = new Date(now.getTime());
+	next.setUTCFullYear(now.getUTCFullYear() + 1);
+	return next.toISOString();
+}
+
 /** Manual issue for the admin API/CLI — a purchase (provider=manual) plus a license. */
 export function issueManual(
 	deps: AppDeps,

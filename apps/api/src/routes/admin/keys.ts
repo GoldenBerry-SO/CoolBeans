@@ -12,7 +12,7 @@ import { normalizeAgainst, toDisplayKey } from '../../domain/keygen.js';
 import { badRequest, conflict, notFound, validationError } from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
-import { issueManual, trialExpiry } from '../../services/issuance.js';
+import { issueManual, trialExpiry, yearlyExpiry } from '../../services/issuance.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
 import { enqueue } from '../../services/outbox.js';
 import { getProductById, getProductBySlug, listPrefixes } from '../../store/products.js';
@@ -88,6 +88,9 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			throw conflict('product_archived', 'This product is archived and cannot issue new keys.');
 		}
 		let expiresAt = body.expires_at ?? null;
+		if (body.tier === 'yearly' && !expiresAt) {
+			expiresAt = yearlyExpiry(deps);
+		}
 		if (body.tier === 'trial' && !expiresAt) {
 			expiresAt = trialExpiry(deps, body.trial_days ?? 14);
 		}

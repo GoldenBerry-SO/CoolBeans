@@ -68,4 +68,26 @@ describe('POST /admin/keys expiry options', () => {
 			license: { tier: 'yearly', expires_at: '2027-01-01T00:00:00.000Z' },
 		});
 	});
+
+	it('gives a yearly key a year when no expiry is supplied', async () => {
+		// A yearly licence with no expiry never lapses: the sweep only disables trials and
+		// validate only expires trials lazily, so it is a lifetime key issued by accident.
+		// The console has no expiry field, so every yearly comp went out that way.
+		const res = await issue({ tier: 'yearly' });
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { license: { expires_at: string | null } };
+		expect(body.license.expires_at).not.toBeNull();
+
+		const expires = new Date(body.license.expires_at as string).getTime();
+		const aYearOut = new Date(h.clock.now().getTime()).setUTCFullYear(
+			h.clock.now().getUTCFullYear() + 1,
+		);
+		expect(Math.abs(expires - aYearOut)).toBeLessThan(60_000);
+	});
+
+	it('leaves a lifetime key with no expiry', async () => {
+		const res = await issue({ tier: 'lifetime' });
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({ license: { tier: 'lifetime', expires_at: null } });
+	});
 });

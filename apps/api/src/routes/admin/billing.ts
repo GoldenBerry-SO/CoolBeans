@@ -57,8 +57,19 @@ export function registerAdminBillingRoutes(admin: OpenAPIHono, deps: AppDeps): v
 
 		let customerId = row.stripeCustomerId;
 		if (!customerId) {
+			// Stripe sends receipts and, more importantly, card-failure notices to this
+			// address. Registering a placeholder would create a subscription whose owner
+			// never hears that their payment is failing — the dunning blind spot the
+			// invoice.payment_failed handler exists to close. Refuse instead.
+			const email = adminEmail(c);
+			if (!email) {
+				throw conflict(
+					'no_billing_contact',
+					'Checkout needs a signed-in admin, because Stripe sends payment-failure notices to their address. Sign in to the console rather than using an instance token.',
+				);
+			}
 			customerId = await deps.billing.createCustomer({
-				email: adminEmail(c) ?? `account-${account.id}@invalid`,
+				email,
 				accountId: account.id,
 				name: account.name,
 			});

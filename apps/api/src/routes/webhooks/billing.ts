@@ -4,7 +4,12 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppDeps } from '../../deps.js';
 import { BILLING_PROVIDER, handleBillingEvent } from '../../services/billing.js';
-import { claimEventStatus, completeEvent, releaseEvent } from '../../services/payments.js';
+import {
+	attributeEvent,
+	claimEventStatus,
+	completeEvent,
+	releaseEvent,
+} from '../../services/payments.js';
 
 export function registerBillingWebhook(app: OpenAPIHono, deps: AppDeps): void {
 	app.post('/v1/billing/stripe/webhook', async (c) => {
@@ -63,7 +68,13 @@ export function registerBillingWebhook(app: OpenAPIHono, deps: AppDeps): void {
 		}
 
 		try {
-			await handleBillingEvent(deps, event);
+			const result = await handleBillingEvent(deps, event);
+			// The account is only knowable after parsing, so attribute the delivery now
+			// rather than at claim time. Without this the console's Webhooks page shows a
+			// cloud account nothing at all.
+			if (result.accountId !== undefined) {
+				attributeEvent(deps, event.id, result.accountId);
+			}
 		} catch (err) {
 			// Hand the claim back so Stripe's retry re-enters rather than being deduped away
 			// with the work half done.

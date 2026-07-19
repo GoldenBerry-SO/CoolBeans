@@ -2,10 +2,11 @@
 // ABOUTME: Issues only on completed captures; refund/cancel disable. Only the adapter differs.
 
 import type { AppDeps } from '../deps.js';
-import { getProductBySlugGlobal } from '../store/products.js';
+import { getProductById, getProductBySlugGlobal } from '../store/products.js';
 import { disableLicense } from './lifecycle.js';
 import {
 	advanceSubscriptionExpiry,
+	attributeEvent,
 	claimEventStatus,
 	completeEvent,
 	ensureLicense,
@@ -82,6 +83,17 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<void> {
 	const resource = event.resource;
 
+	/**
+	 * Attribute this delivery to the account that owns the product it touched. PayPal's
+	 * webhook URL carries no product (unlike Stripe's per-product endpoint), so the
+	 * account is only knowable once the payload resolves to one. Without this the
+	 * console's Webhooks page shows a cloud account nothing.
+	 */
+	const attributeTo = (productId: number) => {
+		const owner = getProductById(deps.db, productId);
+		if (owner) attributeEvent(deps, event.id, owner.accountId);
+	};
+
 	switch (event.event_type) {
 		case 'PAYMENT.CAPTURE.COMPLETED': {
 			// Order approval is NOT payment: only a COMPLETED capture issues a key.
@@ -97,6 +109,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 				deps.logger.error('PayPal capture for unknown product', { custom, event: event.id });
 				break;
 			}
+			attributeTo(product.id);
 			const tier = tierRaw === 'yearly' ? 'yearly' : 'lifetime';
 			const email =
 				pickString(resource, ['payer', 'email_address']) ??
@@ -127,6 +140,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			const slug = (pickString(resource, ['custom_id']) ?? '').split(':')[0];
 			const product = slug ? getProductBySlugGlobal(deps.db, slug) : undefined;
 			if (!product || !subId) break;
+			attributeTo(product.id);
 			const email = pickString(resource, ['subscriber', 'email_address']) ?? '';
 			let expiresAt: string | null = null;
 			if (deps.paypal) expiresAt = await deps.paypal.subscriptionNextBilling(subId);
@@ -166,6 +180,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			];
 			const found = findLicenseByAnyId(deps, references);
 			if (found) {
+				attributeTo(found.license.productId);
 				disableLicense(deps, {
 					license: found.license,
 					reason: 'refund',
@@ -191,6 +206,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			const subId = pickString(resource, ['id']);
 			const found = subId && findLicenseByProviderId(deps, subId);
 			if (found) {
+				attributeTo(found.license.productId);
 				disableLicense(deps, {
 					license: found.license,
 					reason: 'subscription_canceled',

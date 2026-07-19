@@ -179,8 +179,19 @@ export async function ensureLicenseForSession(
  * done only on full success. Claiming is atomic, so two concurrent redeliveries of the same
  * event cannot both run the handler (issue #34).
  */
-export async function handleStripeEvent(deps: AppDeps, event: StripeEvent): Promise<void> {
-	const claim = claimEventStatus(deps, { id: event.id, provider: 'stripe', type: event.type });
+export async function handleStripeEvent(
+	deps: AppDeps,
+	event: StripeEvent,
+	// Known when the delivery arrived on the per-product URL, which is what connectStripe
+	// registers. The global endpoint has no product in the path, so it stays unattributed.
+	accountId?: number,
+): Promise<void> {
+	const claim = claimEventStatus(deps, {
+		id: event.id,
+		provider: 'stripe',
+		type: event.type,
+		...(accountId === undefined ? {} : { accountId }),
+	});
 	// Already finished: acknowledge so the provider stops retrying.
 	if (claim.result === 'done') return;
 	// Someone else is mid-flight. Answering 200 would end the retries, and if that

@@ -52,12 +52,12 @@ export function ProductsPage() {
 	// Surface the cap where it actually bites, rather than letting the create dialog 409.
 	// A raced click still reads fine: the 409 flows through the toast path in queries.ts.
 	const billing = useBilling();
-	const productUsage = billing.data?.usage.products;
-	const atCap = Boolean(
-		billing.data?.enabled && productUsage?.limit !== null && productUsage
-			? productUsage.current >= productUsage.limit
-			: false,
-	);
+	const productUsage = billing.data?.enabled ? billing.data.usage.products : undefined;
+	// A null limit means no cap, which is Pro and every self-host instance.
+	const atCap =
+		productUsage !== undefined &&
+		productUsage.limit !== null &&
+		productUsage.current >= productUsage.limit;
 
 	return (
 		<div className="cbin">

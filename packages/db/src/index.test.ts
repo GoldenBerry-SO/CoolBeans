@@ -19,6 +19,8 @@ describe('storage adapter', () => {
 			.all() as { name: string }[];
 		const names = rows.map((r) => r.name);
 		for (const t of [
+			'accounts',
+			'account_subscriptions',
 			'products',
 			'purchases',
 			'licenses',

@@ -11,6 +11,8 @@ async function process(
 	rawBody: string,
 	signature: string | undefined,
 	secret: string | undefined,
+	/** The owning account, when the URL named a product. Undefined on the global endpoint. */
+	accountId?: number,
 ): Promise<{ status: number; body: unknown }> {
 	if (!deps.stripe)
 		return {
@@ -53,7 +55,7 @@ async function process(
 		};
 	}
 	// A thrown error here (e.g. email send failure) becomes a 500 so Stripe retries.
-	await handleStripeEvent(deps, event);
+	await handleStripeEvent(deps, event, accountId);
 	return { status: 200, body: { ok: true, received: true } };
 }
 
@@ -77,6 +79,7 @@ export function registerStripeWebhook(app: OpenAPIHono, deps: AppDeps): void {
 			rawBody,
 			c.req.header('stripe-signature'),
 			product?.stripeWebhookSecret ?? deps.config.stripe?.webhookSecret,
+			product?.accountId,
 		);
 		return c.json(result.body as object, result.status as never);
 	});

@@ -321,3 +321,39 @@ describe('idempotency and ordering', () => {
 		expect(row.provider).toBe('stripe_billing');
 	});
 });
+
+describe('upgrading clears the overage record', () => {
+	it('clears over_limit_since when the account moves to Pro', async () => {
+		// The overage is resolved by the upgrade. Leaving the stamp would show a stale
+		// "you went over" banner if the account ever dropped back to Free later.
+		const h = harness({ sub_1: proSubscription() });
+		h.deps.db
+			.update(accounts)
+			.set({ overLimitSince: '2026-01-01T00:00:00.000Z' })
+			.where(eq(accounts.id, 1))
+			.run();
+
+		await send(h, checkoutCompleted());
+		expect(planOf(h)).toBe('pro');
+		const row = h.deps.db.select().from(accounts).where(eq(accounts.id, 1)).get();
+		expect(row?.overLimitSince).toBeNull();
+	});
+
+	it('ignores an invoice naming an account that does not exist', async () => {
+		const h = harness();
+		const res = await send(h, {
+			id: 'evt_bogus_1',
+			type: 'invoice.payment_failed',
+			created: 1_800_000_200,
+			data: { object: { customer: 'cus_x', metadata: { coolbeans_account_id: '9999' } } },
+		});
+		expect(res.status).toBe(200);
+		// No subscription row invented for an account that is not there.
+		const rows = h.deps.db.$client
+			.prepare('SELECT COUNT(*) n FROM account_subscriptions')
+			.get() as {
+			n: number;
+		};
+		expect(rows.n).toBe(0);
+	});
+});

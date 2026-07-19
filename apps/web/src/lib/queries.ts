@@ -296,18 +296,29 @@ export function useConnectStripe() {
 	});
 }
 
+/** How long the post-checkout page keeps waiting for Stripe's webhook before giving up. */
+const CHECKOUT_POLL_MS = 2000;
+const CHECKOUT_POLL_LIMIT = 8;
+
 /**
  * The account's plan, usage and billing state.
  *
  * `pollWhileFree` is what the ?upgraded=1 return uses: Stripe's webhook can land a beat
  * after the browser redirect, and a page that still says "Free" straight after payment
  * generates a support ticket every single time.
+ *
+ * The poll is bounded. If the payment genuinely failed the plan never flips, and an
+ * unbounded interval would hammer the API every two seconds for as long as the tab is
+ * left open.
  */
 export function useBilling(pollWhileFree = false) {
 	return useQuery({
 		queryKey: ['billing'],
 		queryFn: () => api<{ billing: Billing }>('GET', '/admin/billing').then((r) => r.billing),
-		refetchInterval: (query) => (pollWhileFree && query.state.data?.plan === 'free' ? 2000 : false),
+		refetchInterval: (query) => {
+			if (!pollWhileFree || query.state.data?.plan !== 'free') return false;
+			return query.state.dataUpdateCount > CHECKOUT_POLL_LIMIT ? false : CHECKOUT_POLL_MS;
+		},
 	});
 }
 

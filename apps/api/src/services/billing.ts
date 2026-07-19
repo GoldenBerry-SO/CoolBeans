@@ -95,9 +95,19 @@ export function setCustomerId(
 	patchSubscription(deps, accountId, { stripeCustomerId: customerId });
 }
 
-/** Move an account between plans. accounts.plan is what the limits read. */
+/**
+ * Move an account between plans. accounts.plan is what the limits read.
+ *
+ * Upgrading clears `over_limit_since`: the overage it recorded is resolved, and leaving
+ * the stamp would make the console show a stale "you went over in March" banner if the
+ * account ever dropped back to Free.
+ */
 export function setPlan(deps: Pick<AppDeps, 'db'>, accountId: number, plan: 'free' | 'pro'): void {
-	deps.db.update(accounts).set({ plan }).where(eq(accounts.id, accountId)).run();
+	deps.db
+		.update(accounts)
+		.set({ plan, ...(plan === 'pro' ? { overLimitSince: null } : {}) })
+		.where(eq(accounts.id, accountId))
+		.run();
 }
 
 export function findAccountByCustomerId(
@@ -150,6 +160,8 @@ export interface BillingEventOutcome {
 	/** 'applied' | 'ignored' — ignored covers a foreign price, unknown account, stale event. */
 	outcome: 'applied' | 'ignored';
 	reason?: string;
+	/** The account this event was about, so the caller can attribute the delivery to it. */
+	accountId?: number;
 }
 
 /**
@@ -235,6 +247,9 @@ export async function handleBillingEvent(
 				accountIdFromMetadata(object) ??
 				(customerId ? findAccountByCustomerId(deps, customerId) : undefined);
 			if (accountId === undefined) return ignore('unknown_customer');
+			// Metadata is attacker-shaped input in principle, so confirm the account is real
+			// before creating a subscription row that would reference nothing.
+			if (!getAccountById(deps.db, accountId)) return ignore('unknown_account');
 			const failed = event.type === 'invoice.payment_failed';
 			// No downgrade on a failed payment. Stripe is still retrying the card, and the
 			// subscription events will say when it truly lapses. Without this handler an
@@ -251,7 +266,7 @@ export async function handleBillingEvent(
 				actor: `stripe_billing:${event.id}`,
 				accountId,
 			});
-			return { outcome: 'applied' };
+			return { outcome: 'applied', accountId };
 		}
 
 		default:
@@ -312,5 +327,5 @@ function applySubscriptionState(
 		accountId,
 		detail: { status: state.status, subscription: state.subscriptionId },
 	});
-	return { outcome: 'applied' };
+	return { outcome: 'applied', accountId };
 }

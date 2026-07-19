@@ -3,7 +3,7 @@
 
 import type { License, Product } from '@coolbeans/db';
 import { licenses, providerEvents, purchases } from '@coolbeans/db';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate, nowIso } from '../deps.js';
 import { getAccountById } from '../store/accounts.js';
@@ -202,10 +202,21 @@ export function claimOutcomeForRow(row: { status: string } | undefined): ClaimRe
 	return row.status === 'processing' ? 'in_flight' : 'done';
 }
 
-export function claimEventStatus(
-	deps: AppDeps,
-	event: { id: string; provider: string; type: string },
-): Claim {
+/**
+ * An event, plus the account it belongs to when the caller already knows.
+ *
+ * The per-product webhook URL names its product, so the owning account is known before
+ * anything is parsed. The global Stripe and PayPal webhooks do not, and leave it null —
+ * those rows are instance-level and only an instance token sees them.
+ */
+export interface ClaimableEvent {
+	id: string;
+	provider: string;
+	type: string;
+	accountId?: number;
+}
+
+export function claimEventStatus(deps: AppDeps, event: ClaimableEvent): Claim {
 	if (claimEvent(deps, event)) {
 		const row = deps.db.select().from(providerEvents).where(eq(providerEvents.id, event.id)).get();
 		return { result: 'claimed', token: row?.claimedAt ?? undefined };
@@ -214,20 +225,35 @@ export function claimEventStatus(
 	return { result: claimOutcomeForRow(row) };
 }
 
-export function claimEvent(
-	deps: AppDeps,
-	event: { id: string; provider: string; type: string },
-): boolean {
+export function claimEvent(deps: AppDeps, event: ClaimableEvent): boolean {
 	const nowIso = nowDate(deps).toISOString();
 	const staleBefore = new Date(nowDate(deps).getTime() - CLAIM_STALE_MS).toISOString();
+	const accountId = event.accountId ?? null;
 	const claimed = deps.db.run(sql`
-		INSERT INTO provider_events (id, provider, type, status, claimed_at, received_at)
-		VALUES (${event.id}, ${event.provider}, ${event.type}, 'processing', ${nowIso}, ${nowIso})
-		ON CONFLICT(id) DO UPDATE SET claimed_at = ${nowIso}
+		INSERT INTO provider_events (id, account_id, provider, type, status, claimed_at, received_at)
+		VALUES (${event.id}, ${accountId}, ${event.provider}, ${event.type}, 'processing', ${nowIso}, ${nowIso})
+		ON CONFLICT(id) DO UPDATE SET
+			claimed_at = ${nowIso},
+			-- Never blank an attribution we already have: a stale-claim takeover of a row
+			-- first seen on the per-product URL must keep its account.
+			account_id = COALESCE(provider_events.account_id, ${accountId})
 		WHERE provider_events.status = 'processing'
 			AND (provider_events.claimed_at IS NULL OR provider_events.claimed_at < ${staleBefore})
 	`);
 	return claimed.changes > 0;
+}
+
+/**
+ * Attribute an already-claimed event to an account, for handlers that only learn the
+ * account by parsing the payload (platform billing reads it from Stripe metadata).
+ * Never overwrites an attribution already made at claim time.
+ */
+export function attributeEvent(deps: AppDeps, eventId: string, accountId: number): void {
+	deps.db
+		.update(providerEvents)
+		.set({ accountId })
+		.where(and(eq(providerEvents.id, eventId), isNull(providerEvents.accountId)))
+		.run();
 }
 
 /** Mark a claimed event fully processed (including its email). */

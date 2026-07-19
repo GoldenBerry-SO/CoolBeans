@@ -28,6 +28,17 @@ Postgres). Deployed to our k8s infra like pleasehold; self-host via docker compo
   driver-specific SQL outside the adapter.
 - Keys are stored normalized (dashes stripped, uppercased). One shared normalization helper for every
   endpoint.
+- **Tenancy: cross-account is 404, never 403.** Admin handlers resolve products through
+  `requireProduct`, which scopes to the caller's account. A 403 would confirm the thing exists in
+  someone else's account. The public `/v1` surface is never account-scoped.
+- **Plan limits never touch the frozen path.** Nothing in `services/licensing.ts` consults a plan,
+  and webhook-driven issuance never refuses — money has already changed hands, so we issue past the
+  cap and record it. `test/limits-never-lock-out.test.ts` is the guard; if it fails, the change is
+  wrong, not the test.
+- **Self-host is unlimited**, and gets there through the same `limitsFor()` call the plans use.
+  Billing being configured is the only thing that makes an instance "cloud".
+- `BILLING_*` (us charging customers) and `STRIPE_*` (a customer selling their software) are
+  separate namespaces on separate Stripe accounts. Never reuse one for the other.
 - Webhook handlers verify signatures before parsing bodies, and are idempotent two ways:
   `provider_events` dedupe + `purchases.provider_checkout_id UNIQUE`.
 

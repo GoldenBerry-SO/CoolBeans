@@ -65,8 +65,8 @@ licensed, and lightweight.
 
 ### Non-goals (v1)
 
-- Being an outside-tenant billing/signup SaaS (multi-product means *our own* products; onboarding a
-  product is an admin action, not a public signup).
+- Merchant-of-record / tax handling for *our customers'* sales (that stays with Stripe/PayPal — see
+  the separate line below; our own subscription billing is in §7).
 - Merchant-of-record / tax handling (that stays with Stripe/PayPal).
 - Licensing models beyond the four above (no feature-flag entitlement graphs, no per-API-key rate
   plans as a product).
@@ -131,6 +131,11 @@ Three things are ours and nobody with traction offers all three:
 Headline promise for the site: **"Licensing you actually own. Stop paying per-seat to manage your own
 keys."** And the pricing dunk: **"We don't charge per license. Your growth is not our upsell."**
 
+That dunk has to stay literally true, so be precise about what it claims. Free carries a fair-use
+ceiling (§7), but crossing it costs a flat $99 a year however far you then grow. Nothing we charge
+scales with your success — that is the difference from incumbents who meter continuously. Do not
+write copy that implies Free is uncapped.
+
 ---
 
 ## 7. Pricing & packaging
@@ -141,14 +146,24 @@ products are sold (own it, or subscribe):
 
 - **Self-host — free forever.** MIT. Unlimited products, keys, activations, validations, metering,
   seats. You run it; you own it. This is the "lifetime" equivalent.
-- **Cloud Free.** One product, unlimited validations, emails from a shared sender — enough to ship.
+- **Cloud Free.** One product, up to 500 active licences, unlimited validations, emails from a shared
+  sender — enough to ship and to get your first few hundred customers. Validations are never capped,
+  and the caps are enforced on *creation* only: going over never disables or deletes anything, and a
+  licence bought through a webhook past the cap is still issued (§8). You are asked to upgrade, never
+  cut off.
 - **Cloud Pro — $99 / year, flat.** Unlimited products, keys, activations, validations, metering
   events, and seats. Managed hosting, managed email deliverability (your own sending domain),
   automatic Stripe/PayPal webhook wiring, hosted success + portal endpoints, daily backups, priority
   support. **No per-seat, per-license, per-active-user, or percentage-of-sales fees, ever.**
 
-Fair-use guardrail (restates §3 non-goals): the cloud is for *your own products*, not resold as a
-licensing service to third parties.
+Fair-use guardrail: the cloud is for *your own products*, not resold as a licensing service to third
+parties.
+
+**Tenancy.** The hosted service is multi-tenant: signing up creates an account, and an account owns
+its products and its admin users. Self-host stays single-account, keeps `ADMIN_TOKEN`, and has no
+plan and no limits — it reaches "unlimited" through the same code path the plans use, not a parallel
+branch. An instance is in cloud mode exactly when platform billing is configured, so it can never
+enforce a limit that nobody has a way to pay to lift.
 
 ---
 

@@ -6,6 +6,7 @@ import type { EmailSender } from '@coolbeans/email';
 import type { Logger } from '@coolbeans/logger';
 import type { MiddlewareHandler } from 'hono';
 import type { Config } from './config.js';
+import type { BillingGateway } from './services/billing-gateway.js';
 import type { PayPalGateway } from './services/paypal-gateway.js';
 import type { StripeGateway } from './services/stripe-gateway.js';
 
@@ -17,6 +18,11 @@ export interface AppDeps {
 	email?: EmailSender;
 	/** Absent when Stripe is not configured; the webhook route is inert without it. */
 	stripe?: StripeGateway;
+	/**
+	 * Platform billing — customers paying us for hosted Cool Beans. Separate from `stripe`
+	 * above, which is a customer's own integration for selling their software.
+	 */
+	billing?: BillingGateway;
 	/** Absent when PayPal is not configured. */
 	paypal?: PayPalGateway;
 	/** Optional rate-limit middleware applied to /v1/* (webhooks excluded). */

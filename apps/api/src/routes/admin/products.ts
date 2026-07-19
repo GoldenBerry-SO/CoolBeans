@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { badRequest, conflict, planLimitReached } from '../../http/errors.js';
+import { assertNotBillingPrice } from '../../services/billing.js';
 import { limitsFor } from '../../services/plan-limits.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
@@ -62,6 +63,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		if (getProductBySlugGlobal(deps.db, body.slug)) {
 			throw conflict('product_exists', `A product with slug "${body.slug}" already exists.`);
 		}
+		assertNotBillingPrice(deps, body.stripe_price_lifetime, body.stripe_price_yearly);
 		try {
 			// Guarded insert: the cap is evaluated inside the statement, so concurrent
 			// creates cannot all read "0 of 1" and all succeed. Same shape as the seat cap
@@ -124,6 +126,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		if (body.slug !== undefined || body.key_prefix !== undefined) {
 			throw badRequest('slug and key_prefix cannot be changed after creation.');
 		}
+		assertNotBillingPrice(deps, body.stripe_price_lifetime, body.stripe_price_yearly);
 		const patch: Record<string, unknown> = {};
 		if (body.name !== undefined) patch.name = body.name;
 		if (body.activation_limit !== undefined) patch.activationLimit = body.activation_limit;

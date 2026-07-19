@@ -172,6 +172,23 @@ describe('cross-account listings', () => {
 		expect(JSON.stringify(body.usage)).not.toContain('alpha');
 	});
 
+	it('reports each account own plan and usage, never another account', async () => {
+		const { app, alice, bob, deps } = await twoAccounts();
+		// Put Alice on Pro so the two accounts genuinely differ.
+		deps.db.$client.prepare("UPDATE accounts SET plan = 'pro' WHERE name = 'alpha'").run();
+
+		const alicePlan = (await (await app.request('/admin/billing', { headers: alice })).json()) as {
+			billing: { plan: string; usage: { products: { current: number } } };
+		};
+		const bobPlan = (await (await app.request('/admin/billing', { headers: bob })).json()) as {
+			billing: { plan: string; usage: { products: { current: number } } };
+		};
+		expect(alicePlan.billing.plan).toBe('pro');
+		expect(bobPlan.billing.plan).toBe('free');
+		// Usage counts each account's own products, not the instance's.
+		expect(bobPlan.billing.usage.products.current).toBe(1);
+	});
+
 	it('charts validations for the account only', async () => {
 		const { app, bob } = await twoAccounts();
 		const res = await app.request('/admin/validations', { headers: bob });
@@ -262,6 +279,12 @@ describe('the ADMIN_TOKEN credential', () => {
  * Adding a route to this list is a claim that its tenancy behaviour is covered above.
  */
 const COVERED = new Set([
+	'GET /admin/billing',
+	// Both act on accountScope alone and take no id from the caller, so there is no
+	// cross-account target to aim them at. The reachability rule that matters for these
+	// is that a cbp_ product token is refused, pinned in billing.test.ts.
+	'POST /admin/billing/checkout',
+	'POST /admin/billing/portal',
 	'GET /admin/products',
 	'POST /admin/products',
 	'GET /admin/products/:slug',

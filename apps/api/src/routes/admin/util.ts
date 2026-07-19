@@ -14,8 +14,13 @@ import { getAccountProductBySlug } from '../../store/products.js';
  * the token value itself, which §19 says is never logged.
  */
 export function auditActor(c: Context): string {
-	const email = c.get('adminEmail') as string | undefined;
+	const email = adminEmail(c);
 	return email ? `admin:${email}` : 'admin:token';
+}
+
+/** The signed-in human's email, or undefined for a token credential. */
+export function adminEmail(c: Context): string | undefined {
+	return c.get('adminEmail') as string | undefined;
 }
 
 /**
@@ -32,7 +37,7 @@ export function productScope(c: Context): Product | undefined {
  * instance-level rows that belong to no account.
  */
 export function isInstanceToken(c: Context): boolean {
-	return !c.get('adminEmail') && !productScope(c);
+	return !adminEmail(c) && !productScope(c);
 }
 
 /** Refuse when a scoped token names a product that is not its own. */

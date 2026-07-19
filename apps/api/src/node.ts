@@ -13,6 +13,7 @@ import { mountConsole } from './console-static.js';
 import type { AppDeps } from './deps.js';
 import { authRateLimiter, publicRateLimiter } from './middleware/rate-limit.js';
 import { createRedisStore } from './middleware/redis-store.js';
+import { createBillingGateway } from './services/billing-gateway.js';
 import { resolveEmailSender } from './services/email.js';
 import { createPayPalGateway } from './services/paypal-gateway.js';
 import { assertSigningKeysUsable } from './services/signing.js';
@@ -81,6 +82,9 @@ const deps: AppDeps = {
 	email: resolveEmailSender(config, logger),
 	stripe: config.stripe
 		? createStripeGateway(config.stripe.secretKey, config.stripe.apiBase)
+		: undefined,
+	billing: config.billing
+		? createBillingGateway(config.billing.stripeSecretKey, config.billing.apiBase)
 		: undefined,
 	paypal: config.paypal
 		? createPayPalGateway({ clientId: config.paypal.clientId, secret: config.paypal.secret })

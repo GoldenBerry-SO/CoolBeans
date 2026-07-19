@@ -262,6 +262,36 @@ describe('the ADMIN_TOKEN credential', () => {
 		expect(body.products.map((p) => p.slug)).toEqual(['alpha-app']);
 	});
 
+	it('refuses an ambiguous account name rather than picking one', async () => {
+		// Names are not unique, and two signups from the same email domain both default to
+		// that domain, so this collision is likely rather than exotic. Resolving it to
+		// whichever row came back first would act on an arbitrary tenant's data.
+		const h = makeHarness({ config: { ...cloud, adminToken: 'test-admin-token-0123456789' } });
+		await signUp(h.app, h.logger, 'one@acme.test', 'acme.test');
+		await signUp(h.app, h.logger, 'two@acme.test', 'acme.test');
+		const res = await h.app.request('/admin/products', {
+			headers: { ...h.adminHeaders, 'X-Coolbeans-Account': 'acme.test' },
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain('numeric id');
+	});
+
+	it('resolves an ambiguous name when the id is given instead', async () => {
+		const h = makeHarness({ config: { ...cloud, adminToken: 'test-admin-token-0123456789' } });
+		const one = await signUp(h.app, h.logger, 'one@acme.test', 'acme.test');
+		await signUp(h.app, h.logger, 'two@acme.test', 'acme.test');
+		await createProduct(
+			h.app,
+			{ slug: 'one-app', name: 'One', key_prefix: 'ONE', email_from: 'a@acme.test' },
+			one,
+		);
+		const res = await h.app.request('/admin/products', {
+			headers: { ...h.adminHeaders, 'X-Coolbeans-Account': '2' },
+		});
+		const body = (await res.json()) as { products: { slug: string }[] };
+		expect(body.products.map((p) => p.slug)).toEqual(['one-app']);
+	});
+
 	it('is not a credential at all when no admin token is configured', async () => {
 		// The hosted deployment leaves ADMIN_TOKEN unset so this bypass does not exist.
 		const h = makeHarness({ config: { ...cloud, adminToken: undefined } });

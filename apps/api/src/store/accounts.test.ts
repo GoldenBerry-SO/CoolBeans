@@ -9,8 +9,8 @@ import {
 	countAccounts,
 	createAccount,
 	DEFAULT_ACCOUNT_ID,
+	findAccountsByName,
 	getAccountById,
-	getAccountByName,
 } from './accounts.js';
 
 describe('account store', () => {
@@ -25,7 +25,16 @@ describe('account store', () => {
 		const account = createAccount(deps.db, 'acme.com');
 		// Never 'pro': gifting Pro later is easy, taking it back is not.
 		expect(account.plan).toBe('free');
-		expect(getAccountByName(deps.db, 'acme.com')?.id).toBe(account.id);
+		expect(findAccountsByName(deps.db, 'acme.com').map((a) => a.id)).toEqual([account.id]);
+	});
+
+	it('returns every account sharing a name, since names are not unique', () => {
+		// Two signups from the same email domain both default to that domain, so callers
+		// have to handle the collision rather than take whichever row came back first.
+		const { deps } = makeHarness();
+		createAccount(deps.db, 'acme.com');
+		createAccount(deps.db, 'acme.com');
+		expect(findAccountsByName(deps.db, 'acme.com')).toHaveLength(2);
 	});
 
 	it('passes the boot check on a healthy database', () => {

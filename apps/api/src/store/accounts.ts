@@ -12,8 +12,13 @@ export function getAccountById(db: Database, id: number): Account | undefined {
 	return db.select().from(accounts).where(eq(accounts.id, id)).get();
 }
 
-export function getAccountByName(db: Database, name: string): Account | undefined {
-	return db.select().from(accounts).where(eq(accounts.name, name)).get();
+/**
+ * Accounts by name. Names are NOT unique — two signups from the same email domain both
+ * default to that domain — so this returns every match and the caller decides. Anything
+ * that picked "the first" would silently act on an arbitrary tenant.
+ */
+export function findAccountsByName(db: Database, name: string): Account[] {
+	return db.select().from(accounts).where(eq(accounts.name, name)).all();
 }
 
 export function listAccounts(db: Database): Account[] {

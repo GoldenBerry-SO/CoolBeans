@@ -9,8 +9,8 @@ import { adminForSession } from '../services/console-auth.js';
 import { productForToken } from '../services/product-tokens.js';
 import {
 	countAccounts,
+	findAccountsByName,
 	getAccountById,
-	getAccountByName,
 	listAccounts,
 } from '../store/accounts.js';
 import { isAdminRequest } from './admin-auth.js';
@@ -58,7 +58,16 @@ function accountForAdminToken(deps: AppDeps, header: string | undefined): Accoun
 	if (header) {
 		const trimmed = header.trim();
 		const byId = /^\d+$/.test(trimmed) ? getAccountById(deps.db, Number(trimmed)) : undefined;
-		const account = byId ?? getAccountByName(deps.db, trimmed);
+		if (byId) return byId;
+		// Names are not unique, so an ambiguous one has to be refused rather than resolved
+		// to whichever row came back first — that would act on an arbitrary tenant.
+		const byName = findAccountsByName(deps.db, trimmed);
+		if (byName.length > 1) {
+			throw badRequest(
+				`More than one account is named "${trimmed}". Use its numeric id in ${ACCOUNT_HEADER} instead.`,
+			);
+		}
+		const account = byName[0];
 		if (!account) throw badRequest(`No account matches ${ACCOUNT_HEADER}: ${trimmed}`);
 		return account;
 	}

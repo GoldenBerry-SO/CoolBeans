@@ -178,5 +178,75 @@ await check('the floating-lease guard holds the cap with the same licence lock',
 	assert.equal(await liveLeases(), LIMIT, 'exactly one contender may take the free slot');
 });
 
+// ---------------------------------------------------------------------------
+// Product cap (hosted Free plan). Same INSERT…SELECT…WHERE (count) < limit shape as
+// the seat cap, so it inherits the same Postgres caveat. This is the check the
+// vitest suite cannot do: better-sqlite3 is synchronous, so a read-then-write
+// version of the handler passes there too.
+// ---------------------------------------------------------------------------
+const PRODUCT_LIMIT = 1;
+const CREATORS = 8;
+
+async function resetProducts() {
+	await sql`DROP TABLE IF EXISTS products`;
+	await sql`CREATE TABLE products (
+		id serial PRIMARY KEY, account_id integer NOT NULL,
+		slug text NOT NULL UNIQUE, archived_at text)`;
+}
+
+const liveProducts = async () => {
+	const [row] = await sql`
+		SELECT COUNT(*)::int AS n FROM products WHERE account_id = 1 AND archived_at IS NULL`;
+	return row.n;
+};
+
+const createGuard = (tx, slug) => tx`
+	INSERT INTO products (account_id, slug)
+	SELECT 1, ${slug}
+	WHERE (SELECT COUNT(*) FROM products WHERE account_id = 1 AND archived_at IS NULL)
+	      < ${PRODUCT_LIMIT}`;
+
+await check(
+	'the read-then-write product cap OVER-ALLOCATES, so this test can actually fail',
+	async () => {
+		await resetProducts();
+		await Promise.all(
+			Array.from({ length: CREATORS }, (_, i) =>
+				sql
+					.begin(async (tx) => {
+						const [{ n }] = await tx`
+							SELECT COUNT(*)::int AS n FROM products
+							WHERE account_id = 1 AND archived_at IS NULL`;
+						if (n >= PRODUCT_LIMIT) return null;
+						return tx`INSERT INTO products (account_id, slug) VALUES (1, ${`p${i}`})`;
+					})
+					.catch(() => null),
+			),
+		);
+		const count = await liveProducts();
+		assert.ok(count > PRODUCT_LIMIT, `expected read-then-write to over-allocate, got ${count}`);
+	},
+);
+
+await check('the product cap holds with the account row locked first', async () => {
+	await resetProducts();
+	await sql`DROP TABLE IF EXISTS accounts`;
+	await sql`CREATE TABLE accounts (id integer PRIMARY KEY)`;
+	await sql`INSERT INTO accounts (id) VALUES (1)`;
+	await Promise.all(
+		Array.from({ length: CREATORS }, (_, i) =>
+			sql
+				.begin(async (tx) => {
+					// Same remedy the seat cap needs on Postgres: serialise the contenders on
+					// the row the cap is counted against, then run the guarded insert.
+					await tx`SELECT id FROM accounts WHERE id = 1 FOR UPDATE`;
+					return createGuard(tx, `p${i}`);
+				})
+				.catch(() => null),
+		),
+	);
+	assert.equal(await liveProducts(), PRODUCT_LIMIT, 'exactly one creator may take the free slot');
+});
+
 console.log(`\n${checks} atomicity checks passed against Postgres.\n`);
 await sql.end();

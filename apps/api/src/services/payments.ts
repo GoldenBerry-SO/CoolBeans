@@ -5,7 +5,8 @@ import type { License, Product } from '@coolbeans/db';
 import { licenses, providerEvents, purchases } from '@coolbeans/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
-import { nowDate } from '../deps.js';
+import { nowDate, nowIso } from '../deps.js';
+import { getAccountById } from '../store/accounts.js';
 import { writeAudit } from '../store/audit.js';
 import { isUniqueConstraintError } from '../store/db-errors.js';
 import { findLicenseByProviderId } from '../store/payment-lookup.js';
@@ -13,6 +14,7 @@ import { getProductById } from '../store/products.js';
 import { sendKeyEmail } from './email.js';
 import { createPurchase, issueLicense, type Tier } from './issuance.js';
 import { enqueue } from './outbox.js';
+import { markOverLimit, planUsage, withinLimit } from './plan-limits.js';
 import { applyPendingRevocation } from './reconcile.js';
 
 export { findLicenseByProviderId } from '../store/payment-lookup.js';
@@ -58,9 +60,35 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 		writeAudit(deps.db, {
 			action: 'license.issued_for_archived_product',
 			actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
+			accountId: args.product.accountId,
 			productId: args.product.id,
 			detail: { checkout: args.checkoutId, email: args.email },
 		});
+	}
+	// Over the plan's licence cap. We issue anyway and never refuse here: a Free
+	// customer's buyer has just paid *them*, so withholding the key breaks their business
+	// to collect $99 from us. Record it instead — that is what the console banner and the
+	// upgrade nudge hang off. Same shape as the archived-product case above.
+	const account = getAccountById(deps.db, args.product.accountId);
+	if (account) {
+		const licences = planUsage(deps, account).activeLicenses;
+		if (!withinLimit(licences)) {
+			deps.logger.error('Licence issued past the plan limit; issuing anyway', {
+				account: account.id,
+				product: args.product.slug,
+				checkout: args.checkoutId,
+				current: licences.current,
+				limit: licences.limit,
+			});
+			writeAudit(deps.db, {
+				action: 'account.license_limit_exceeded',
+				actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
+				accountId: account.id,
+				productId: args.product.id,
+				detail: { checkout: args.checkoutId, current: licences.current, limit: licences.limit },
+			});
+			markOverLimit(deps, account.id, nowIso(deps));
+		}
 	}
 	const { db } = deps;
 	let created = false;

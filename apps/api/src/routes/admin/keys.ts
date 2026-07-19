@@ -9,12 +9,19 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { normalizeAgainst, toDisplayKey } from '../../domain/keygen.js';
-import { badRequest, conflict, notFound, validationError } from '../../http/errors.js';
+import {
+	badRequest,
+	conflict,
+	notFound,
+	planLimitReached,
+	validationError,
+} from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, trialExpiry, yearlyExpiry } from '../../services/issuance.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
 import { enqueue } from '../../services/outbox.js';
+import { planUsage, withinLimit } from '../../services/plan-limits.js';
 import { accountProductIds, getProductById, listPrefixes } from '../../store/products.js';
 import {
 	accountScope,
@@ -103,6 +110,15 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		const product = requireProduct(c, deps, body.product);
 		if (product.archivedAt) {
 			throw conflict('product_archived', 'This product is archived and cannot issue new keys.');
+		}
+		// Hard refusal here, because an admin is at a keyboard and no money has moved. The
+		// webhook issuance path deliberately does the opposite: see ensureLicense.
+		const licences = planUsage(deps, accountScope(c)).activeLicenses;
+		if (!withinLimit(licences)) {
+			throw planLimitReached(
+				'license_limit_reached',
+				`Your plan includes ${licences.limit} active licences and you have ${licences.current}. Upgrade to Pro for unlimited licences.`,
+			);
 		}
 		let expiresAt = body.expires_at ?? null;
 		if (body.tier === 'yearly' && !expiresAt) {

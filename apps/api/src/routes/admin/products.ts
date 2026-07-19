@@ -3,15 +3,20 @@
 
 import { licenses, metrics, products } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
-import { badRequest, conflict } from '../../http/errors.js';
+import { badRequest, conflict, planLimitReached } from '../../http/errors.js';
+import { limitsFor } from '../../services/plan-limits.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
 import { isUniqueConstraintError } from '../../store/db-errors.js';
-import { getProductBySlugGlobal, listAccountProducts } from '../../store/products.js';
+import {
+	getAccountProductBySlug,
+	getProductBySlugGlobal,
+	listAccountProducts,
+} from '../../store/products.js';
 import { accountScope, auditActor, productScope, readBody, requireProduct } from './util.js';
 
 const createProductBody = z.object({
@@ -58,26 +63,41 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			throw conflict('product_exists', `A product with slug "${body.slug}" already exists.`);
 		}
 		try {
-			const product = deps.db
-				.insert(products)
-				.values({
-					accountId: account.id,
-					slug: body.slug,
-					name: body.name,
-					keyPrefix: body.key_prefix.toUpperCase(),
-					activationLimit: body.activation_limit ?? 3,
-					activationModel: body.activation_model ?? 'node_locked',
-					floatingLeaseMinutes: body.floating_lease_minutes ?? 30,
-					emailFrom: body.email_from,
-					downloadUrl: body.download_url ?? null,
-					stripePriceLifetime: body.stripe_price_lifetime ?? null,
-					stripePriceYearly: body.stripe_price_yearly ?? null,
-					stripeWebhookSecret: body.stripe_webhook_secret ?? null,
-					paypalPlanYearly: body.paypal_plan_yearly ?? null,
-					paypalSkuLifetime: body.paypal_sku_lifetime ?? null,
-				})
-				.returning()
-				.get();
+			// Guarded insert: the cap is evaluated inside the statement, so concurrent
+			// creates cannot all read "0 of 1" and all succeed. Same shape as the seat cap
+			// in services/licensing.ts. Archived products are excluded from the count, so
+			// archiving genuinely frees a slot.
+			const limit = limitsFor(deps, account).products;
+			const guard =
+				limit === null
+					? sql`1 = 1`
+					: sql`(
+							SELECT COUNT(*) FROM products
+							WHERE account_id = ${account.id} AND archived_at IS NULL
+						) < ${limit}`;
+			const result = deps.db.run(sql`
+				INSERT INTO products (
+					account_id, slug, name, key_prefix, activation_limit, activation_model,
+					floating_lease_minutes, email_from, download_url, stripe_price_lifetime,
+					stripe_price_yearly, stripe_webhook_secret, paypal_plan_yearly, paypal_sku_lifetime
+				)
+				SELECT
+					${account.id}, ${body.slug}, ${body.name}, ${body.key_prefix.toUpperCase()},
+					${body.activation_limit ?? 3}, ${body.activation_model ?? 'node_locked'},
+					${body.floating_lease_minutes ?? 30}, ${body.email_from},
+					${body.download_url ?? null}, ${body.stripe_price_lifetime ?? null},
+					${body.stripe_price_yearly ?? null}, ${body.stripe_webhook_secret ?? null},
+					${body.paypal_plan_yearly ?? null}, ${body.paypal_sku_lifetime ?? null}
+				WHERE ${guard}
+			`);
+			if (result.changes === 0) {
+				throw planLimitReached(
+					'product_limit_reached',
+					`Your plan includes ${limit} product${limit === 1 ? '' : 's'}. Archive one, or upgrade to Pro for unlimited products.`,
+				);
+			}
+			const product = getAccountProductBySlug(deps.db, account.id, body.slug);
+			if (!product) throw new Error('Product insert reported success but the row is missing.');
 			writeAudit(deps.db, {
 				action: 'product.created',
 				actor: auditActor(c),

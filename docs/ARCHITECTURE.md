@@ -21,9 +21,12 @@ and the Resend/SMTP sender seam; `packages/logger` is our own small structured l
   scripts, husky pre-commit running `pnpm run check`.
 - **ABOUTME headers**: every source file opens with two `// ABOUTME:` comment lines.
 - **Console auth is a bespoke email magic-code flow**, not Better Auth: six digits, hashed at rest,
-  10-minute TTL, 5-attempt cap, first sign-in bootstraps the account. It is simpler than a full auth
-  library for a passwordless admin surface and matches the approved design. `packages/auth` stays in
-  the tree for the day we need SSO or organizations.
+  10-minute TTL, 5-attempt cap. On self-host the first sign-in bootstraps the instance; in cloud mode
+  any valid address can sign up and gets its own account. Multi-tenancy was added by hand rather than
+  by adopting Better Auth's organization support — that would have meant importing its user/session
+  tables alongside `admin_users`, migrating live sessions, and rewriting the magic-code flow, where
+  what tenancy actually needed was one integer column on three tables. `packages/auth` remains unused
+  and is a candidate for deletion unless SSO lands.
 - **Response envelope**: success bodies carry `ok: true` (the PRD §9 contract shape); errors are
   `{ "ok": false, "error": "<code>", "message": "<human sentence>" }`. One shared helper, uniform
   everywhere.
@@ -52,8 +55,16 @@ Where we deliberately diverge from pleasehold.dev:
   own snapshot, so a limit of 3 sold 12 seats. It needs `SELECT … FROM licenses WHERE id = ? FOR
   UPDATE` first, which queues contenders per licence. The floating-lease renewal has the same
   shape and needs the same lock. The usage quota is a single guarded `UPDATE` on one row, so
-  Postgres takes the row lock itself and that one ports unchanged. Any Postgres work starts by
-  running that script.
+  Postgres takes the row lock itself and that one ports unchanged. The hosted product cap is the
+  newest member of this family and has the same shape and the same fix (lock the `accounts` row
+  first). Any Postgres work starts by running that script.
+
+  Note what the vitest suite can and cannot show here. better-sqlite3 is synchronous, so a
+  "concurrent" test through `app.request()` cannot actually interleave inside a guarded statement:
+  a read-then-write implementation passes those tests too, which was verified by mutation for the
+  product cap. Treat the SQLite race tests as pinning the refusal behaviour, and
+  `scripts/postgres/atomicity.mjs` — which carries a negative control proving the unlocked form
+  over-allocates — as the thing that actually tests atomicity.
 
   **The sharpest trap is not SQL at all.** Every guarded statement decides whether it applied by
   reading `result.changes`, which is a better-sqlite3 field. libSQL calls it `rowsAffected` and
@@ -73,10 +84,10 @@ Where we deliberately diverge from pleasehold.dev:
   helpers have to take the `tx` handle before this moves to libSQL or Postgres.
 - **Zod v4 everywhere** (pleasehold is stuck on a v3/v4 dual-version override; greenfield means we
   skip that).
-- **Better Auth only for the dashboard.** The license key itself is the public credential and the
-  admin API uses a bearer token with constant-time compare — no user/session system on those
-  surfaces. Better Auth (`packages/auth`, pleasehold's pattern) backs admin sessions for the web
-  dashboard only.
+- **No Better Auth at all.** pleasehold uses it; we do not. The license key itself is the public
+  credential and the admin API uses a bearer token with constant-time compare, so there is no
+  user/session system on those surfaces. The console's own sessions come from the bespoke magic-code
+  flow above, not from `packages/auth`, which is wired to nothing.
 
 ## Domain design (from keygate, adapted)
 
@@ -133,3 +144,57 @@ than a cron nobody wrote:
   same event run twice. The prune runs with the other sweeps and audits what it removed.
 - **audit_log** is the operator's record and is not pruned automatically. If it ever needs
   to be, export before deleting — "who disabled this key" outliving the row is the point.
+
+## Tenancy
+
+An `accounts` row is the tenant. It owns products and admin users; the hosted plan and its
+limits hang off it. Decisions worth knowing before changing any of it:
+
+- **Account 1 always exists.** Migration 0010 inserts it unconditionally and grandfathers
+  it to `pro`. That is what lets an existing install upgrade without waking up capped, what
+  gives a self-hoster a working instance with no signup ceremony, and what kept the whole
+  pre-tenancy test suite passing unchanged.
+- **No foreign keys on the new `account_id` columns.** SQLite refuses a non-NULL default on
+  a column added with a `REFERENCES` clause while `foreign_keys` is ON, and the pragma
+  cannot be turned off inside the migrator's transaction. The usual Drizzle workaround
+  (rebuild the table) is unsafe here because six tables reference `products`.
+  `assertAccountsResolve` runs at boot in the constraint's place. A Postgres port would fix
+  this properly.
+- **`slug` and `key_prefix` stay globally unique.** Both appear in public URLs
+  (`/v1/pubkey?product=`, `/v1/stripe/webhook/:product`) and the prefix is how the public
+  path resolves a key with no account in hand. Making them per-account later would break
+  those URLs, so it is decided. The cost is that one account can learn a slug is taken.
+- **The public `/v1` surface is never account-scoped.** `resolveLicense` resolves by prefix
+  across all products and must keep doing so: an account join adds a way for a valid key to
+  stop working and buys nothing against someone who already holds the key.
+- **Cross-account is 404, never 403.** A 403 confirms the slug or id exists in somebody
+  else's account. `requireProduct` in `routes/admin/util.ts` is the one place that decides
+  this.
+- **`ADMIN_TOKEN` is optional and cloud does not set it.** It is instance-wide with no user
+  record behind it, which cannot coexist with multi-tenancy; the hosted deployment simply
+  has no such credential. On self-host it resolves to the single account, or names one with
+  `X-Coolbeans-Account`.
+- **A route-inventory test** (`routes/admin/tenancy.test.ts`) fails when a new `/admin`
+  route appears without a tenancy assertion. It has already caught one (the billing routes).
+
+## Platform billing
+
+`BILLING_*` is a deliberately separate namespace from `STRIPE_*`: the latter is a
+*customer's* integration for selling their own software, the former is customers paying us.
+They must be different Stripe accounts, and config refuses to start in production if the
+keys match.
+
+Four independent layers keep the two apart, and `billing-isolation.test.ts` exercises all
+of them: a distinct URL, a distinct signing secret (a product payload cannot pass
+verification at all), a distinct gateway built from a distinct key, and a strict price
+filter. Plus a reverse guard, so a product can never be configured onto the Pro price and
+have `getProductByStripePrice` mistake a subscription payment for a sale.
+
+Billing being configured is also the single cloud-mode flag. One flag rather than two means
+an instance can never enforce a limit that nobody has a way to pay to lift.
+
+Limits are hard where an admin is at a keyboard (creating a product, issuing a key by hand)
+and **soft where money has moved**. Webhook-driven issuance never refuses: a Free customer's
+buyer has just paid *them*, so withholding that key would break their business to collect an
+upgrade fee from us. We issue, log an error, audit it, and stamp `over_limit_since`.
+`test/limits-never-lock-out.test.ts` is the guard on all of this.

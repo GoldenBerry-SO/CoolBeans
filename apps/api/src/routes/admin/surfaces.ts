@@ -3,13 +3,14 @@
 
 import { licenses, metrics, products, providerEvents, usageCounters } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, isNull, or } from 'drizzle-orm';
 import type { AppDeps } from '../../deps.js';
 import { toDisplayKey } from '../../domain/keygen.js';
-import { productScope } from './util.js';
+import { accountScope, isInstanceToken, productScope } from './util.js';
 
 export function registerAdminSurfaceRoutes(admin: OpenAPIHono, deps: AppDeps): void {
 	admin.get('/usage', (c) => {
+		const accountId = accountScope(c).id;
 		const scope = productScope(c);
 		const rows = deps.db
 			.select({
@@ -28,6 +29,7 @@ export function registerAdminSurfaceRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			.innerJoin(metrics, eq(metrics.id, usageCounters.metricId))
 			.innerJoin(licenses, eq(licenses.id, usageCounters.licenseId))
 			.innerJoin(products, eq(products.id, licenses.productId))
+			.where(eq(products.accountId, accountId))
 			.all()
 			.filter((r) => !scope || r.productId === scope.id);
 
@@ -46,9 +48,19 @@ export function registerAdminSurfaceRoutes(admin: OpenAPIHono, deps: AppDeps): v
 	});
 
 	admin.get('/events', (c) => {
+		const account = accountScope(c);
+		// Rows with no account are deliveries that failed before any product was resolved.
+		// They are instance-level operational noise, so only an instance-wide credential
+		// (self-host's ADMIN_TOKEN, which has no adminEmail) sees them.
+		const instanceWide = isInstanceToken(c);
 		const rows = deps.db
 			.select()
 			.from(providerEvents)
+			.where(
+				instanceWide
+					? or(eq(providerEvents.accountId, account.id), isNull(providerEvents.accountId))
+					: eq(providerEvents.accountId, account.id),
+			)
 			.orderBy(desc(providerEvents.receivedAt), desc(providerEvents.id))
 			.limit(200)
 			.all();

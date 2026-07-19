@@ -4,7 +4,13 @@
 export interface Config {
 	databaseUrl: string;
 	port: number;
-	adminToken: string;
+	/**
+	 * The instance-wide admin credential. Optional, and absent on the hosted deployment:
+	 * it is global god-mode with no account behind it, which cannot coexist with
+	 * multi-tenancy. Self-host still requires it. When it is set and more than one account
+	 * exists, a request must name its account with X-Coolbeans-Account.
+	 */
+	adminToken?: string;
 	/** Hex secret that encrypts signing private keys at rest. */
 	signingKeySecret: string;
 	tokenTtlDays: number;
@@ -16,6 +22,21 @@ export interface Config {
 		 * journey tests against a mock — unset in production, where it must be the
 		 * real Stripe.
 		 */
+		apiBase?: string;
+	};
+	/**
+	 * Stripe for *our* subscription business: customers paying Goldenberry for hosted Cool
+	 * Beans. Entirely separate from `stripe` above, which is a customer's own integration
+	 * for selling their software. Different keys, different webhook URL, different secret.
+	 *
+	 * Its presence is also what puts the instance in cloud mode: plan limits apply and
+	 * public signup is open. No billing config means self-host, which is unlimited.
+	 */
+	billing?: {
+		stripeSecretKey: string;
+		stripeWebhookSecret?: string;
+		proPriceId: string;
+		/** Journey tests only, same seam as stripe.apiBase. Unset in production. */
 		apiBase?: string;
 	};
 	paypal?: { clientId: string; secret: string; webhookId: string };
@@ -55,8 +76,14 @@ function requireVar(env: NodeJS.ProcessEnv, name: string): string {
 
 /** Build and validate config from an env record. Throws ConfigError on bad/missing values. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-	const adminToken = requireVar(env, 'ADMIN_TOKEN');
-	if (adminToken.length < 16) {
+	// Cloud mode is exactly "billing is configured". One flag, so an instance can never end
+	// up enforcing plan limits with no way for anyone to pay to lift them.
+	const billingEnabled = Boolean(env.BILLING_STRIPE_SECRET_KEY);
+
+	// Required for self-host, where it is the only way in. Optional on the hosted
+	// deployment, which simply does not set it: no credential, no bypass.
+	const adminToken = billingEnabled ? env.ADMIN_TOKEN : requireVar(env, 'ADMIN_TOKEN');
+	if (adminToken && adminToken.length < 16) {
 		throw new ConfigError('ADMIN_TOKEN must be at least 16 characters');
 	}
 	const signingKeySecret = requireVar(env, 'SIGNING_KEY_SECRET');
@@ -98,6 +125,40 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 			secretKey: env.STRIPE_SECRET_KEY,
 			webhookSecret: env.STRIPE_WEBHOOK_SECRET,
 			...(env.STRIPE_API_BASE ? { apiBase: env.STRIPE_API_BASE } : {}),
+		};
+	}
+	if (env.BILLING_STRIPE_SECRET_KEY) {
+		// Always fatal, not just in production: the console would offer an Upgrade button
+		// that 500s on click, and every account would sit on Free with no way off it. The
+		// operator would hear about it from a support ticket.
+		if (!env.BILLING_STRIPE_PRO_PRICE_ID) {
+			throw new ConfigError(
+				'BILLING_STRIPE_SECRET_KEY is set without BILLING_STRIPE_PRO_PRICE_ID: there would be nothing to sell, so every upgrade attempt would fail.',
+			);
+		}
+		// The money-shaped failure: checkout succeeds, Stripe charges the card, the webhook
+		// is rejected for want of a secret, and the customer stays on Free having paid.
+		// Allowed outside production so local dev can run the route inert.
+		if (!env.BILLING_STRIPE_WEBHOOK_SECRET && env.NODE_ENV === 'production') {
+			throw new ConfigError(
+				'BILLING_STRIPE_WEBHOOK_SECRET is required with NODE_ENV=production: without it Stripe would charge customers whose upgrade we then never record.',
+			);
+		}
+		// Sharing one Stripe account puts platform subscriptions and customers' product
+		// sales on a single event stream, which leaves the price-id filter as the only
+		// thing preventing a Cool Beans Pro purchase from issuing somebody a licence key.
+		if (env.BILLING_STRIPE_SECRET_KEY === env.STRIPE_SECRET_KEY && env.NODE_ENV === 'production') {
+			throw new ConfigError(
+				'BILLING_STRIPE_SECRET_KEY and STRIPE_SECRET_KEY are the same Stripe key: platform subscriptions and customer product sales must not share an account, or a Pro purchase can be mistaken for a product sale.',
+			);
+		}
+		config.billing = {
+			stripeSecretKey: env.BILLING_STRIPE_SECRET_KEY,
+			...(env.BILLING_STRIPE_WEBHOOK_SECRET
+				? { stripeWebhookSecret: env.BILLING_STRIPE_WEBHOOK_SECRET }
+				: {}),
+			proPriceId: env.BILLING_STRIPE_PRO_PRICE_ID,
+			...(env.BILLING_STRIPE_API_BASE ? { apiBase: env.BILLING_STRIPE_API_BASE } : {}),
 		};
 	}
 	if (env.PAYPAL_CLIENT_ID && env.PAYPAL_SECRET && env.PAYPAL_WEBHOOK_ID) {

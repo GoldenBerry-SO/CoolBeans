@@ -1,6 +1,7 @@
 // ABOUTME: Products page (PRD §16, §29) — product cards with counts, edit, and Stripe connect.
 // ABOUTME: Slug and key prefix are immutable after creation; the edit dialog reflects that.
 
+import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Dialog, Field, inputClass } from '../components/Dialog.js';
 import {
@@ -13,6 +14,7 @@ import {
 } from '../components/ui.js';
 import {
 	useArchiveProduct,
+	useBilling,
 	useConnectStripe,
 	useCreateProduct,
 	useProducts,
@@ -47,10 +49,28 @@ export function ProductsPage() {
 	const [connecting, setConnecting] = useState<Product | null>(null);
 	const [archiving, setArchiving] = useState<Product | null>(null);
 
+	// Surface the cap where it actually bites, rather than letting the create dialog 409.
+	// A raced click still reads fine: the 409 flows through the toast path in queries.ts.
+	const billing = useBilling();
+	const productUsage = billing.data?.enabled ? billing.data.usage.products : undefined;
+	// A null limit means no cap, which is Pro and every self-host instance.
+	const atCap =
+		productUsage !== undefined &&
+		productUsage.limit !== null &&
+		productUsage.current >= productUsage.limit;
+
 	return (
 		<div className="cbin">
-			<div className="mb-3.5 flex justify-end">
-				<InkButton onClick={() => setShowNew(true)}>
+			<div className="mb-3.5 flex items-center justify-end gap-3">
+				{atCap ? (
+					<Link
+						to="/billing"
+						className="text-[12.5px] text-ink-faint no-underline hover:text-ink hover:underline"
+					>
+						{productUsage?.current} of {productUsage?.limit} products on Free — Upgrade
+					</Link>
+				) : null}
+				<InkButton onClick={() => setShowNew(true)} disabled={atCap}>
 					<PlusIcon />
 					New product
 				</InkButton>

@@ -6,6 +6,7 @@ import { products } from '@coolbeans/db';
 import { eq } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
+import { assertNotBillingPrice } from './billing.js';
 
 export interface ConnectArgs {
 	actor?: string;
@@ -56,6 +57,11 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 		yearlyAmount: args.yearlyAmount,
 		currency: args.currency ?? 'usd',
 	});
+	// Should never fire — these prices were just created under the customer's own Stripe
+	// key, so they cannot be our Pro price unless both integrations share an account
+	// (which config refuses in production). Cheap to assert, and the failure it prevents
+	// is a Pro payment issuing somebody a licence key.
+	assertNotBillingPrice(deps, result.lifetimePriceId, result.yearlyPriceId);
 	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running
 	// connect against an existing one returns nothing, so writing it through would
 	// blank the stored secret and every later webhook would fail verification.

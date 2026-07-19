@@ -6,6 +6,12 @@ import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const adminUsers = sqliteTable('admin_users', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
+	// See the note on products.accountId for why there is no .references() here.
+	accountId: integer('account_id').notNull().default(1),
+	// Globally unique, so one person belongs to exactly one account. requestCode looks up
+	// by email alone with no account context available, so per-account emails would need
+	// an account picker before we know who is signing in. account_id on admin_sessions is
+	// what makes a future account_members table cheap.
 	email: text('email').notNull().unique(),
 	name: text('name'),
 	createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
@@ -31,6 +37,9 @@ export const adminSessions = sqliteTable(
 	{
 		id: integer('id').primaryKey({ autoIncrement: true }),
 		tokenHash: text('token_hash').notNull().unique(),
+		// The tenant is carried by the credential, not the person: scoping reads the
+		// session, so one human in two accounts later needs no change to the scoping code.
+		accountId: integer('account_id').notNull().default(1),
 		adminUserId: integer('admin_user_id')
 			.notNull()
 			.references(() => adminUsers.id),

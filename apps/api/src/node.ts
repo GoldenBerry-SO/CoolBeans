@@ -13,10 +13,12 @@ import { mountConsole } from './console-static.js';
 import type { AppDeps } from './deps.js';
 import { authRateLimiter, publicRateLimiter } from './middleware/rate-limit.js';
 import { createRedisStore } from './middleware/redis-store.js';
+import { createBillingGateway } from './services/billing-gateway.js';
 import { resolveEmailSender } from './services/email.js';
 import { createPayPalGateway } from './services/paypal-gateway.js';
 import { assertSigningKeysUsable } from './services/signing.js';
 import { createStripeGateway } from './services/stripe-gateway.js';
+import { assertAccountsResolve } from './store/accounts.js';
 
 const logger = createLogger();
 
@@ -39,6 +41,16 @@ if (config.databaseUrl.startsWith('postgres')) {
 if (config.databaseUrl !== ':memory:') mkdirSync(dirname(config.databaseUrl), { recursive: true });
 const db = createDb(openSqlite(config.databaseUrl));
 migrate(db);
+
+// products.account_id and admin_users.account_id carry no foreign key (SQLite would not
+// take one on an added NOT NULL column), so this is the constraint. A backfill that went
+// wrong should stop the process, not serve one tenant another's data.
+try {
+	assertAccountsResolve(db);
+} catch (err) {
+	logger.error('Account integrity check failed', { message: (err as Error).message });
+	process.exit(1);
+}
 
 // Fail fast if the configured secret cannot read the signing keys already stored:
 // discovering that on the first token request looks like an outage, not a config error.
@@ -70,6 +82,9 @@ const deps: AppDeps = {
 	email: resolveEmailSender(config, logger),
 	stripe: config.stripe
 		? createStripeGateway(config.stripe.secretKey, config.stripe.apiBase)
+		: undefined,
+	billing: config.billing
+		? createBillingGateway(config.billing.stripeSecretKey, config.billing.apiBase)
 		: undefined,
 	paypal: config.paypal
 		? createPayPalGateway({ clientId: config.paypal.clientId, secret: config.paypal.secret })

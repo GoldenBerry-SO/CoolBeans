@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { conflict, notFound } from '../../http/errors.js';
 import { inviteAdmin, listTeam, revokeAdmin } from '../../services/console-auth.js';
-import { auditActor, readBody } from './util.js';
+import { accountScope, auditActor, readBody } from './util.js';
 
 const inviteBody = z.object({
 	email: z.string().email(),
@@ -17,7 +17,7 @@ export function registerAdminTeamRoutes(admin: OpenAPIHono, deps: AppDeps): void
 	admin.get('/team', (c) =>
 		c.json({
 			ok: true,
-			team: listTeam(deps).map((m) => ({
+			team: listTeam(deps, accountScope(c).id).map((m) => ({
 				id: m.id,
 				email: m.email,
 				name: m.name,
@@ -29,7 +29,13 @@ export function registerAdminTeamRoutes(admin: OpenAPIHono, deps: AppDeps): void
 
 	admin.post('/team', async (c) => {
 		const body = await readBody(c, inviteBody);
-		const m = inviteAdmin(deps, body.email, auditActor(c), body.name);
+		const invited = inviteAdmin(deps, accountScope(c).id, body.email, auditActor(c), body.name);
+		if (invited === 'email_in_use') {
+			// They already belong to another account. Returning that row instead would hand
+			// this account an admin whose sessions carry someone else's account id.
+			throw conflict('email_in_use', 'That email already belongs to another account.');
+		}
+		const m = invited;
 		return c.json({
 			ok: true,
 			member: {
@@ -45,7 +51,7 @@ export function registerAdminTeamRoutes(admin: OpenAPIHono, deps: AppDeps): void
 	admin.delete('/team/:id', (c) => {
 		const id = Number(c.req.param('id'));
 		if (!Number.isInteger(id)) throw notFound('No admin with that id.');
-		const result = revokeAdmin(deps, id, auditActor(c));
+		const result = revokeAdmin(deps, accountScope(c).id, id, auditActor(c));
 		if (result === 'not_found') throw notFound('No admin with that id.');
 		if (result === 'last_admin') {
 			throw conflict(

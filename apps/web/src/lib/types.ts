@@ -47,3 +47,25 @@ export interface PurchaseRow {
 	email: string;
 	created_at: string;
 }
+
+export interface PlanUsage {
+	current: number;
+	/** Null means no cap: Pro, or a self-host instance, which has no limits at all. */
+	limit: number | null;
+}
+
+export interface Billing {
+	/**
+	 * False on a self-host instance. The console hides the billing page and its nav entry
+	 * entirely in that case: PRD §7 says self-host is unlimited and free forever, so an
+	 * upgrade button there would be selling something they already own.
+	 */
+	enabled: boolean;
+	plan: 'free' | 'pro';
+	status: string | null;
+	current_period_end: string | null;
+	cancel_at_period_end: boolean;
+	past_due_since: string | null;
+	over_limit_since: string | null;
+	usage: { products: PlanUsage; active_licenses: PlanUsage };
+}

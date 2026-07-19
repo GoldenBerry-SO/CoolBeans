@@ -52,6 +52,13 @@ export const badRequest = (message: string) => new ApiError(400, 'bad_request', 
 export const validationError = (message: string) => new ApiError(422, 'validation_error', message);
 export const conflict = (code: string, message: string) => new ApiError(409, code, message);
 
+/**
+ * A hosted plan cap was reached. Only ever raised on admin-initiated creation, never on
+ * the public licence path and never on webhook-driven issuance, where money has already
+ * changed hands.
+ */
+export const planLimitReached = (code: string, message: string) => new ApiError(409, code, message);
+
 /** Serialize any thrown value to the uniform error envelope. */
 export function toErrorResponse(c: Context, err: unknown): Response {
 	if (err instanceof ApiError) {

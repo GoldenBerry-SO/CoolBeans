@@ -12,6 +12,9 @@ const verifyBody = z.object({
 	email: z.string().email(),
 	code: z.string().regex(/^\d{6}$/, 'The code is six digits.'),
 	name: z.string().min(1).max(80).optional(),
+	// Cloud signup only: names the account created on first sign-in. Defaults to the
+	// email's domain when omitted.
+	account_name: z.string().min(1).max(80).optional(),
 });
 
 async function readBody<T>(c: { req: { json: () => Promise<unknown> } }, schema: z.ZodType<T>) {
@@ -36,9 +39,14 @@ export function registerAuthRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	app.post('/auth/verify', async (c) => {
 		const body = await readBody(c, verifyBody);
-		const result = verifyCode(deps, body.email, body.code, body.name);
+		const result = verifyCode(deps, body.email, body.code, body.name, body.account_name);
 		if (!result) throw unauthorized();
-		return c.json({ ok: true, token: result.token, admin: result.admin });
+		return c.json({
+			ok: true,
+			token: result.token,
+			admin: result.admin,
+			account: result.account,
+		});
 	});
 
 	app.post('/auth/signout', async (c) => {

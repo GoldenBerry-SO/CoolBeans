@@ -27,7 +27,7 @@ import {
 } from '#components/shadcn/sidebar';
 import { getAdminEmail } from '../lib/api.js';
 import { useAuth } from '../lib/auth.js';
-import { useProducts } from '../lib/queries.js';
+import { useBilling, useProducts } from '../lib/queries.js';
 import { productColor, ScopeProvider, useScope } from '../lib/scope.js';
 import { IssueKeyDialog } from './IssueKeyDialog.js';
 import { AccentButton, BeanMark, PlusIcon } from './ui.js';
@@ -69,6 +69,12 @@ const ICONS: Record<string, ReactNode> = {
 		</>
 	),
 	audit: <path d="M6 5h12 M6 10h12 M6 15h8" strokeLinecap="round" />,
+	billing: (
+		<>
+			<rect x="3" y="6" width="18" height="12" rx="2.5" />
+			<path d="M3 10.5h18" />
+		</>
+	),
 };
 
 const NAV = [
@@ -82,6 +88,13 @@ const NAV = [
 	{ to: '/team', icon: 'customers', label: 'Team' },
 ] as const;
 
+/**
+ * Billing is the one nav entry that is not always there. A self-hoster has no plan, no
+ * limits and nothing to buy (PRD §7), so showing them an upgrade link would be selling
+ * something they already own outright.
+ */
+const BILLING_NAV = { to: '/billing', icon: 'billing', label: 'Billing' } as const;
+
 const TITLES: Record<string, { title: string; sub: string }> = {
 	'/': { title: 'Overview', sub: 'Everything Cool Beans issued and validated, at a glance' },
 	'/licenses': { title: 'Licenses', sub: 'Every key across your products' },
@@ -91,6 +104,7 @@ const TITLES: Record<string, { title: string; sub: string }> = {
 	'/webhooks': { title: 'Webhooks', sub: 'Stripe & PayPal events feeding issuance' },
 	'/audit': { title: 'Audit log', sub: 'Every state change, with actor and detail' },
 	'/team': { title: 'Team', sub: 'Who can sign in to this console' },
+	'/billing': { title: 'Billing', sub: 'Your plan, your usage, and what it costs' },
 };
 
 function NavIcon({ name }: { name: string }) {
@@ -208,6 +222,9 @@ function AppSidebar({ onSignOut }: { onSignOut: () => void }) {
 	const closeMobile = () => {
 		if (isMobile) setOpenMobile(false);
 	};
+	// Absent entirely on self-host rather than disabled: there is nothing there to want.
+	const billing = useBilling();
+	const navItems = billing.data?.enabled ? [...NAV, BILLING_NAV] : NAV;
 
 	return (
 		<ShadcnSidebar
@@ -229,7 +246,7 @@ function AppSidebar({ onSignOut }: { onSignOut: () => void }) {
 					<SidebarGroupContent>
 						<nav aria-label="Console pages">
 							<SidebarMenu className="gap-px px-3 pt-0.5">
-								{NAV.map((item) => (
+								{navItems.map((item) => (
 									<NavItem key={item.to} to={item.to} icon={item.icon} onNavigate={closeMobile}>
 										{item.label}
 									</NavItem>

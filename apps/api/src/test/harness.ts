@@ -6,6 +6,7 @@ import type { EmailSender, OutgoingEmail } from '@coolbeans/email';
 import { createApp } from '../app.js';
 import type { Config } from '../config.js';
 import type { AppDeps } from '../deps.js';
+import type { BillingSubscription, CheckoutArgs } from '../services/billing-gateway.js';
 import { resetKeyThrottle } from '../services/key-throttle.js';
 import type { SessionLineItem } from '../services/stripe-gateway.js';
 
@@ -108,6 +109,43 @@ export function fakeStripeGateway(
 				yearlyPriceId: `price_yearly_${args.productSlug}`,
 				webhookSecret: extras.connectSecret ?? `whsec_${args.productSlug}`,
 			};
+		},
+	};
+}
+
+/**
+ * A fake platform-billing gateway. Separate from fakeStripeGateway on purpose, mirroring
+ * the production split: a test that wires one into the other's slot should not compile.
+ *
+ * 'valid-billing' is the signature that passes here — deliberately NOT the product
+ * webhook's 'valid', so a test cannot accidentally sign a payload for the wrong endpoint
+ * and have it work.
+ */
+export function fakeBillingGateway(
+	opts: { subscriptions?: Record<string, BillingSubscription>; nextCustomerId?: string } = {},
+) {
+	const created: Array<{ email: string; accountId: number }> = [];
+	const checkouts: CheckoutArgs[] = [];
+	return {
+		created,
+		checkouts,
+		async createCustomer(args: { email: string; accountId: number; name?: string }) {
+			created.push({ email: args.email, accountId: args.accountId });
+			return opts.nextCustomerId ?? `cus_${args.accountId}`;
+		},
+		async createCheckoutSession(args: CheckoutArgs) {
+			checkouts.push(args);
+			return `https://checkout.stripe.test/${args.customerId}`;
+		},
+		async billingPortalSession(customerId: string, returnUrl: string) {
+			return `https://portal.stripe.test/${customerId}?return=${encodeURIComponent(returnUrl)}`;
+		},
+		constructEvent(rawBody: string, signature: string, _secret: string) {
+			if (signature !== 'valid-billing') throw new Error('Invalid signature');
+			return JSON.parse(rawBody);
+		},
+		async getSubscription(subscriptionId: string): Promise<BillingSubscription | null> {
+			return opts.subscriptions?.[subscriptionId] ?? null;
 		},
 	};
 }

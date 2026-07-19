@@ -9,14 +9,28 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { normalizeAgainst, toDisplayKey } from '../../domain/keygen.js';
-import { badRequest, conflict, notFound, validationError } from '../../http/errors.js';
+import {
+	badRequest,
+	conflict,
+	notFound,
+	planLimitReached,
+	validationError,
+} from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, trialExpiry, yearlyExpiry } from '../../services/issuance.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
 import { enqueue } from '../../services/outbox.js';
-import { getProductById, getProductBySlug, listPrefixes } from '../../store/products.js';
-import { assertScope, auditActor, productScope, readBody } from './util.js';
+import { planUsage, withinLimit } from '../../services/plan-limits.js';
+import { accountProductIds, getProductById, listPrefixes } from '../../store/products.js';
+import {
+	accountScope,
+	assertScope,
+	auditActor,
+	productScope,
+	readBody,
+	requireProduct,
+} from './util.js';
 
 const issueBody = z.object({
 	product: z.string().min(1),
@@ -27,13 +41,25 @@ const issueBody = z.object({
 	note: z.string().optional(),
 });
 
-function resolveKey(deps: AppDeps, keyInput: string): { license: License; product: Product } {
+/**
+ * Resolve a key to its licence within one account.
+ *
+ * Prefixes are matched globally, because that is how key parsing works everywhere and
+ * §9 depends on it. The account check happens after, on the resolved product, and its
+ * failure is the same "no license with that key" as a key that does not exist — telling
+ * the two apart would confirm that a key belongs to another tenant.
+ */
+function resolveKey(
+	deps: AppDeps,
+	accountId: number,
+	keyInput: string,
+): { license: License; product: Product } {
 	const parsed = normalizeAgainst(keyInput, listPrefixes(deps.db));
 	if (!parsed) throw notFound('That key is not in a valid format.');
 	const license = deps.db.select().from(licenses).where(eq(licenses.key, parsed.normalized)).get();
 	if (!license) throw notFound('No license with that key.');
 	const product = getProductById(deps.db, license.productId);
-	if (!product) throw notFound('No license with that key.');
+	if (!product || product.accountId !== accountId) throw notFound('No license with that key.');
 	return { license, product };
 }
 
@@ -81,11 +107,18 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		if (body.tier === 'trial' && body.expires_at !== undefined && body.trial_days !== undefined) {
 			throw validationError('Provide expires_at or trial_days for a trial license, not both.');
 		}
-		const product = getProductBySlug(deps.db, body.product);
-		if (!product) throw notFound(`No product with slug "${body.product}".`);
-		assertScope(c, product);
+		const product = requireProduct(c, deps, body.product);
 		if (product.archivedAt) {
 			throw conflict('product_archived', 'This product is archived and cannot issue new keys.');
+		}
+		// Hard refusal here, because an admin is at a keyboard and no money has moved. The
+		// webhook issuance path deliberately does the opposite: see ensureLicense.
+		const licences = planUsage(deps, accountScope(c)).activeLicenses;
+		if (!withinLimit(licences)) {
+			throw planLimitReached(
+				'license_limit_reached',
+				`Your plan includes ${licences.limit} active licences and you have ${licences.current}. Upgrade to Pro for unlimited licences.`,
+			);
 		}
 		let expiresAt = body.expires_at ?? null;
 		if (body.tier === 'yearly' && !expiresAt) {
@@ -119,21 +152,21 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 	});
 
 	admin.post('/keys/:key/disable', (c) => {
-		const { license, product } = resolveKey(deps, c.req.param('key'));
+		const { license, product } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
 		assertScope(c, product);
 		const updated = disableLicense(deps, { license, reason: 'manual', actor: auditActor(c) });
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 
 	admin.post('/keys/:key/enable', (c) => {
-		const { license, product } = resolveKey(deps, c.req.param('key'));
+		const { license, product } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
 		assertScope(c, product);
 		const updated = enableLicense(deps, { license, actor: auditActor(c) });
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 
 	admin.get('/keys/:key', (c) => {
-		const { license, product } = resolveKey(deps, c.req.param('key'));
+		const { license, product } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
 		assertScope(c, product);
 		const acts = deps.db
 			.select()
@@ -174,9 +207,7 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 	});
 
 	admin.get('/products/:slug/keys', (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
-		assertScope(c, product);
+		const product = requireProduct(c, deps, c.req.param('slug'));
 		const status = c.req.query('status');
 		const emailFilter = c.req.query('email');
 		const conditions = [eq(licenses.productId, product.id)];
@@ -227,6 +258,11 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			.where(conditions.length === 1 ? conditions[0] : or(...conditions))
 			.orderBy(desc(purchases.createdAt))
 			.all();
+		// Account first, then the narrower product-token scope inside it. The email and
+		// provider_id filters are free text, so without this an admin could read any
+		// tenant's purchase by guessing an address.
+		const ownIds = new Set(accountProductIds(deps.db, accountScope(c).id));
+		rows = rows.filter((r) => ownIds.has(r.productId));
 		const scope = productScope(c);
 		if (scope) rows = rows.filter((r) => r.productId === scope.id);
 		return c.json({ ok: true, purchases: rows });

@@ -3,16 +3,22 @@
 
 import { licenses, metrics, products } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
-import { badRequest, conflict, notFound } from '../../http/errors.js';
+import { badRequest, conflict, planLimitReached } from '../../http/errors.js';
+import { assertNotBillingPrice } from '../../services/billing.js';
+import { limitsFor } from '../../services/plan-limits.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
 import { isUniqueConstraintError } from '../../store/db-errors.js';
-import { getProductBySlug, listProducts } from '../../store/products.js';
-import { assertScope, auditActor, productScope, readBody } from './util.js';
+import {
+	getAccountProductBySlug,
+	getProductBySlugGlobal,
+	listAccountProducts,
+} from '../../store/products.js';
+import { accountScope, auditActor, productScope, readBody, requireProduct } from './util.js';
 
 const createProductBody = z.object({
 	slug: z
@@ -49,33 +55,55 @@ const metricBody = z.object({
 
 export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): void {
 	admin.post('/products', async (c) => {
+		const account = accountScope(c);
 		const body = await readBody(c, createProductBody);
-		if (getProductBySlug(deps.db, body.slug)) {
+		// Global on purpose: slug and key_prefix are unique across the instance because
+		// both appear in public URLs. The message deliberately does not say which account
+		// holds it, so this cannot be used to enumerate other tenants.
+		if (getProductBySlugGlobal(deps.db, body.slug)) {
 			throw conflict('product_exists', `A product with slug "${body.slug}" already exists.`);
 		}
+		assertNotBillingPrice(deps, body.stripe_price_lifetime, body.stripe_price_yearly);
 		try {
-			const product = deps.db
-				.insert(products)
-				.values({
-					slug: body.slug,
-					name: body.name,
-					keyPrefix: body.key_prefix.toUpperCase(),
-					activationLimit: body.activation_limit ?? 3,
-					activationModel: body.activation_model ?? 'node_locked',
-					floatingLeaseMinutes: body.floating_lease_minutes ?? 30,
-					emailFrom: body.email_from,
-					downloadUrl: body.download_url ?? null,
-					stripePriceLifetime: body.stripe_price_lifetime ?? null,
-					stripePriceYearly: body.stripe_price_yearly ?? null,
-					stripeWebhookSecret: body.stripe_webhook_secret ?? null,
-					paypalPlanYearly: body.paypal_plan_yearly ?? null,
-					paypalSkuLifetime: body.paypal_sku_lifetime ?? null,
-				})
-				.returning()
-				.get();
+			// Guarded insert: the cap is evaluated inside the statement, so concurrent
+			// creates cannot all read "0 of 1" and all succeed. Same shape as the seat cap
+			// in services/licensing.ts. Archived products are excluded from the count, so
+			// archiving genuinely frees a slot.
+			const limit = limitsFor(deps, account).products;
+			const guard =
+				limit === null
+					? sql`1 = 1`
+					: sql`(
+							SELECT COUNT(*) FROM products
+							WHERE account_id = ${account.id} AND archived_at IS NULL
+						) < ${limit}`;
+			const result = deps.db.run(sql`
+				INSERT INTO products (
+					account_id, slug, name, key_prefix, activation_limit, activation_model,
+					floating_lease_minutes, email_from, download_url, stripe_price_lifetime,
+					stripe_price_yearly, stripe_webhook_secret, paypal_plan_yearly, paypal_sku_lifetime
+				)
+				SELECT
+					${account.id}, ${body.slug}, ${body.name}, ${body.key_prefix.toUpperCase()},
+					${body.activation_limit ?? 3}, ${body.activation_model ?? 'node_locked'},
+					${body.floating_lease_minutes ?? 30}, ${body.email_from},
+					${body.download_url ?? null}, ${body.stripe_price_lifetime ?? null},
+					${body.stripe_price_yearly ?? null}, ${body.stripe_webhook_secret ?? null},
+					${body.paypal_plan_yearly ?? null}, ${body.paypal_sku_lifetime ?? null}
+				WHERE ${guard}
+			`);
+			if (result.changes === 0) {
+				throw planLimitReached(
+					'product_limit_reached',
+					`Your plan includes ${limit} product${limit === 1 ? '' : 's'}. Archive one, or upgrade to Pro for unlimited products.`,
+				);
+			}
+			const product = getAccountProductBySlug(deps.db, account.id, body.slug);
+			if (!product) throw new Error('Product insert reported success but the row is missing.');
 			writeAudit(deps.db, {
 				action: 'product.created',
 				actor: auditActor(c),
+				accountId: account.id,
 				productId: product.id,
 				detail: { slug: product.slug, prefix: product.keyPrefix },
 			});
@@ -91,15 +119,14 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 	});
 
 	admin.patch('/products/:slug', async (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
-		assertScope(c, product);
+		const product = requireProduct(c, deps, c.req.param('slug'));
 		const body = await readBody(c, createProductBody.partial());
 		// slug and key_prefix are immutable: issued keys embed the prefix and clients
 		// resolve products by it. Reject rather than silently ignoring.
 		if (body.slug !== undefined || body.key_prefix !== undefined) {
 			throw badRequest('slug and key_prefix cannot be changed after creation.');
 		}
+		assertNotBillingPrice(deps, body.stripe_price_lifetime, body.stripe_price_yearly);
 		const patch: Record<string, unknown> = {};
 		if (body.name !== undefined) patch.name = body.name;
 		if (body.activation_limit !== undefined) patch.activationLimit = body.activation_limit;
@@ -127,6 +154,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		writeAudit(deps.db, {
 			action: 'product.updated',
 			actor: auditActor(c),
+			accountId: product.accountId,
 			productId: product.id,
 			detail: { fields: Object.keys(patch) },
 		});
@@ -134,24 +162,28 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 	});
 
 	admin.get('/products', (c) => {
-		// The console's product cards show key counts; one grouped pass covers every product.
+		const account = accountScope(c);
+		// List rows go to the console/CLI; secrets stay server-side (the :slug endpoint
+		// still returns the full row for operational tooling).
+		const scope = productScope(c);
+		const includeArchived = c.req.query('include_archived') === '1';
+		const visible = listAccountProducts(deps.db, account.id)
+			.filter((p) => !scope || p.id === scope.id)
+			.filter((p) => includeArchived || !p.archivedAt);
+		// The console's product cards show key counts; one grouped pass covers them, and
+		// the id filter keeps another account's licences out of the totals.
+		const visibleIds = new Set(visible.map((p) => p.id));
 		const counts = new Map<number, { total: number; active: number }>();
 		for (const row of deps.db
 			.select({ productId: licenses.productId, status: licenses.status })
 			.from(licenses)
 			.all()) {
+			if (!visibleIds.has(row.productId)) continue;
 			const entry = counts.get(row.productId) ?? { total: 0, active: 0 };
 			entry.total += 1;
 			if (row.status === 'active') entry.active += 1;
 			counts.set(row.productId, entry);
 		}
-		// List rows go to the console/CLI; secrets stay server-side (the :slug endpoint
-		// still returns the full row for operational tooling).
-		const scope = productScope(c);
-		const includeArchived = c.req.query('include_archived') === '1';
-		const visible = listProducts(deps.db)
-			.filter((p) => !scope || p.id === scope.id)
-			.filter((p) => includeArchived || !p.archivedAt);
 		return c.json({
 			ok: true,
 			products: visible.map(({ stripeWebhookSecret: _secret, productTokenHash: _hash, ...p }) => ({
@@ -163,9 +195,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 	});
 
 	admin.delete('/products/:slug', (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
-		assertScope(c, product);
+		const product = requireProduct(c, deps, c.req.param('slug'));
 		// Archive, never delete: §9 promises issued keys keep validating. This only
 		// stops new issuance and hides the product from the console's default list.
 		deps.db
@@ -176,22 +206,18 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		writeAudit(deps.db, {
 			action: 'product.archived',
 			actor: auditActor(c),
+			accountId: product.accountId,
 			productId: product.id,
 		});
 		return c.json({ ok: true });
 	});
 
 	admin.get('/products/:slug', (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
-		assertScope(c, product);
-		return c.json({ ok: true, product });
+		return c.json({ ok: true, product: requireProduct(c, deps, c.req.param('slug')) });
 	});
 
 	admin.post('/products/:slug/metrics', async (c) => {
-		const product = getProductBySlug(deps.db, c.req.param('slug'));
-		if (!product) throw notFound('No product with that slug.');
-		assertScope(c, product);
+		const product = requireProduct(c, deps, c.req.param('slug'));
 		const body = await readBody(c, metricBody);
 		const existing = deps.db
 			.select({ id: metrics.id })
@@ -215,6 +241,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		writeAudit(deps.db, {
 			action: 'metric.created',
 			actor: auditActor(c),
+			accountId: product.accountId,
 			productId: product.id,
 			detail: { key: metric.key, default_limit: metric.defaultLimit },
 		});

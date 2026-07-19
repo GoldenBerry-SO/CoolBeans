@@ -6,7 +6,9 @@ import { Toaster as Sonner, type ToasterProps } from 'sonner';
 function Toaster({ ...props }: ToasterProps) {
 	return (
 		<Sonner
-			className="cbin"
+			// No entrance animation on the host: it is mounted for the life of the app and
+			// Sonner animates each toast itself. Animating the container fires once, on
+			// page load, for a wrapper nobody can see.
 			position="bottom-right"
 			toastOptions={{
 				classNames: {

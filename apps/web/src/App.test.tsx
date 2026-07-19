@@ -20,13 +20,17 @@ describe('primitives', () => {
 		expect(renderToString(<TierText tier="yearly" />)).toContain('text-ink-secondary');
 	});
 
-	it('dialog renders a titled card', () => {
+	it('dialog mounts without rendering into the page itself', () => {
+		// The card lives in a portal on document.body, which server rendering cannot
+		// reach, so there is no markup to assert on here. What this still catches is the
+		// dialog throwing on mount. Its actual behaviour — focus trap, focus return,
+		// Escape, scroll lock — comes from Radix and is exercised against a real browser.
 		const html = renderToString(
 			<Dialog title="Issue a key" onClose={() => {}}>
 				<span>body</span>
 			</Dialog>,
 		);
-		expect(html).toContain('Issue a key');
+		expect(html).toBe('');
 	});
 });
 

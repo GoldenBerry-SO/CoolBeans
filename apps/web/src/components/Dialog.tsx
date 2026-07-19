@@ -1,9 +1,22 @@
 // ABOUTME: Dialog primitive (docs/DESIGN.md) — centered card over a scrim, form-friendly.
 // ABOUTME: Header + body + soft footer band; used by the issue-key and product flows.
 
-import { type ReactNode, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { type ReactNode, useEffect, useRef } from 'react';
+import {
+	DialogContent,
+	DialogDescription,
+	DialogOverlay,
+	DialogPortal,
+	Dialog as DialogRoot,
+	DialogTitle,
+} from './shadcn/dialog.js';
 
+/**
+ * Every caller mounts this conditionally rather than passing `open`, so the root is
+ * always open while mounted and unmounting is what closes it. Radix supplies the focus
+ * trap, focus return to whatever opened it, scroll lock and dismissal; the look below is
+ * unchanged from the hand-rolled version.
+ */
 export function Dialog({
 	title,
 	lede,
@@ -17,45 +30,59 @@ export function Dialog({
 	footer?: ReactNode;
 	onClose: () => void;
 }) {
+	// Radix restores focus when its content unmounts, but our callers close a dialog by
+	// unmounting the whole root in the same commit, so that cleanup never gets to run and
+	// focus lands on <body>. Closing then dumps a keyboard user at the top of the page.
+	// Remember what opened it and put focus back ourselves.
+	const opener = useRef<HTMLElement | null>(null);
 	useEffect(() => {
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') onClose();
+		opener.current = document.activeElement as HTMLElement | null;
+		return () => {
+			const target = opener.current;
+			if (target?.isConnected) target.focus();
 		};
-		window.addEventListener('keydown', closeOnEscape);
-		return () => window.removeEventListener('keydown', closeOnEscape);
-	}, [onClose]);
+	}, []);
 
-	const content = (
-		<div className="fixed inset-0 z-50 flex items-end justify-center p-2.5 sm:items-center sm:p-6">
-			<button
-				type="button"
-				aria-label="Close dialog"
-				className="fixed inset-0 border-none bg-[rgba(26,26,25,0.4)]"
-				onClick={onClose}
-			/>
-			<div
-				className="cbin relative max-h-[calc(100dvh-1.25rem)] w-full max-w-[480px] overflow-hidden rounded-2xl bg-card shadow-[0_24px_70px_rgba(0,0,0,0.3)]"
-				role="dialog"
-				aria-modal="true"
-				aria-label={title}
-			>
-				<div className="px-4 pt-4 sm:px-6 sm:pt-5">
-					<h3 className="m-0 font-semibold text-[17px]">{title}</h3>
-					{lede ? <p className="m-0 mt-[5px] text-[12.5px] text-ink-faint">{lede}</p> : null}
-				</div>
-				<div className="flex max-h-[60dvh] flex-col gap-[15px] overflow-y-auto px-4 py-4 sm:max-h-[54vh] sm:px-6 sm:py-5">
-					{children}
-				</div>
-				{footer ? (
-					<div className="flex flex-wrap justify-end gap-2.5 border-ink/8 border-t bg-fill-soft px-4 py-3.5 sm:px-6 sm:py-4">
-						{footer}
-					</div>
-				) : null}
-			</div>
-		</div>
+	return (
+		<DialogRoot
+			open
+			onOpenChange={(next) => {
+				if (!next) onClose();
+			}}
+		>
+			<DialogPortal>
+				{/* The card sits inside the overlay so the scrim is genuinely outside the
+				    content. With the overlay as a sibling and the content stretched over the
+				    viewport, every backdrop click lands inside the content and Radix never
+				    dismisses — which is how the old click-the-scrim-to-close behaviour got
+				    lost. */}
+				<DialogOverlay className="flex items-end justify-center p-2.5 sm:items-center sm:p-6">
+					<DialogContent className="cbin relative max-h-[calc(100dvh-1.25rem)] w-full max-w-[480px] overflow-hidden rounded-2xl bg-card shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
+						<div className="px-4 pt-4 sm:px-6 sm:pt-5">
+							<DialogTitle className="m-0 font-semibold text-[17px]">{title}</DialogTitle>
+							{lede ? (
+								<DialogDescription className="m-0 mt-[5px] text-[12.5px] text-ink-faint">
+									{lede}
+								</DialogDescription>
+							) : (
+								// Radix warns when a dialog has no description. Ours are labelled by
+								// their title, so state that rather than inventing copy.
+								<DialogDescription className="sr-only">{title}</DialogDescription>
+							)}
+						</div>
+						<div className="flex max-h-[60dvh] flex-col gap-[15px] overflow-y-auto px-4 py-4 sm:max-h-[54vh] sm:px-6 sm:py-5">
+							{children}
+						</div>
+						{footer ? (
+							<div className="flex flex-wrap justify-end gap-2.5 border-ink/8 border-t bg-fill-soft px-4 py-3.5 sm:px-6 sm:py-4">
+								{footer}
+							</div>
+						) : null}
+					</DialogContent>
+				</DialogOverlay>
+			</DialogPortal>
+		</DialogRoot>
 	);
-
-	return typeof document === 'undefined' ? content : createPortal(content, document.body);
 }
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {

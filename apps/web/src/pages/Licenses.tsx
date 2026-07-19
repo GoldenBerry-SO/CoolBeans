@@ -17,7 +17,7 @@ import { useLicensesAcross, useProducts, useSetLicenseStatus } from '../lib/quer
 import { productColor, useScope } from '../lib/scope.js';
 
 const FILTERS = ['all', 'active', 'disabled'] as const;
-const GRID = 'grid-cols-[1.7fr_1fr_0.85fr_0.85fr_0.6fr_1.4fr_auto]';
+const GRID = 'min-w-[980px] grid-cols-[1.7fr_1fr_0.85fr_0.85fr_0.6fr_1.4fr_auto]';
 
 export function LicensesPage() {
 	const products = useProducts();
@@ -49,14 +49,14 @@ export function LicensesPage() {
 	return (
 		<div className="cbin">
 			<div className="mb-4 flex flex-wrap items-center gap-2.5">
-				<div className="flex gap-[3px] rounded-[10px] bg-track p-1">
+				<div className="flex w-full gap-[3px] rounded-[10px] bg-track p-1 sm:w-auto">
 					{FILTERS.map((f) => (
 						<button
 							key={f}
 							type="button"
 							onClick={() => setFilter(f)}
 							className={clsx(
-								'cursor-pointer rounded-[7px] border-none px-[13px] py-1.5 font-medium text-[12.5px] capitalize',
+								'flex-1 cursor-pointer rounded-[7px] border-none px-[13px] py-1.5 font-medium text-[12.5px] capitalize sm:flex-none',
 								filter === f
 									? 'bg-card text-ink shadow-[0_1px_2px_rgba(26,26,25,0.12)]'
 									: 'bg-transparent text-ink-muted',
@@ -70,7 +70,7 @@ export function LicensesPage() {
 					<select
 						value={productFilter}
 						onChange={(e) => setProductFilter(e.target.value)}
-						className="cursor-pointer rounded-[10px] border border-ink/12 bg-card px-3 py-[9px] text-[13px]"
+						className="min-w-0 flex-1 cursor-pointer rounded-[10px] border border-ink/12 bg-card px-3 py-[9px] text-[13px] sm:flex-none"
 					>
 						<option value="all">All products</option>
 						{products.data?.map((p) => (
@@ -96,7 +96,7 @@ export function LicensesPage() {
 				<div className="font-mono text-[12.5px] text-ink-faint">{rows.length} keys</div>
 			</div>
 
-			<Card className="overflow-hidden">
+			<Card className="overflow-x-auto">
 				<TableHead
 					gridClass={GRID}
 					columns={['License key', 'Product', 'Tier', 'Status', 'Seats', 'Customer', '']}

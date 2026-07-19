@@ -3,6 +3,7 @@
 
 const TOKEN_KEY = 'coolbeans.admin_token';
 const EMAIL_KEY = 'coolbeans.admin_email';
+export const AUTH_INVALID_EVENT = 'coolbeans:auth-invalid';
 
 // Guard against non-browser contexts (server-side test rendering).
 const store = typeof localStorage !== 'undefined' ? localStorage : null;
@@ -16,6 +17,16 @@ export function setToken(token: string): void {
 export function clearToken(): void {
 	store?.removeItem(TOKEN_KEY);
 	store?.removeItem(EMAIL_KEY);
+}
+
+/**
+ * A token can become invalid while it is stored (for example after ADMIN_TOKEN rotates).
+ * Clear it and notify the auth provider so the console returns to sign-in instead of
+ * leaving the operator in a dashboard where every query silently answers 401.
+ */
+function invalidateAuth(): void {
+	clearToken();
+	if (typeof window !== 'undefined') window.dispatchEvent(new Event(AUTH_INVALID_EVENT));
 }
 export function getAdminEmail(): string | null {
 	return store?.getItem(EMAIL_KEY) ?? null;
@@ -42,7 +53,10 @@ export async function download(path: string, filename: string): Promise<void> {
 	const res = await fetch(path, {
 		headers: token ? { Authorization: `Bearer ${token}` } : {},
 	});
-	if (!res.ok) throw new ApiError(res.status, `Export failed (${res.status})`);
+	if (!res.ok) {
+		if (res.status === 401) invalidateAuth();
+		throw new ApiError(res.status, `Export failed (${res.status})`);
+	}
 	const blob = await res.blob();
 	const url = URL.createObjectURL(blob);
 	const link = document.createElement('a');
@@ -66,6 +80,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
 	const text = await res.text();
 	const json = text ? JSON.parse(text) : {};
 	if (!res.ok) {
+		if (res.status === 401) invalidateAuth();
 		throw new ApiError(res.status, (json as { message?: string }).message ?? res.statusText);
 	}
 	return json as T;

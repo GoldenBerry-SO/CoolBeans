@@ -123,10 +123,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 			...(env.RESEND_BASE_URL ? { baseUrl: env.RESEND_BASE_URL } : {}),
 		};
 	} else if (env.EMAIL_PROVIDER === 'smtp' && env.SMTP_HOST) {
+		const smtpPort = Number(env.SMTP_PORT ?? 587);
+		if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65_535) {
+			throw new ConfigError(`SMTP_PORT must be a valid port number, got "${env.SMTP_PORT}"`);
+		}
 		config.email = {
 			provider: 'smtp',
 			host: env.SMTP_HOST,
-			port: Number(env.SMTP_PORT ?? 587),
+			port: smtpPort,
 			user: env.SMTP_USER,
 			pass: env.SMTP_PASS,
 		};

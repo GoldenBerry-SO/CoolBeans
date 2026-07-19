@@ -2,7 +2,7 @@
 // ABOUTME: Trial expiry is enforced lazily at validate too; the sweep keeps state consistent offline.
 
 import { activations, licenses, products } from '@coolbeans/db';
-import { and, eq, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, lte, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
@@ -19,7 +19,7 @@ export function sweepExpiredTrials(deps: AppDeps): number {
 				eq(licenses.tier, 'trial'),
 				eq(licenses.status, 'active'),
 				isNotNull(licenses.expiresAt),
-				lt(licenses.expiresAt, nowIso),
+				lte(licenses.expiresAt, nowIso),
 			),
 		)
 		.all();
@@ -50,7 +50,7 @@ export function reapFloatingLeases(deps: AppDeps): number {
 			and(
 				sql`${activations.deactivatedAt} IS NULL`,
 				isNotNull(activations.leaseExpiresAt),
-				lt(activations.leaseExpiresAt, nowIso),
+				lte(activations.leaseExpiresAt, nowIso),
 				sql`${activations.licenseId} IN (SELECT id FROM licenses WHERE product_id IN (SELECT id FROM ${products} WHERE activation_model = 'floating'))`,
 			),
 		)

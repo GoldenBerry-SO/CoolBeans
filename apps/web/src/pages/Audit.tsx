@@ -9,16 +9,16 @@ export function AuditPage() {
 	const audit = useAudit();
 	return (
 		<div className="cbin">
-			<Card className="overflow-hidden">
+			<Card className="overflow-x-auto">
 				<TableHead
-					gridClass="grid-cols-[190px_1fr_160px_150px]"
+					gridClass="min-w-[800px] grid-cols-[190px_1fr_160px_150px]"
 					columns={['Action', 'Detail', 'Actor', 'When']}
 				/>
 				{audit.data?.length ? (
 					audit.data.map((e) => (
 						<div
 							key={e.id}
-							className="grid grid-cols-[190px_1fr_160px_150px] items-center gap-3.5 border-ink/5 border-b px-5 py-3 last:border-b-0"
+							className="grid min-w-[800px] grid-cols-[190px_1fr_160px_150px] items-center gap-3.5 border-ink/5 border-b px-5 py-3 last:border-b-0"
 						>
 							<span
 								className="font-medium font-mono text-[11.5px]"

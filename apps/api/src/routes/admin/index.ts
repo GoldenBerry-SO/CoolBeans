@@ -6,7 +6,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { desc } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
-import { notFound } from '../../http/errors.js';
+import { badRequest, notFound } from '../../http/errors.js';
 import { consoleAuth } from '../../middleware/console-auth.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { rotateKey } from '../../services/signing.js';
@@ -57,7 +57,11 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	});
 
 	admin.get('/audit', (c) => {
-		const limit = Math.min(Number(c.req.query('limit') ?? 100), 500);
+		const requestedLimit = Number(c.req.query('limit') ?? 100);
+		if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+			throw badRequest('limit must be a positive integer.');
+		}
+		const limit = Math.min(requestedLimit, 500);
 		const rows = deps.db.select().from(auditLog).orderBy(desc(auditLog.id)).limit(limit).all();
 		return c.json({
 			ok: true,

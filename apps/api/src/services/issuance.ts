@@ -39,7 +39,7 @@ export function issueLicense(
 					key: normalized,
 					tier: args.tier,
 					status: 'active',
-					expiresAt: args.expiresAt ?? null,
+					expiresAt: args.tier === 'lifetime' ? null : (args.expiresAt ?? null),
 				})
 				.returning()
 				.get();

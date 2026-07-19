@@ -4,7 +4,7 @@
 import { Card, EmptyState, TableHead } from '../components/ui.js';
 import { useLicensesAcross, useProducts } from '../lib/queries.js';
 
-const GRID = 'grid-cols-[1.9fr_1.3fr_0.6fr_0.9fr_0.9fr]';
+const GRID = 'min-w-[720px] grid-cols-[1.9fr_1.3fr_0.6fr_0.9fr_0.9fr]';
 
 interface CustomerRow {
 	email: string;
@@ -45,7 +45,7 @@ export function CustomersPage() {
 
 	return (
 		<div className="cbin">
-			<Card className="overflow-hidden">
+			<Card className="overflow-x-auto">
 				<TableHead gridClass={GRID} columns={['Customer', 'Products', 'Keys', 'Status', 'Since']} />
 				{products.isLoading || licenses.isLoading ? (
 					<EmptyState>Loading…</EmptyState>

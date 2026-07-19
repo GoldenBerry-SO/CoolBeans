@@ -9,7 +9,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { normalizeAgainst, toDisplayKey } from '../../domain/keygen.js';
-import { badRequest, conflict, notFound } from '../../http/errors.js';
+import { badRequest, conflict, notFound, validationError } from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, trialExpiry } from '../../services/issuance.js';
@@ -72,6 +72,15 @@ export function adminLicenseView(deps: AppDeps, license: License, product: Produ
 export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void {
 	admin.post('/keys', async (c) => {
 		const body = await readBody(c, issueBody);
+		if (body.tier === 'lifetime' && body.expires_at !== undefined) {
+			throw validationError('expires_at must be omitted for a lifetime license.');
+		}
+		if (body.tier !== 'trial' && body.trial_days !== undefined) {
+			throw validationError('trial_days is only valid for a trial license.');
+		}
+		if (body.tier === 'trial' && body.expires_at !== undefined && body.trial_days !== undefined) {
+			throw validationError('Provide expires_at or trial_days for a trial license, not both.');
+		}
 		const product = getProductBySlug(deps.db, body.product);
 		if (!product) throw notFound(`No product with slug "${body.product}".`);
 		assertScope(c, product);

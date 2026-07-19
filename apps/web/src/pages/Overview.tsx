@@ -54,7 +54,7 @@ function activityDot(action: string): string {
 
 function AuditRow({ entry }: { entry: AuditEntry }) {
 	return (
-		<div className="grid grid-cols-[170px_1fr_170px] items-center gap-3.5 border-ink/5 border-b px-5 py-3 last:border-b-0">
+		<div className="grid min-w-[620px] grid-cols-[170px_1fr_170px] items-center gap-3.5 border-ink/5 border-b px-5 py-3 last:border-b-0">
 			<span
 				className="font-medium font-mono text-[11.5px]"
 				style={{ color: actionColor(entry.action) }}
@@ -82,9 +82,12 @@ export function OverviewPage() {
 
 	return (
 		<div className="cbin">
-			<div className="mb-[30px] grid grid-cols-4 gap-6">
+			<div className="mb-6 grid grid-cols-2 gap-x-4 gap-y-5 sm:mb-[30px] sm:grid-cols-4 sm:gap-6">
 				{tiles.map((t) => (
-					<div key={t.label} className="border-ink/7 border-r py-0.5 pr-5 last:border-r-0">
+					<div
+						key={t.label}
+						className="py-0.5 pr-3 sm:border-ink/7 sm:border-r sm:pr-5 sm:last:border-r-0"
+					>
 						<div className="font-medium text-[12px] text-ink-muted">{t.label}</div>
 						<div className="mt-1.5 mb-[3px] font-semibold text-[27px] tracking-[-0.02em]">
 							{t.value ?? '—'}
@@ -94,7 +97,7 @@ export function OverviewPage() {
 				))}
 			</div>
 
-			<div className="mb-4 grid grid-cols-[1.5fr_1fr] gap-4">
+			<div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.5fr_1fr]">
 				<Card className="px-5 pt-[18px] pb-4">
 					<div className="mb-[18px] flex items-baseline justify-between">
 						<div>
@@ -144,8 +147,8 @@ export function OverviewPage() {
 				</Card>
 			</div>
 
-			<Card className="overflow-hidden">
-				<div className="flex items-center justify-between border-ink/8 border-b px-5 py-[15px]">
+			<Card className="overflow-x-auto">
+				<div className="flex min-w-[620px] items-center justify-between border-ink/8 border-b px-5 py-[15px]">
 					<div className="font-semibold text-[13px]">Audit log</div>
 					<Link to="/audit" className="text-[12px]">
 						View all →

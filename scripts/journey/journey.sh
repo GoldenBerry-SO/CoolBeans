@@ -30,10 +30,10 @@ free_ports() {
   fuser -k "$API_PORT/tcp" "$MOCK_PORT/tcp" >/dev/null 2>&1 || true
 }
 cleanup() {
-  [ -n "${API_PID:-}" ] && kill "$API_PID" 2>/dev/null || true
-  [ -n "${MOCK_PID:-}" ] && kill "$MOCK_PID" 2>/dev/null || true
-  free_ports
-  rm -rf "$WORK"
+	if [ -n "${API_PID:-}" ]; then kill "$API_PID" 2>/dev/null || true; fi
+	if [ -n "${MOCK_PID:-}" ]; then kill "$MOCK_PID" 2>/dev/null || true; fi
+	free_ports
+	rm -rf "$WORK"
 }
 trap cleanup EXIT
 

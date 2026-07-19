@@ -158,6 +158,8 @@ export function useArchiveProduct() {
 		mutationFn: (slug: string) => api('DELETE', `/admin/products/${slug}`),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ['products'] });
+			// Archiving frees a plan slot, so the cap indicator is now wrong.
+			qc.invalidateQueries({ queryKey: ['billing'] });
 			toast.success('Product archived', { description: 'Issued keys keep working.' });
 		},
 		onError: (err) => toast.error('Could not archive that product', { description: message(err) }),
@@ -225,6 +227,8 @@ export function useIssueKey() {
 			qc.invalidateQueries({ queryKey: ['licenses'] });
 			qc.invalidateQueries({ queryKey: ['products'] });
 			qc.invalidateQueries({ queryKey: ['stats'] });
+			// A new key moves the active-licence count against the plan.
+			qc.invalidateQueries({ queryKey: ['billing'] });
 		},
 	});
 }
@@ -238,6 +242,8 @@ export function useSetLicenseStatus() {
 			qc.invalidateQueries({ queryKey: ['licenses'] });
 			qc.invalidateQueries({ queryKey: ['products'] });
 			qc.invalidateQueries({ queryKey: ['stats'] });
+			// Only active licences count toward the plan, so both directions move it.
+			qc.invalidateQueries({ queryKey: ['billing'] });
 			toast.success(variables.action === 'disable' ? 'Key disabled' : 'Key re-enabled');
 			// The detail page reads its own query; without this it keeps showing the old
 			// status and the wrong action button until a reload.
@@ -260,7 +266,12 @@ export function useCreateProduct() {
 	const qc = useQueryClient();
 	return useMutation({
 		mutationFn: (input: CreateProductInput) => api('POST', '/admin/products', input),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['products'] });
+			// Without this the plan cap is stale: a Free account that just used its one
+			// product still sees an enabled New product button until the page is reloaded.
+			qc.invalidateQueries({ queryKey: ['billing'] });
+		},
 	});
 }
 

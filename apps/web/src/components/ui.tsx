@@ -163,23 +163,30 @@ export function Meter({ current, limit }: { current: number; limit: number | nul
 	);
 }
 
-/** The OK / percentage / over-limit chip that sits beside a Meter. */
+/**
+ * The OK / percentage / at-limit chip that sits beside a Meter.
+ *
+ * "At limit" and "Over limit" are deliberately different words. Somebody on Free using
+ * their one allowed product is exactly within their plan, and telling them they are "over
+ * limit" reads as a violation they have not committed. Only genuinely exceeding the cap —
+ * which happens when a webhook issues past it, or after a downgrade — says over.
+ */
 export function LimitBadge({ current, limit }: { current: number; limit: number | null }) {
 	if (limit === null) return null;
 	const pct = Math.min(100, Math.round((current / limit) * 100));
-	const over = current >= limit;
+	const full = current >= limit;
 	return (
 		<span
 			className={clsx(
 				'inline-flex rounded-full px-[9px] py-[3px] font-semibold text-[11px]',
-				over
+				full
 					? 'bg-danger-tint text-danger'
 					: pct > 85
 						? 'bg-warn-tint text-warn'
 						: 'bg-positive-tint text-positive-deep',
 			)}
 		>
-			{over ? 'Over limit' : pct > 85 ? `${pct}%` : 'OK'}
+			{current > limit ? 'Over limit' : full ? 'At limit' : pct > 85 ? `${pct}%` : 'OK'}
 		</span>
 	);
 }

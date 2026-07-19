@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Dialog } from './components/Dialog.js';
-import { StatusPill, TierText } from './components/ui.js';
+import { LimitBadge, StatusPill, TierText } from './components/ui.js';
 import { AuthProvider, LoginScreen } from './lib/auth.js';
 
 describe('primitives', () => {
@@ -18,6 +18,16 @@ describe('primitives', () => {
 		expect(renderToString(<TierText tier="lifetime" />)).toContain('text-tier-lifetime');
 		expect(renderToString(<TierText tier="trial" />)).toContain('text-warn');
 		expect(renderToString(<TierText tier="yearly" />)).toContain('text-ink-secondary');
+	});
+
+	it('says at limit when full and over limit only when genuinely exceeded', () => {
+		// Somebody on Free using their one allowed product is exactly within their plan.
+		// Calling that "over limit" reads as a violation they have not committed.
+		expect(renderToString(<LimitBadge current={1} limit={1} />)).toContain('At limit');
+		expect(renderToString(<LimitBadge current={2} limit={1} />)).toContain('Over limit');
+		expect(renderToString(<LimitBadge current={0} limit={1} />)).toContain('OK');
+		// Null is no cap, so there is nothing to badge.
+		expect(renderToString(<LimitBadge current={900} limit={null} />)).toBe('');
 	});
 
 	it('dialog mounts without rendering into the page itself', () => {

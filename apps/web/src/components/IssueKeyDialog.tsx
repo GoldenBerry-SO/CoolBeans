@@ -50,7 +50,11 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 			footer={
 				<>
 					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+					{/* Disabled rather than a no-op click: the guard was already here, but with
+					    the button still enabled a click on an empty form did nothing at all and
+					    said nothing about why. */}
 					<AccentButton
+						disabled={!email || !slug || issue.isPending}
 						onClick={() => email && slug && issue.mutate({ product: slug, email, tier })}
 					>
 						{issue.isPending ? 'Issuing…' : 'Issue key'}

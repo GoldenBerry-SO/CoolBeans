@@ -8,6 +8,14 @@ export const products = sqliteTable(
 	'products',
 	{
 		id: integer('id').primaryKey({ autoIncrement: true }),
+		// The owning tenant. Deliberately declared without .references(): SQLite refuses a
+		// non-NULL default on a column added with a REFERENCES clause while foreign_keys is
+		// ON, and rebuilding this table is not an option because six others reference it.
+		// node.ts asserts at boot that every account_id resolves. See drizzle/0010.
+		accountId: integer('account_id').notNull().default(1),
+		// Globally unique, not per-account: slug and key_prefix both appear in public URLs
+		// (/v1/pubkey?product=, /v1/stripe/webhook/:product) and key_prefix is how the
+		// public path resolves a key to its product without an account in hand.
 		slug: text('slug').notNull().unique(),
 		name: text('name').notNull(),
 		keyPrefix: text('key_prefix').notNull().unique(),

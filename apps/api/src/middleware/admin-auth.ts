@@ -15,8 +15,17 @@ export function safeEqual(a: string, b: string): boolean {
 	return timingSafeEqual(digestA, digestB);
 }
 
-/** True when the Authorization header carries the admin bearer token. */
-export function isAdminRequest(header: string | undefined, adminToken: string): boolean {
+/**
+ * True when the Authorization header carries the admin bearer token. An unconfigured
+ * token never matches: the hosted deployment leaves ADMIN_TOKEN unset precisely so this
+ * bypass does not exist there, and an empty-string comparison would hand it to anyone
+ * presenting `Bearer `.
+ */
+export function isAdminRequest(
+	header: string | undefined,
+	adminToken: string | undefined,
+): boolean {
+	if (!adminToken) return false;
 	const prefix = 'Bearer ';
 	if (!header?.startsWith(prefix)) return false;
 	return safeEqual(header.slice(prefix.length), adminToken);

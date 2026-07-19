@@ -71,6 +71,13 @@
       "when": 1784398856943,
       "tag": "0009_subscription_event_order",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784398857943,
+      "tag": "0010_accounts",
+      "breakpoints": true
     }
   ]
 }

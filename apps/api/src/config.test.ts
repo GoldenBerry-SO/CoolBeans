@@ -155,3 +155,89 @@ describe('no email sender at all', () => {
 		expect(config.email?.provider).toBe('resend');
 	});
 });
+
+describe('platform billing configuration', () => {
+	const billing = {
+		...base,
+		BILLING_STRIPE_SECRET_KEY: 'sk_billing_123',
+		BILLING_STRIPE_PRO_PRICE_ID: 'price_pro_123',
+	} as NodeJS.ProcessEnv;
+
+	it('is absent unless a billing key is set, which is what makes self-host unlimited', () => {
+		expect(loadConfig(base).billing).toBeUndefined();
+	});
+
+	it('does not turn on just because the product-sales integration is configured', () => {
+		// A self-hoster selling their own software sets STRIPE_SECRET_KEY. That must never
+		// put them on the hosted billing path or behind the hosted plan limits.
+		const config = loadConfig({ ...base, STRIPE_SECRET_KEY: 'sk_test_customer' });
+		expect(config.stripe).toBeDefined();
+		expect(config.billing).toBeUndefined();
+	});
+
+	it('parses the BILLING_ namespace', () => {
+		const config = loadConfig({
+			...billing,
+			BILLING_STRIPE_WEBHOOK_SECRET: 'whsec_billing',
+			BILLING_STRIPE_API_BASE: 'http://localhost:4242',
+		} as NodeJS.ProcessEnv);
+		expect(config.billing).toEqual({
+			stripeSecretKey: 'sk_billing_123',
+			stripeWebhookSecret: 'whsec_billing',
+			proPriceId: 'price_pro_123',
+			apiBase: 'http://localhost:4242',
+		});
+	});
+
+	it('refuses a billing key with no price id, in every environment', () => {
+		// The console would show an Upgrade button that 500s on click, and every account
+		// would sit on Free with no way off it.
+		const noPrice = { ...billing };
+		delete noPrice.BILLING_STRIPE_PRO_PRICE_ID;
+		expect(() => loadConfig(noPrice)).toThrow(/BILLING_STRIPE_PRO_PRICE_ID/);
+	});
+
+	it('refuses a billing key with no webhook secret in production', () => {
+		// Checkout succeeds, Stripe charges the card, the webhook is rejected, and the
+		// customer stays on Free having paid us.
+		expect(() => loadConfig({ ...billing, NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toThrow(
+			/BILLING_STRIPE_WEBHOOK_SECRET/,
+		);
+	});
+
+	it('allows a missing webhook secret outside production so the route can run inert', () => {
+		expect(loadConfig(billing).billing?.stripeWebhookSecret).toBeUndefined();
+	});
+
+	it('refuses to share one Stripe key with the product-sales integration in production', () => {
+		// One account means both flows arrive on one event stream, leaving the price-id
+		// filter as the only thing stopping a Cool Beans Pro purchase from issuing
+		// somebody a licence key.
+		expect(() =>
+			loadConfig({
+				...billing,
+				BILLING_STRIPE_WEBHOOK_SECRET: 'whsec_billing',
+				STRIPE_SECRET_KEY: 'sk_billing_123',
+				NODE_ENV: 'production',
+				EMAIL_PROVIDER: 'resend',
+				RESEND_API_KEY: 're_live_123',
+			} as NodeJS.ProcessEnv),
+		).toThrow(/same Stripe key/);
+	});
+
+	it('makes ADMIN_TOKEN optional once billing is on, because cloud has no god-mode', () => {
+		const noToken = { ...billing };
+		delete noToken.ADMIN_TOKEN;
+		expect(loadConfig(noToken).adminToken).toBeUndefined();
+	});
+
+	it('still requires ADMIN_TOKEN for a self-host instance', () => {
+		const noToken = { ...base };
+		delete noToken.ADMIN_TOKEN;
+		expect(() => loadConfig(noToken)).toThrow(/ADMIN_TOKEN/);
+	});
+
+	it('still enforces the length floor on an ADMIN_TOKEN that is supplied', () => {
+		expect(() => loadConfig({ ...billing, ADMIN_TOKEN: 'short' })).toThrow(/16 characters/);
+	});
+});

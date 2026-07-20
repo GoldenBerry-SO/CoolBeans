@@ -347,9 +347,22 @@ The device never makes a request. The seat is consumed through the same guarded 
 online activation, so this cannot be used to exceed the activation limit, and the operator who issued
 it is recorded in the audit log along with the fingerprint.
 
+The blob carries a signed `fingerprint` claim and the SDK refuses it on any other machine, including
+a blob with no claim at all. Without that the only device-specific value in the token is the
+`instance_id` the client is about to store from that same token, so the check would be circular and
+one blob would unlock every machine it was pasted into.
+
+**Node-locked products only.** Offline activation refuses a floating product with
+`floating_not_supported`. A floating seat is held by a lease the machine renews, and an air-gapped
+machine can never heartbeat, so its lease lapses, the server counts the seat free, and the vendor can
+issue another blob while every earlier machine stays unlocked for the full TTL. That is an unbounded
+number of activations on a one-seat licence, so the refusal is the feature.
+
 The token gets a much longer TTL than a normal one (`OFFLINE_ACTIVATION_TTL_DAYS`, default a year)
 because the machine can never refresh, clamped to the licence's own expiry so it cannot outlive what
-was paid for.
+was paid for. The renewal buffer above is deliberately **not** applied here: it exists to give a
+client that can reconnect room to do so, and an air-gapped machine never will, so buffering it would
+only let an unreachable machine outlive the licence.
 
 **Be plain about the tradeoff:** an air-gapped machine cannot be revoked before its token expires.
 That is inherent to licensing something we cannot reach, not a defect, and the TTL is the dial.

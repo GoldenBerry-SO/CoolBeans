@@ -13,7 +13,7 @@ import { createProduct } from '../../test/seed.js';
 let h: TestHarness;
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	h.deps.config.stripe = { secretKey: 'sk_test', webhookSecret: 'whsec_test' };
 	h.deps.stripe = fakeStripeGateway();
 	await createProduct(h.app, {

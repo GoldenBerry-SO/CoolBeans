@@ -9,7 +9,7 @@ import { createProduct } from '../../test/seed.js';
 let h: TestHarness;
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
@@ -58,7 +58,7 @@ describe('POST /admin/keys expiry options', () => {
 		const res = await issue(body);
 		expect(res.status).toBe(422);
 		expect(await res.json()).toMatchObject({ ok: false, error: 'validation_error' });
-		expect(h.deps.db.select().from(purchases).all()).toHaveLength(0);
+		expect(await h.deps.db.select().from(purchases)).toHaveLength(0);
 	});
 
 	it('still accepts an advisory yearly expiry', async () => {

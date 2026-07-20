@@ -8,30 +8,30 @@ import { claimEvent, claimOutcomeForRow, completeEvent, releaseEvent } from './p
 let h: TestHarness;
 const EVENT = { id: 'evt_1', provider: 'stripe', type: 'checkout.session.completed' };
 
-beforeEach(() => {
-	h = makeHarness();
+beforeEach(async () => {
+	h = await makeHarness();
 });
 
 describe('provider event claims', () => {
-	it('only the first claimant may process an event', () => {
+	it('only the first claimant may process an event', async () => {
 		expect(claimEvent(h.deps, EVENT)).toBe(true);
 		// A concurrent redelivery arrives before the first finished.
 		expect(claimEvent(h.deps, EVENT)).toBe(false);
 	});
 
-	it('a completed event is never processed again', () => {
+	it('a completed event is never processed again', async () => {
 		claimEvent(h.deps, EVENT);
 		completeEvent(h.deps, EVENT.id);
 		expect(claimEvent(h.deps, EVENT)).toBe(false);
 	});
 
-	it('a released claim lets the provider retry re-enter', () => {
+	it('a released claim lets the provider retry re-enter', async () => {
 		claimEvent(h.deps, EVENT);
 		releaseEvent(h.deps, EVENT.id); // handler threw; email never sent
 		expect(claimEvent(h.deps, EVENT)).toBe(true);
 	});
 
-	it('reclaims an abandoned in-flight event so a crash cannot wedge it forever', () => {
+	it('reclaims an abandoned in-flight event so a crash cannot wedge it forever', async () => {
 		claimEvent(h.deps, EVENT);
 		h.clock.advance(10 * 60_000);
 		expect(claimEvent(h.deps, EVENT)).toBe(true);
@@ -42,15 +42,15 @@ describe('reading the event row after a refused claim', () => {
 	// The interleaving that produces a missing row (another worker releasing between our
 	// two statements) cannot be staged against a synchronous driver, so the decision is
 	// tested directly — it is the part that would silently drop a delivery.
-	it('treats a vanished row as retryable, never as finished', () => {
+	it('treats a vanished row as retryable, never as finished', async () => {
 		expect(claimOutcomeForRow(undefined)).toBe('in_flight');
 	});
 
-	it('still recognises a genuinely completed event', () => {
+	it('still recognises a genuinely completed event', async () => {
 		expect(claimOutcomeForRow({ status: 'done' })).toBe('done');
 	});
 
-	it('recognises another worker mid-flight', () => {
+	it('recognises another worker mid-flight', async () => {
 		expect(claimOutcomeForRow({ status: 'processing' })).toBe('in_flight');
 	});
 });

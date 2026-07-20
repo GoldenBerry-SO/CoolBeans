@@ -44,13 +44,13 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		}
 		const parsed = lookupBody.safeParse(raw);
 		if (!parsed.success) throw badRequest('A license_key is required.');
-		const resolved = resolveLicense(deps, parsed.data.license_key);
+		const resolved = await resolveLicense(deps, parsed.data.license_key);
 		const nowIso = nowDate(deps).toISOString();
 		const leaseCondition =
 			resolved.product.activationModel === 'floating'
 				? sql`${activations.leaseExpiresAt} > ${nowIso}`
 				: sql`1 = 1`;
-		const devices = deps.db
+		const devices = await deps.db
 			.select()
 			.from(activations)
 			.where(
@@ -60,8 +60,7 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 					leaseCondition,
 				),
 			)
-			.orderBy(desc(activations.createdAt))
-			.all();
+			.orderBy(desc(activations.createdAt));
 		return c.json({
 			ok: true,
 			license: serializeLicense(resolved.license, resolved.product, resolved.status),
@@ -89,13 +88,12 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			message: 'If we have licenses for that email, they are on their way.',
 		};
 
-		const rows = deps.db
+		const rows = await deps.db
 			.select({ license: licenses, product: products })
 			.from(licenses)
 			.innerJoin(purchases, eq(purchases.id, licenses.purchaseId))
 			.innerJoin(products, eq(products.id, licenses.productId))
-			.where(eq(sql`lower(${purchases.email})`, email))
-			.all();
+			.where(eq(sql`lower(${purchases.email})`, email));
 		if (rows.length === 0 || !deps.email) return c.json(uniform);
 
 		// Rendering AND sending both happen after the response. An unknown address returns
@@ -130,12 +128,12 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	/** A provider billing-portal URL so a subscriber can manage or cancel (§15). */
 	app.post('/v1/portal/billing-session', async (c) => {
 		const body = await readJson(c, billingBody, 'A license_key is required.');
-		const resolved = resolveLicense(deps, body.license_key);
-		const purchase = deps.db
+		const resolved = await resolveLicense(deps, body.license_key);
+		const [purchase] = await deps.db
 			.select()
 			.from(purchases)
 			.where(eq(purchases.id, resolved.license.purchaseId))
-			.get();
+			.limit(1);
 		const customerId = purchase?.providerCustomerId;
 		// A lifetime Stripe checkout also has a customer id, so the customer alone is not
 		// enough: without a subscription there is genuinely nothing to manage, and sending

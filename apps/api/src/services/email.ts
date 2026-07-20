@@ -75,10 +75,9 @@ export async function sendKeyEmail(
 		subject: `Your ${args.product.name} license key`,
 		html,
 	});
-	deps.db
+	await deps.db
 		.update(licenses)
 		.set({ emailSentAt: nowIso(deps) })
-		.where(eq(licenses.id, args.license.id))
-		.run();
+		.where(eq(licenses.id, args.license.id));
 	return true;
 }

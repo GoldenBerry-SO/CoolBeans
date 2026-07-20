@@ -16,11 +16,11 @@ type Provider = 'stripe' | 'paypal';
  * reference, reason): redelivery cannot stack rows, while a refund and chargeback may
  * coexist because clearing one cause must not silently discard the other.
  */
-export function recordPendingRevocation(
+export async function recordPendingRevocation(
 	deps: AppDeps,
 	args: { provider: Provider; reference: string; reason: DisableReason; eventId: string },
-): void {
-	deps.db
+): Promise<void> {
+	await deps.db
 		.insert(pendingRevocations)
 		.values({
 			provider: args.provider,
@@ -28,16 +28,15 @@ export function recordPendingRevocation(
 			reason: args.reason,
 			eventId: args.eventId,
 		})
-		.onConflictDoNothing()
-		.run();
+		.onConflictDoNothing();
 
 	// Look again now the row is committed. Issuance and this handler are not one
 	// transaction, so a checkout that ran between our lookup and this insert would have
 	// seen no pending row while we saw no licence, and the revocation would sit here
 	// forever. Whichever side goes second finds the other's write.
-	const found = findLicenseByProviderId(deps, args.reference);
+	const found = await findLicenseByProviderId(deps, args.reference);
 	if (found) {
-		applyPendingRevocation(deps, {
+		await applyPendingRevocation(deps, {
 			license: found.license,
 			provider: args.provider,
 			references: [args.reference],
@@ -50,11 +49,11 @@ export function recordPendingRevocation(
  * before the checkout ever landed. Leaving it would revoke a licence for a customer who
  * paid, on the strength of a chargeback that no longer stands.
  */
-export function dropPendingRevocation(
+export async function dropPendingRevocation(
 	deps: AppDeps,
 	args: { provider: Provider; reference: string; reason: DisableReason },
-): void {
-	deps.db
+): Promise<void> {
+	await deps.db
 		.delete(pendingRevocations)
 		.where(
 			and(
@@ -63,8 +62,7 @@ export function dropPendingRevocation(
 				eq(pendingRevocations.reason, args.reason),
 				isNull(pendingRevocations.consumedAt),
 			),
-		)
-		.run();
+		);
 }
 
 /**
@@ -75,10 +73,10 @@ export function dropPendingRevocation(
  * Checks every id the payment could have been recorded under, since a refund names a
  * payment intent while a cancellation names a subscription.
  */
-export function applyPendingRevocation(
+export async function applyPendingRevocation(
 	deps: AppDeps,
 	args: { license: License; provider: Provider; references: Array<string | null | undefined> },
-): License {
+): Promise<License> {
 	const refs = args.references.filter((r): r is string => Boolean(r));
 	if (refs.length === 0) return args.license;
 
@@ -87,7 +85,7 @@ export function applyPendingRevocation(
 		// Every outstanding cause, not just the first. A refund and a chargeback can both
 		// be parked against one payment, and leaving either unconsumed would let a later
 		// restore hand back access the other one still forbids.
-		const rows = deps.db
+		const rows = await deps.db
 			.select()
 			.from(pendingRevocations)
 			.where(
@@ -96,20 +94,18 @@ export function applyPendingRevocation(
 					eq(pendingRevocations.reference, reference),
 					isNull(pendingRevocations.consumedAt),
 				),
-			)
-			.all();
+			);
 
 		for (const row of rows) {
-			license = disableLicense(deps, {
+			license = await disableLicense(deps, {
 				license,
 				reason: row.reason as DisableReason,
 				actor: `${args.provider}:${row.eventId}`,
 			});
-			deps.db
+			await deps.db
 				.update(pendingRevocations)
 				.set({ consumedAt: nowDate(deps).toISOString() })
-				.where(eq(pendingRevocations.id, row.id))
-				.run();
+				.where(eq(pendingRevocations.id, row.id));
 		}
 	}
 	return license;

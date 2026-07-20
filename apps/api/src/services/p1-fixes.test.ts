@@ -4,6 +4,7 @@
 import { purchases } from '@coolbeans/db';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../test/harness.js';
+import { rawExec } from '../test/pg.js';
 import { createProduct, issueKey, post } from '../test/seed.js';
 import { drainOutbox } from './outbox.js';
 import { claimEvent } from './payments.js';
@@ -11,7 +12,7 @@ import { claimEvent } from './payments.js';
 let h: TestHarness;
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
@@ -26,7 +27,9 @@ describe('a live claim must not swallow the provider retry', () => {
 		h.deps.stripe = fakeStripeGateway({}, { cs_x: ['price_x'] });
 
 		// A worker claimed this event and then crashed: the row stays 'processing'.
-		expect(claimEvent(h.deps, { id: 'evt_wedged', provider: 'stripe', type: 'x' })).toBe(true);
+		expect(await claimEvent(h.deps, { id: 'evt_wedged', provider: 'stripe', type: 'x' })).toBe(
+			true,
+		);
 
 		const res = await h.app.request('/v1/stripe/webhook', {
 			method: 'POST',
@@ -112,12 +115,17 @@ describe('archiving a product must not lose a paid checkout', () => {
 
 describe('manual issuance durability', () => {
 	it('rolls back the purchase if the license insert fails', async () => {
-		h.deps.db.$client.exec(`
+		// Postgres has no `RAISE(ABORT, ...)`; the SQLite original is rewritten to the
+		// equivalent BEFORE INSERT trigger that raises, which fails every licence insert.
+		await rawExec(`
+			CREATE FUNCTION reject_license_insert() RETURNS trigger AS $$
+			BEGIN
+				RAISE EXCEPTION 'simulated license failure';
+			END;
+			$$ LANGUAGE plpgsql;
 			CREATE TRIGGER reject_license_insert
 			BEFORE INSERT ON licenses
-			BEGIN
-				SELECT RAISE(ABORT, 'simulated license failure');
-			END
+			FOR EACH ROW EXECUTE FUNCTION reject_license_insert();
 		`);
 		const res = await h.app.request('/admin/keys', {
 			method: 'POST',
@@ -129,7 +137,7 @@ describe('manual issuance durability', () => {
 			}),
 		});
 		expect(res.status).toBe(500);
-		expect(h.deps.db.select().from(purchases).all()).toHaveLength(0);
+		expect(await h.deps.db.select().from(purchases)).toHaveLength(0);
 	});
 
 	it('does not deliver a queued key after the license is disabled', async () => {

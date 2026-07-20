@@ -1,14 +1,14 @@
 // ABOUTME: The purchases table — the payment event that produced a license (PRD §17).
 // ABOUTME: provider_checkout_id is UNIQUE so issuance can never double-fire across the success-page race.
 
-import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
+import { isoNow } from './columns.js';
 import { products } from './products.js';
 
-export const purchases = sqliteTable(
+export const purchases = pgTable(
 	'purchases',
 	{
-		id: integer('id').primaryKey({ autoIncrement: true }),
+		id: serial('id').primaryKey(),
 		productId: integer('product_id')
 			.notNull()
 			.references(() => products.id),
@@ -28,7 +28,7 @@ export const purchases = sqliteTable(
 		 * Stripe retries, so a stale event can arrive after the one that superseded it.
 		 */
 		lastSubscriptionEventAt: integer('last_subscription_event_at'),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+		createdAt: text('created_at').notNull().default(isoNow),
 	},
 	(t) => [
 		index('idx_purchases_subscription').on(t.providerSubscriptionId),

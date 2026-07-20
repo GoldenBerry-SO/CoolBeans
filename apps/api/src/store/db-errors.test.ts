@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { isUniqueConstraintError } from './db-errors.js';
 
 describe('isUniqueConstraintError', () => {
-	it('recognizes a wrapped libSQL uniqueness violation', () => {
+	it('recognizes a wrapped libSQL uniqueness violation', async () => {
 		const cause = Object.assign(new Error('UNIQUE constraint failed: licenses.key'), {
 			code: 'SQLITE_CONSTRAINT_UNIQUE',
 		});
@@ -13,7 +13,7 @@ describe('isUniqueConstraintError', () => {
 		expect(isUniqueConstraintError(error, ['licenses.key'])).toBe(true);
 	});
 
-	it('recognizes Postgres 23505 without classifying unrelated failures', () => {
+	it('recognizes Postgres 23505 without classifying unrelated failures', async () => {
 		const unique = Object.assign(new Error('duplicate key (provider_checkout_id)'), {
 			code: '23505',
 		});

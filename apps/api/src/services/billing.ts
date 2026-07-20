@@ -47,52 +47,52 @@ export function assertNotBillingPrice(
 	}
 }
 
-export function getSubscriptionRow(
+export async function getSubscriptionRow(
 	deps: Pick<AppDeps, 'db'>,
 	accountId: number,
-): AccountSubscription | undefined {
-	return deps.db
+): Promise<AccountSubscription | undefined> {
+	const [row] = await deps.db
 		.select()
 		.from(accountSubscriptions)
 		.where(eq(accountSubscriptions.accountId, accountId))
-		.get();
+		.limit(1);
+	return row;
 }
 
 /** The row for an account, created empty on first use. */
-export function ensureSubscriptionRow(
+export async function ensureSubscriptionRow(
 	deps: Pick<AppDeps, 'db'>,
 	accountId: number,
-): AccountSubscription {
-	const existing = getSubscriptionRow(deps, accountId);
+): Promise<AccountSubscription> {
+	const existing = await getSubscriptionRow(deps, accountId);
 	if (existing) return existing;
-	deps.db.insert(accountSubscriptions).values({ accountId }).onConflictDoNothing().run();
-	const row = getSubscriptionRow(deps, accountId);
+	await deps.db.insert(accountSubscriptions).values({ accountId }).onConflictDoNothing();
+	const row = await getSubscriptionRow(deps, accountId);
 	if (!row) throw new Error(`Could not create a subscription row for account ${accountId}`);
 	return row;
 }
 
-function patchSubscription(
+async function patchSubscription(
 	deps: Pick<AppDeps, 'db' | 'now'>,
 	accountId: number,
 	patch: Partial<AccountSubscription>,
-): void {
-	deps.db
+): Promise<void> {
+	await deps.db
 		.update(accountSubscriptions)
 		.set({ ...patch, updatedAt: nowIso(deps) })
-		.where(eq(accountSubscriptions.accountId, accountId))
-		.run();
+		.where(eq(accountSubscriptions.accountId, accountId));
 }
 
 /**
  * Remember the Stripe customer for an account. Called before checkout is created, so a
  * session that never completes still leaves a customer we can reuse.
  */
-export function setCustomerId(
+export async function setCustomerId(
 	deps: Pick<AppDeps, 'db' | 'now'>,
 	accountId: number,
 	customerId: string,
-): void {
-	patchSubscription(deps, accountId, { stripeCustomerId: customerId });
+): Promise<void> {
+	await patchSubscription(deps, accountId, { stripeCustomerId: customerId });
 }
 
 /**
@@ -102,34 +102,39 @@ export function setCustomerId(
  * the stamp would make the console show a stale "you went over in March" banner if the
  * account ever dropped back to Free.
  */
-export function setPlan(deps: Pick<AppDeps, 'db'>, accountId: number, plan: 'free' | 'pro'): void {
-	deps.db
+export async function setPlan(
+	deps: Pick<AppDeps, 'db'>,
+	accountId: number,
+	plan: 'free' | 'pro',
+): Promise<void> {
+	await deps.db
 		.update(accounts)
 		.set({ plan, ...(plan === 'pro' ? { overLimitSince: null } : {}) })
-		.where(eq(accounts.id, accountId))
-		.run();
+		.where(eq(accounts.id, accountId));
 }
 
-export function findAccountByCustomerId(
+export async function findAccountByCustomerId(
 	deps: Pick<AppDeps, 'db'>,
 	customerId: string,
-): number | undefined {
-	return deps.db
+): Promise<number | undefined> {
+	const [row] = await deps.db
 		.select({ accountId: accountSubscriptions.accountId })
 		.from(accountSubscriptions)
 		.where(eq(accountSubscriptions.stripeCustomerId, customerId))
-		.get()?.accountId;
+		.limit(1);
+	return row?.accountId;
 }
 
-function findAccountBySubscriptionId(
+async function findAccountBySubscriptionId(
 	deps: Pick<AppDeps, 'db'>,
 	subscriptionId: string,
-): number | undefined {
-	return deps.db
+): Promise<number | undefined> {
+	const [row] = await deps.db
 		.select({ accountId: accountSubscriptions.accountId })
 		.from(accountSubscriptions)
 		.where(eq(accountSubscriptions.stripeSubscriptionId, subscriptionId))
-		.get()?.accountId;
+		.limit(1);
+	return row?.accountId;
 }
 
 function str(value: unknown): string | null {
@@ -206,7 +211,7 @@ export async function handleBillingEvent(
 			if (!sub) return ignore('subscription_not_found');
 			if (sub.priceId !== proPriceId) return ignore('foreign_price');
 
-			return applySubscriptionState(deps, event, accountId, {
+			return await applySubscriptionState(deps, event, accountId, {
 				subscriptionId,
 				customerId: str(object.customer),
 				status: sub.status,
@@ -222,7 +227,7 @@ export async function handleBillingEvent(
 			const priceId = priceIdOfSubscription(object);
 			// Deletion events can arrive with the price already detached, so fall back to
 			// the row we hold rather than ignoring a real cancellation.
-			const known = findAccountBySubscriptionId(deps, subscriptionId);
+			const known = await findAccountBySubscriptionId(deps, subscriptionId);
 			if (priceId && priceId !== proPriceId) return ignore('foreign_price');
 			if (!priceId && known === undefined) return ignore('unknown_subscription');
 
@@ -231,7 +236,7 @@ export async function handleBillingEvent(
 
 			const status =
 				event.type === 'customer.subscription.deleted' ? 'canceled' : str(object.status);
-			return applySubscriptionState(deps, event, accountId, {
+			return await applySubscriptionState(deps, event, accountId, {
 				subscriptionId,
 				customerId: str(object.customer),
 				status: status ?? 'canceled',
@@ -245,23 +250,23 @@ export async function handleBillingEvent(
 			const customerId = str(object.customer);
 			const accountId =
 				accountIdFromMetadata(object) ??
-				(customerId ? findAccountByCustomerId(deps, customerId) : undefined);
+				(customerId ? await findAccountByCustomerId(deps, customerId) : undefined);
 			if (accountId === undefined) return ignore('unknown_customer');
 			// Metadata is attacker-shaped input in principle, so confirm the account is real
 			// before creating a subscription row that would reference nothing.
-			if (!getAccountById(deps.db, accountId)) return ignore('unknown_account');
+			if (!(await getAccountById(deps.db, accountId))) return ignore('unknown_account');
 			const failed = event.type === 'invoice.payment_failed';
 			// No downgrade on a failed payment. Stripe is still retrying the card, and the
 			// subscription events will say when it truly lapses. Without this handler an
 			// expired card is invisible until the subscription dies and the first the
 			// customer hears about it is a downgrade.
-			ensureSubscriptionRow(deps, accountId);
-			patchSubscription(deps, accountId, {
+			await ensureSubscriptionRow(deps, accountId);
+			await patchSubscription(deps, accountId, {
 				pastDueSince: failed
-					? (getSubscriptionRow(deps, accountId)?.pastDueSince ?? nowIso(deps))
+					? ((await getSubscriptionRow(deps, accountId))?.pastDueSince ?? nowIso(deps))
 					: null,
 			});
-			writeAudit(deps.db, {
+			await writeAudit(deps.db, {
 				action: failed ? 'billing.payment_failed' : 'billing.payment_succeeded',
 				actor: `stripe_billing:${event.id}`,
 				accountId,
@@ -282,13 +287,13 @@ interface SubscriptionState {
 	cancelAtPeriodEnd: boolean;
 }
 
-function applySubscriptionState(
+async function applySubscriptionState(
 	deps: AppDeps,
 	event: StripeEvent,
 	accountId: number,
 	state: SubscriptionState,
-): BillingEventOutcome {
-	const account: Account | undefined = getAccountById(deps.db, accountId);
+): Promise<BillingEventOutcome> {
+	const account: Account | undefined = await getAccountById(deps.db, accountId);
 	if (!account) {
 		deps.logger.warn('Platform billing event for an account that does not exist', {
 			event: event.id,
@@ -297,7 +302,7 @@ function applySubscriptionState(
 		return { outcome: 'ignored', reason: 'unknown_account' };
 	}
 
-	const row = ensureSubscriptionRow(deps, accountId);
+	const row = await ensureSubscriptionRow(deps, accountId);
 	// Stripe retries for days and does not guarantee order, so a stale 'active' can land
 	// after the cancellation that superseded it. Same comparator the product path uses.
 	if (!shouldApplySubscriptionEvent(event.created, row.lastEventAt)) {
@@ -310,7 +315,7 @@ function applySubscriptionState(
 	}
 
 	const paying = PAYING_STATUSES.has(state.status);
-	patchSubscription(deps, accountId, {
+	await patchSubscription(deps, accountId, {
 		stripeSubscriptionId: state.subscriptionId,
 		...(state.customerId ? { stripeCustomerId: state.customerId } : {}),
 		status: state.status,
@@ -320,8 +325,8 @@ function applySubscriptionState(
 		...(state.status === 'past_due' ? {} : { pastDueSince: null }),
 		...(event.created !== undefined ? { lastEventAt: event.created } : {}),
 	});
-	setPlan(deps, accountId, paying ? 'pro' : 'free');
-	writeAudit(deps.db, {
+	await setPlan(deps, accountId, paying ? 'pro' : 'free');
+	await writeAudit(deps.db, {
 		action: paying ? 'billing.plan_active' : 'billing.plan_lapsed',
 		actor: `stripe_billing:${event.id}`,
 		accountId,

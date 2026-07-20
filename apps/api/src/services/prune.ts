@@ -1,7 +1,7 @@
 // ABOUTME: Retention prune (issue #49, ARCHITECTURE "Retention") — ages out provider_events.
 // ABOUTME: audit_log is deliberately never pruned: it is the operator's record of who did what.
 
-import { providerEvents } from '@coolbeans/db';
+import { affected, providerEvents } from '@coolbeans/db';
 import { and, eq, lt } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
@@ -21,23 +21,24 @@ export const PROVIDER_EVENT_RETENTION_DAYS = 30;
  * flight or a stuck claim worth investigating; deleting it would let the same event run
  * a second time and issue a duplicate key.
  */
-export function pruneProviderEvents(deps: AppDeps): number {
+export async function pruneProviderEvents(deps: AppDeps): Promise<number> {
 	const cutoff = new Date(
 		nowDate(deps).getTime() - PROVIDER_EVENT_RETENTION_DAYS * 24 * 60 * 60 * 1000,
 	).toISOString();
 
-	const result = deps.db
+	const result = await deps.db
 		.delete(providerEvents)
 		.where(and(eq(providerEvents.status, 'done'), lt(providerEvents.receivedAt, cutoff)))
-		.run();
+		.returning({ id: providerEvents.id });
+	const deleted = affected(result);
 
 	// Rows vanishing from the idempotency table is a state change; §16 wants it explained.
-	if (result.changes > 0) {
-		writeAudit(deps.db, {
+	if (deleted > 0) {
+		await writeAudit(deps.db, {
 			action: 'provider_events.pruned',
 			actor: 'system',
-			detail: { deleted: result.changes, older_than: cutoff },
+			detail: { deleted, older_than: cutoff },
 		});
 	}
-	return result.changes;
+	return deleted;
 }

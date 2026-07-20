@@ -19,7 +19,7 @@ function samplePayload(): TokenPayload {
 }
 
 describe('offline tokens', () => {
-	it('signs and verifies with the matching public key', () => {
+	it('signs and verifies with the matching public key', async () => {
 		const pair = generateSigningKeyPair();
 		const token = signToken(samplePayload(), pair, '1');
 		const payload = verifyToken(token, { '1': pair.publicKey });
@@ -27,20 +27,20 @@ describe('offline tokens', () => {
 		expect(payload?.instance_id).toBe('inst_1');
 	});
 
-	it('rejects a token signed by a different key', () => {
+	it('rejects a token signed by a different key', async () => {
 		const a = generateSigningKeyPair();
 		const b = generateSigningKeyPair();
 		const token = signToken(samplePayload(), a, '1');
 		expect(verifyToken(token, { '1': b.publicKey })).toBeNull();
 	});
 
-	it('rejects a token whose kid is not in the key set', () => {
+	it('rejects a token whose kid is not in the key set', async () => {
 		const pair = generateSigningKeyPair();
 		const token = signToken(samplePayload(), pair, '2');
 		expect(verifyToken(token, { '1': pair.publicKey })).toBeNull();
 	});
 
-	it('rotation: old and new tokens both verify against the served key set', () => {
+	it('rotation: old and new tokens both verify against the served key set', async () => {
 		const oldKey = generateSigningKeyPair();
 		const newKey = generateSigningKeyPair();
 		const oldToken = signToken(samplePayload(), oldKey, '1');
@@ -50,7 +50,7 @@ describe('offline tokens', () => {
 		expect(verifyToken(newToken, served)?.product).toBe('clementine');
 	});
 
-	it('rejects a tampered payload', () => {
+	it('rejects a tampered payload', async () => {
 		const pair = generateSigningKeyPair();
 		const token = signToken(samplePayload(), pair, '1');
 		const [h, , s] = token.split('.');
@@ -60,13 +60,13 @@ describe('offline tokens', () => {
 });
 
 describe('at-rest encryption', () => {
-	it('round-trips a secret', () => {
+	it('round-trips a secret', async () => {
 		const enc = encryptSecret('super-secret-private-key', 'master-secret-value');
 		expect(enc).not.toContain('super-secret');
 		expect(decryptSecret(enc, 'master-secret-value')).toBe('super-secret-private-key');
 	});
 
-	it('fails to decrypt with the wrong master secret', () => {
+	it('fails to decrypt with the wrong master secret', async () => {
 		const enc = encryptSecret('data', 'right-secret');
 		expect(() => decryptSecret(enc, 'wrong-secret')).toThrow();
 	});

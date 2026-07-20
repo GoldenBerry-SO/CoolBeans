@@ -56,14 +56,13 @@ export function limitsFor(deps: Pick<AppDeps, 'config'>, account: Account): Plan
 }
 
 /** Live products an account owns. Archived ones do not count, so archiving frees a slot. */
-export function countLiveProducts(db: Database, accountId: number): number {
-	return (
-		db
-			.select({ n: count() })
-			.from(products)
-			.where(and(eq(products.accountId, accountId), isNull(products.archivedAt)))
-			.get()?.n ?? 0
-	);
+export async function countLiveProducts(db: Database, accountId: number): Promise<number> {
+	const [row] = await db
+		.select({ n: count() })
+		.from(products)
+		.where(and(eq(products.accountId, accountId), isNull(products.archivedAt)))
+		.limit(1);
+	return row?.n ?? 0;
 }
 
 /**
@@ -74,15 +73,14 @@ export function countLiveProducts(db: Database, accountId: number): number {
  * to be wrong in — the next sweep corrects it in the customer's favour, and counting
  * "truly" would mean running expiry logic on a counting path.
  */
-export function countActiveLicenses(db: Database, accountId: number): number {
-	return (
-		db
-			.select({ n: count() })
-			.from(licenses)
-			.innerJoin(products, eq(products.id, licenses.productId))
-			.where(and(eq(products.accountId, accountId), eq(licenses.status, 'active')))
-			.get()?.n ?? 0
-	);
+export async function countActiveLicenses(db: Database, accountId: number): Promise<number> {
+	const [row] = await db
+		.select({ n: count() })
+		.from(licenses)
+		.innerJoin(products, eq(products.id, licenses.productId))
+		.where(and(eq(products.accountId, accountId), eq(licenses.status, 'active')))
+		.limit(1);
+	return row?.n ?? 0;
 }
 
 export interface Usage {
@@ -96,25 +94,28 @@ export function withinLimit(usage: Usage): boolean {
 }
 
 /** Products and active licences an account has used, against the limits in force. */
-export function planUsage(
+export async function planUsage(
 	deps: Pick<AppDeps, 'config' | 'db'>,
 	account: Account,
-): { products: Usage; activeLicenses: Usage } {
+): Promise<{ products: Usage; activeLicenses: Usage }> {
 	const limits = limitsFor(deps, account);
 	return {
-		products: { current: countLiveProducts(deps.db, account.id), limit: limits.products },
+		products: { current: await countLiveProducts(deps.db, account.id), limit: limits.products },
 		activeLicenses: {
-			current: countActiveLicenses(deps.db, account.id),
+			current: await countActiveLicenses(deps.db, account.id),
 			limit: limits.activeLicenses,
 		},
 	};
 }
 
 /** Stamp the moment an account first went over a limit, for the console banner. Idempotent. */
-export function markOverLimit(deps: Pick<AppDeps, 'db'>, accountId: number, at: string): void {
-	deps.db
+export async function markOverLimit(
+	deps: Pick<AppDeps, 'db'>,
+	accountId: number,
+	at: string,
+): Promise<void> {
+	await deps.db
 		.update(accounts)
 		.set({ overLimitSince: at })
-		.where(and(eq(accounts.id, accountId), isNull(accounts.overLimitSince)))
-		.run();
+		.where(and(eq(accounts.id, accountId), isNull(accounts.overLimitSince)));
 }

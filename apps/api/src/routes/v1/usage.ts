@@ -27,7 +27,7 @@ export function registerUsageRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const parsed = incrementBody.safeParse(raw);
 		if (!parsed.success)
 			throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid request body.');
-		const result = incrementUsage(
+		const result = await incrementUsage(
 			deps,
 			parsed.data.license_key,
 			parsed.data.instance_id,
@@ -59,7 +59,7 @@ export function registerUsageRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	app.get('/v1/usage', async (c) => {
 		const key = c.req.query('license_key');
 		if (!key) throw badRequest('license_key query parameter is required.');
-		const counters = getUsage(deps, key);
+		const counters = await getUsage(deps, key);
 		return c.json({ ok: true, usage: counters });
 	});
 }

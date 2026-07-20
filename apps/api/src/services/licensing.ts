@@ -3,7 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Activation, License, Product } from '@coolbeans/db';
-import { activations, licenses } from '@coolbeans/db';
+import { activations, applied, licenses } from '@coolbeans/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
@@ -39,10 +39,10 @@ export interface ResolvedLicense {
  * deactivate, heartbeat, usage, portal and the LS aliases — so the limit cannot be
  * sidestepped by probing a different endpoint.
  */
-export function resolveLicense(deps: AppDeps, keyInput: string): ResolvedLicense {
+export async function resolveLicense(deps: AppDeps, keyInput: string): Promise<ResolvedLicense> {
 	assertKeyNotThrottled(deps, keyInput);
 	try {
-		const resolved = resolveLicenseUnthrottled(deps, keyInput);
+		const resolved = await resolveLicenseUnthrottled(deps, keyInput);
 		clearKeyFailures(keyInput);
 		return resolved;
 	} catch (err) {
@@ -55,30 +55,37 @@ export function resolveLicense(deps: AppDeps, keyInput: string): ResolvedLicense
 }
 
 /** The raw lookup, without throttling — for callers that already passed through it. */
-export function resolveLicenseUnthrottled(deps: AppDeps, keyInput: string): ResolvedLicense {
+export async function resolveLicenseUnthrottled(
+	deps: AppDeps,
+	keyInput: string,
+): Promise<ResolvedLicense> {
 	const { db } = deps;
 	// Format check before any storage hit (§10, §19): malformed input never reaches the DB.
 	if (!looksLikeKey(keyInput)) throw invalidKey();
-	const parsed = normalizeAgainst(keyInput, listPrefixes(db));
+	const parsed = normalizeAgainst(keyInput, await listPrefixes(db));
 	if (!parsed) throw invalidKey();
-	const license = db.select().from(licenses).where(eq(licenses.key, parsed.normalized)).get();
+	const [license] = await db
+		.select()
+		.from(licenses)
+		.where(eq(licenses.key, parsed.normalized))
+		.limit(1);
 	if (!license) throw unknownKey();
-	const product = getProductById(db, license.productId);
+	const product = await getProductById(db, license.productId);
 	if (!product) throw unknownKey();
 
 	let status = license.status;
 	if (status === 'active' && isTrialExpired(license, nowDate(deps))) {
 		// Persist the lazy expiry so the trail and downstream reads agree.
 		const disabledAt = nowDate(deps).toISOString();
-		db.update(licenses)
+		await db
+			.update(licenses)
 			.set({ status: 'disabled', disabledAt, disabledReason: 'trial_expired' })
-			.where(eq(licenses.id, license.id))
-			.run();
+			.where(eq(licenses.id, license.id));
 		license.status = 'disabled';
 		license.disabledAt = disabledAt;
 		license.disabledReason = 'trial_expired';
 		status = 'disabled';
-		writeAudit(db, {
+		await writeAudit(db, {
 			action: 'license.disabled',
 			actor: 'system',
 			productId: product.id,
@@ -111,9 +118,13 @@ export interface ActivateResult {
 }
 
 /** POST /v1/activate — enforce the seat limit atomically; reuse a device by name (PRD §9). */
-export function activate(deps: AppDeps, keyInput: string, instanceName: string): ActivateResult {
+export async function activate(
+	deps: AppDeps,
+	keyInput: string,
+	instanceName: string,
+): Promise<ActivateResult> {
 	const { db } = deps;
-	const resolved = resolveLicense(deps, keyInput);
+	const resolved = await resolveLicense(deps, keyInput);
 	if (resolved.status === 'disabled') throw licenseDisabled();
 	const { license, product } = resolved;
 	const now = nowDate(deps);
@@ -123,10 +134,10 @@ export function activate(deps: AppDeps, keyInput: string, instanceName: string):
 			? new Date(now.getTime() + product.floatingLeaseMinutes * 60_000).toISOString()
 			: null;
 
-	const activation = db.transaction((tx): Activation => {
+	const activation = await db.transaction(async (tx): Promise<Activation> => {
 		// Reuse an existing live seat for the same device name rather than burning a seat.
 		if (instanceName) {
-			const existing = tx
+			const [existing] = await tx
 				.select()
 				.from(activations)
 				.where(
@@ -136,12 +147,12 @@ export function activate(deps: AppDeps, keyInput: string, instanceName: string):
 						sql`deactivated_at IS NULL`,
 					),
 				)
-				.get();
+				.limit(1);
 			if (existing) {
 				if (leaseExpiresAt) {
 					// Guarded renew: an expired lease may only be revived if a seat is free —
 					// other live leases (excluding this record) must be under the limit.
-					const renewed = tx.run(sql`
+					const renewed = await tx.execute(sql`
 						UPDATE activations SET lease_expires_at = ${leaseExpiresAt}
 						WHERE id = ${existing.id}
 						AND (
@@ -149,8 +160,9 @@ export function activate(deps: AppDeps, keyInput: string, instanceName: string):
 							WHERE license_id = ${license.id} AND id != ${existing.id}
 								AND ${liveSeatCondition(product, nowIso)}
 						) < ${product.activationLimit}
+						RETURNING id
 					`);
-					if (renewed.changes === 0) throw activationLimitReached(product.activationLimit);
+					if (!applied(renewed)) throw activationLimitReached(product.activationLimit);
 					existing.leaseExpiresAt = leaseExpiresAt;
 				}
 				return existing;
@@ -159,25 +171,26 @@ export function activate(deps: AppDeps, keyInput: string, instanceName: string):
 
 		// Guarded insert: only succeeds if live seats are below the limit (single atomic statement).
 		const instanceId = randomUUID();
-		const result = tx.run(sql`
+		const result = await tx.execute(sql`
 			INSERT INTO activations (instance_id, license_id, name, created_at, lease_expires_at)
 			SELECT ${instanceId}, ${license.id}, ${instanceName}, ${nowIso}, ${leaseExpiresAt}
 			WHERE (
 				SELECT COUNT(*) FROM activations
 				WHERE license_id = ${license.id} AND ${liveSeatCondition(product, nowIso)}
 			) < ${product.activationLimit}
+			RETURNING id
 		`);
-		if (result.changes === 0) throw activationLimitReached(product.activationLimit);
-		const created = tx
+		if (!applied(result)) throw activationLimitReached(product.activationLimit);
+		const [created] = await tx
 			.select()
 			.from(activations)
 			.where(eq(activations.instanceId, instanceId))
-			.get();
+			.limit(1);
 		if (!created) throw activationLimitReached(product.activationLimit);
 		return created;
 	});
 
-	writeAudit(db, {
+	await writeAudit(db, {
 		action: 'activation.created',
 		actor: 'client',
 		productId: product.id,
@@ -198,24 +211,28 @@ export interface ValidateResult {
 }
 
 /** POST /v1/validate — a known key always returns 200; token only on a live instance (PRD §9). */
-export function validate(deps: AppDeps, keyInput: string, instanceId: string): ValidateResult {
+export async function validate(
+	deps: AppDeps,
+	keyInput: string,
+	instanceId: string,
+): Promise<ValidateResult> {
 	const { db } = deps;
-	const resolved = resolveLicense(deps, keyInput);
+	const resolved = await resolveLicense(deps, keyInput);
 	const { license, product, status } = resolved;
 
 	// Count every check that reached a real licence, refusals included: the chart is
 	// traffic, and a spike in refusals is exactly what an operator wants to see.
-	recordValidation(deps, product.id);
+	await recordValidation(deps, product.id);
 
 	if (status === 'disabled') {
 		return { valid: false, license, product, status, activation: null, token: null };
 	}
 
-	const activation = db
+	const [activation] = await db
 		.select()
 		.from(activations)
 		.where(and(eq(activations.instanceId, instanceId), eq(activations.licenseId, license.id)))
-		.get();
+		.limit(1);
 
 	const now = nowDate(deps);
 	const live =
@@ -230,12 +247,12 @@ export function validate(deps: AppDeps, keyInput: string, instanceId: string): V
 	}
 
 	const nowIso = now.toISOString();
-	db.update(activations)
+	await db
+		.update(activations)
 		.set({ lastValidatedAt: nowIso })
-		.where(eq(activations.id, activation.id))
-		.run();
+		.where(eq(activations.id, activation.id));
 
-	const { token } = mintToken(deps, {
+	const { token } = await mintToken(deps, {
 		license,
 		product,
 		instanceId,
@@ -246,11 +263,15 @@ export function validate(deps: AppDeps, keyInput: string, instanceId: string): V
 }
 
 /** POST /v1/deactivate — idempotent seat free (PRD §9). */
-export function deactivate(deps: AppDeps, keyInput: string, instanceId: string): void {
+export async function deactivate(
+	deps: AppDeps,
+	keyInput: string,
+	instanceId: string,
+): Promise<void> {
 	const { db } = deps;
-	const resolved = resolveLicense(deps, keyInput);
+	const resolved = await resolveLicense(deps, keyInput);
 	const nowIso = nowDate(deps).toISOString();
-	const result = db
+	const result = await db
 		.update(activations)
 		.set({ deactivatedAt: nowIso })
 		.where(
@@ -260,9 +281,9 @@ export function deactivate(deps: AppDeps, keyInput: string, instanceId: string):
 				sql`deactivated_at IS NULL`,
 			),
 		)
-		.run();
-	if (result.changes > 0) {
-		writeAudit(db, {
+		.returning({ id: activations.id });
+	if (applied(result)) {
+		await writeAudit(db, {
 			action: 'activation.deactivated',
 			actor: 'client',
 			productId: resolved.product.id,
@@ -277,9 +298,13 @@ export interface HeartbeatResult {
 }
 
 /** POST /v1/heartbeat — renew a floating lease, keeping the seat held (PRD §9). */
-export function heartbeat(deps: AppDeps, keyInput: string, instanceId: string): HeartbeatResult {
+export async function heartbeat(
+	deps: AppDeps,
+	keyInput: string,
+	instanceId: string,
+): Promise<HeartbeatResult> {
 	const { db } = deps;
-	const resolved = resolveLicense(deps, keyInput);
+	const resolved = await resolveLicense(deps, keyInput);
 	if (resolved.status === 'disabled') throw licenseDisabled();
 	const { license, product } = resolved;
 
@@ -295,7 +320,7 @@ export function heartbeat(deps: AppDeps, keyInput: string, instanceId: string): 
 	// Renew a live lease freely; an expired lease may only be revived if a seat is free
 	// (other live leases stay under the limit). A crashed client whose seat was taken
 	// must re-activate rather than silently exceeding the pool.
-	const renewed = db.run(sql`
+	const renewed = await db.execute(sql`
 		UPDATE activations SET lease_expires_at = ${leaseExpiresAt}
 		WHERE instance_id = ${instanceId} AND license_id = ${license.id}
 			AND deactivated_at IS NULL
@@ -309,7 +334,8 @@ export function heartbeat(deps: AppDeps, keyInput: string, instanceId: string): 
 						AND others.lease_expires_at > ${nowIso}
 				) < ${product.activationLimit}
 			)
+		RETURNING id
 	`);
 	// No row renewed: unknown/deactivated instance, or a lapsed lease with no free seat.
-	return { leaseExpiresAt: renewed.changes > 0 ? leaseExpiresAt : null };
+	return { leaseExpiresAt: applied(renewed) ? leaseExpiresAt : null };
 }

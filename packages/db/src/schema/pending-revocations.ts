@@ -1,13 +1,13 @@
 // ABOUTME: Terminal payment events that arrived before the purchase they refer to (PRD §13).
 // ABOUTME: Stripe does not guarantee delivery order, so a refund can land before its checkout.
 
-import { sql } from 'drizzle-orm';
-import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { pgTable, serial, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { isoNow } from './columns.js';
 
-export const pendingRevocations = sqliteTable(
+export const pendingRevocations = pgTable(
 	'pending_revocations',
 	{
-		id: integer('id').primaryKey({ autoIncrement: true }),
+		id: serial('id').primaryKey(),
 		provider: text('provider', { enum: ['stripe', 'paypal'] })
 			.notNull()
 			.default('stripe'),
@@ -15,7 +15,7 @@ export const pendingRevocations = sqliteTable(
 		reference: text('reference').notNull(),
 		reason: text('reason').notNull(),
 		eventId: text('event_id').notNull(),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+		createdAt: text('created_at').notNull().default(isoNow),
 		consumedAt: text('consumed_at'),
 	},
 	// One row per (reference, cause). Keying on the reference alone let a dispute and a

@@ -9,7 +9,7 @@ let h: TestHarness;
 let key: string;
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'hexis',
 		name: 'Hexis',

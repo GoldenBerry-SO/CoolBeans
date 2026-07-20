@@ -11,7 +11,7 @@ import { createProduct, issueKey, signUp } from '../../test/seed.js';
 const FINGERPRINT = 'AAAA-BBBB-CCCC-DDDD';
 
 async function seeded(config: Partial<Config> = {}) {
-	const h = makeHarness({ config });
+	const h = await makeHarness({ config });
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
@@ -78,7 +78,7 @@ describe('minting an offline activation', () => {
 	it('consumes a real seat, visible to the console like any other activation', async () => {
 		const { h, key } = await seeded();
 		await mint(h, key);
-		const seats = h.deps.db.select().from(activations).all();
+		const seats = await h.deps.db.select().from(activations);
 		expect(seats).toHaveLength(1);
 		expect(seats[0]?.name).toContain(FINGERPRINT);
 	});
@@ -94,7 +94,7 @@ describe('minting an offline activation', () => {
 		expect((await third.json()) as { error: string }).toMatchObject({
 			error: 'activation_limit_reached',
 		});
-		expect(h.deps.db.select().from(activations).all()).toHaveLength(2);
+		expect(await h.deps.db.select().from(activations)).toHaveLength(2);
 	});
 
 	it('refuses a disabled licence', async () => {
@@ -142,7 +142,7 @@ describe('the long TTL an air-gapped machine needs', () => {
 	it('never outlives the licence itself', async () => {
 		// A one-year token on a licence that ends in a month would keep unlocking long
 		// after the customer stopped paying, with no way to reach the machine.
-		const h = makeHarness();
+		const h = await makeHarness();
 		await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',
@@ -170,11 +170,11 @@ describe('the audit trail', () => {
 		// who did it has to be on the record.
 		const { h, key } = await seeded();
 		await mint(h, key);
-		const entry = h.deps.db
+		const [entry] = await h.deps.db
 			.select()
 			.from(auditLog)
 			.where(eq(auditLog.action, 'activation.offline_issued'))
-			.get();
+			.limit(1);
 		expect(entry).toBeDefined();
 		expect(entry?.actor).toBe('admin:token');
 		expect(JSON.parse(entry?.detail ?? '{}')).toMatchObject({ fingerprint: FINGERPRINT });
@@ -187,7 +187,7 @@ describe('tenancy', () => {
 			billing: { stripeSecretKey: 'sk', proPriceId: 'price' },
 			logMagicCodes: true,
 		};
-		const h = makeHarness({ config: cloud });
+		const h = await makeHarness({ config: cloud });
 		const alice = await signUp(h.app, h.logger, 'alice@alpha.test', 'alpha');
 		const bob = await signUp(h.app, h.logger, 'bob@beta.test', 'beta');
 		await createProduct(
@@ -206,7 +206,7 @@ describe('tenancy', () => {
 		);
 		// 404, never 403: a 403 would confirm the key exists in someone else's account.
 		expect(res.status).toBe(404);
-		expect(h.deps.db.select().from(activations).all()).toHaveLength(0);
+		expect(await h.deps.db.select().from(activations)).toHaveLength(0);
 	});
 });
 
@@ -239,7 +239,7 @@ describe('findings from the Codex review', () => {
 		// never heartbeat, so its lease lapses, the server frees the seat, and an operator
 		// can mint unlimited air-gapped tokens while every earlier machine stays unlocked.
 		// Offline activation is inherently node-locked.
-		const h = makeHarness();
+		const h = await makeHarness();
 		await createProduct(h.app, {
 			slug: 'floaty',
 			name: 'Floaty',
@@ -262,13 +262,13 @@ describe('findings from the Codex review', () => {
 		expect((await res.json()) as { error: string }).toMatchObject({
 			error: 'floating_not_supported',
 		});
-		expect(h.deps.db.select().from(activations).all()).toHaveLength(0);
+		expect(await h.deps.db.select().from(activations)).toHaveLength(0);
 	});
 
 	it('does not extend an air-gapped token by the renewal buffer', async () => {
 		// The buffer exists so a client that CAN reconnect has room to. An air-gapped
 		// machine never will, so the buffer only lets it outlive the paid licence.
-		const h = makeHarness();
+		const h = await makeHarness();
 		await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',

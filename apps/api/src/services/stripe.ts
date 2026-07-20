@@ -87,7 +87,7 @@ export async function ensureLicenseForSession(
 		const sessionId = str(obj, 'id');
 		const lineItems = sessionId ? await deps.stripe.sessionLineItems(sessionId) : [];
 		for (const item of lineItems) {
-			const match = getProductByStripePrice(deps.db, item.priceId);
+			const match = await getProductByStripePrice(deps.db, item.priceId);
 			if (match) {
 				product = match.product;
 				priceTier = match.tier;
@@ -97,7 +97,7 @@ export async function ensureLicenseForSession(
 		}
 	}
 	if (!product && slug) {
-		product = getProductBySlugGlobal(deps.db, slug);
+		product = await getProductBySlugGlobal(deps.db, slug);
 		if (product) {
 			deps.logger.info('Stripe checkout resolved by metadata, no price matched', {
 				slug,
@@ -113,7 +113,7 @@ export async function ensureLicenseForSession(
 		// We answer 200 so Stripe stops retrying (a retry cannot fix a price id that
 		// points nowhere), which means a log line is the only trace unless we write one.
 		// Someone paid: record it so the money can be reconciled against a real person.
-		writeAudit(deps.db, {
+		await writeAudit(deps.db, {
 			action: 'payment.unfulfilled',
 			actor: `stripe:${actorEventId}`,
 			detail: {
@@ -156,7 +156,7 @@ export async function ensureLicenseForSession(
 	// One checkout issues exactly one key. If they were charged for more, we cannot
 	// un-charge them here, but a silent mismatch means nobody ever finds out.
 	if (paidQuantity > 1) {
-		writeAudit(deps.db, {
+		await writeAudit(deps.db, {
 			action: 'payment.quantity_mismatch',
 			actor: `stripe:${actorEventId}`,
 			productId: product.id,
@@ -186,7 +186,7 @@ export async function handleStripeEvent(
 	// registers. The global endpoint has no product in the path, so it stays unattributed.
 	accountId?: number,
 ): Promise<void> {
-	const claim = claimEventStatus(deps, {
+	const claim = await claimEventStatus(deps, {
 		id: event.id,
 		provider: 'stripe',
 		type: event.type,
@@ -202,10 +202,10 @@ export async function handleStripeEvent(
 	try {
 		await processStripeEvent(deps, event);
 	} catch (err) {
-		releaseEvent(deps, event.id, claim.token);
+		await releaseEvent(deps, event.id, claim.token);
 		throw err;
 	}
-	completeEvent(deps, event.id, claim.token);
+	await completeEvent(deps, event.id, claim.token);
 }
 
 async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<void> {
@@ -235,7 +235,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 					const subFromCharge = await subscriptionForCharge(deps, obj);
 					for (const reference of [str(obj, 'payment_intent'), subFromCharge]) {
 						if (!reference) continue;
-						recordPendingRevocation(deps, {
+						await recordPendingRevocation(deps, {
 							provider: 'stripe',
 							reference,
 							reason: 'refund',
@@ -246,13 +246,13 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 				break;
 			}
 			if (isFull) {
-				disableLicense(deps, {
+				await disableLicense(deps, {
 					license: found.license,
 					reason: 'refund',
 					actor: `stripe:${event.id}`,
 				});
 			} else {
-				writeAudit(deps.db, {
+				await writeAudit(deps.db, {
 					action: 'license.partial_refund',
 					actor: `stripe:${event.id}`,
 					productId: found.license.productId,
@@ -269,7 +269,9 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			if (!subId) break;
 			// Stripe retries for days, so this may be an older state than the one we have
 			// already acted on. Applying it would resurrect a cancelled licence.
-			if (!shouldApplySubscriptionEvent(event.created, lastSubscriptionEventAt(deps, subId))) {
+			if (
+				!shouldApplySubscriptionEvent(event.created, await lastSubscriptionEventAt(deps, subId))
+			) {
 				deps.logger.info('Ignoring a stale subscription event', {
 					event: event.id,
 					subscription: subId,
@@ -277,19 +279,19 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 				});
 				break;
 			}
-			markSubscriptionEventApplied(deps, subId, event.created);
-			const found = findLicenseByProviderId(deps, subId);
+			await markSubscriptionEventApplied(deps, subId, event.created);
+			const found = await findLicenseByProviderId(deps, subId);
 
 			// Dunning belt-and-braces: an unpaid or dead subscription is a lapse.
 			if (LAPSED_SUBSCRIPTION_STATUSES.has(status ?? '')) {
 				if (found) {
-					disableLicense(deps, {
+					await disableLicense(deps, {
 						license: found.license,
 						reason: 'subscription_canceled',
 						actor: `stripe:${event.id}`,
 					});
 				} else {
-					recordPendingRevocation(deps, {
+					await recordPendingRevocation(deps, {
 						provider: 'stripe',
 						reference: subId,
 						reason: 'subscription_canceled',
@@ -304,7 +306,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// a stale 'active' delivered after a cancellation resurrect a dead licence.
 			if (PAYING_SUBSCRIPTION_STATUSES.has(status ?? '')) {
 				if (found) {
-					restoreLicense(deps, {
+					await restoreLicense(deps, {
 						license: found.license,
 						trigger: 'subscription_recovered',
 						actor: `stripe:${event.id}`,
@@ -313,7 +315,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 					// They lapsed and paid up, both before the checkout landed. The parked
 					// lapse would otherwise fire the moment the licence is created and lock
 					// out someone who is paying.
-					dropPendingRevocation(deps, {
+					await dropPendingRevocation(deps, {
 						provider: 'stripe',
 						reference: subId,
 						reason: 'subscription_canceled',
@@ -321,7 +323,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 				}
 			}
 			const periodEnd = subscriptionPeriodEnd(obj);
-			if (periodEnd) advanceSubscriptionExpiry(deps, subId, periodEnd, `stripe:${event.id}`);
+			if (periodEnd) await advanceSubscriptionExpiry(deps, subId, periodEnd, `stripe:${event.id}`);
 			break;
 		}
 
@@ -329,17 +331,19 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// The yearly-lapse enforcement at end of the paid-through period.
 			const subId = str(obj, 'id');
 			if (!subId) break;
-			if (!shouldApplySubscriptionEvent(event.created, lastSubscriptionEventAt(deps, subId))) {
+			if (
+				!shouldApplySubscriptionEvent(event.created, await lastSubscriptionEventAt(deps, subId))
+			) {
 				deps.logger.info('Ignoring a stale subscription deletion', {
 					event: event.id,
 					subscription: subId,
 				});
 				break;
 			}
-			markSubscriptionEventApplied(deps, subId, event.created);
-			const found = findLicenseByProviderId(deps, subId);
+			await markSubscriptionEventApplied(deps, subId, event.created);
+			const found = await findLicenseByProviderId(deps, subId);
 			if (found) {
-				disableLicense(deps, {
+				await disableLicense(deps, {
 					license: found.license,
 					reason: 'subscription_canceled',
 					actor: `stripe:${event.id}`,
@@ -347,7 +351,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			} else {
 				// The checkout has not landed yet. Without parking this, the licence it
 				// issues would be active for a subscription that is already gone.
-				recordPendingRevocation(deps, {
+				await recordPendingRevocation(deps, {
 					provider: 'stripe',
 					reference: subId,
 					reason: 'subscription_canceled',
@@ -361,7 +365,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// A lost dispute never fires charge.refunded, so revoke on the dispute itself.
 			const found = await findLicenseForDispute(deps, obj);
 			if (found) {
-				disableLicense(deps, {
+				await disableLicense(deps, {
 					license: found.license,
 					reason: 'chargeback',
 					actor: `stripe:${event.id}`,
@@ -371,7 +375,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 				// dispute names an invoice payment intent, while the checkout session only
 				// ever presents the subscription. Park under both or it can never apply.
 				for (const reference of await disputeReferences(deps, obj)) {
-					recordPendingRevocation(deps, {
+					await recordPendingRevocation(deps, {
 						provider: 'stripe',
 						reference,
 						reason: 'chargeback',
@@ -393,7 +397,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 			// licence and leave the parked cause to disable a paying customer afterwards.
 			// Every reference it could have been parked under, or the survivor revokes.
 			for (const reference of await disputeReferences(deps, obj)) {
-				dropPendingRevocation(deps, {
+				await dropPendingRevocation(deps, {
 					provider: 'stripe',
 					reference,
 					reason: 'chargeback',
@@ -402,7 +406,7 @@ async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<vo
 
 			const found = await findLicenseForDispute(deps, obj);
 			if (found) {
-				restoreLicense(deps, {
+				await restoreLicense(deps, {
 					license: found.license,
 					trigger: 'dispute_won',
 					actor: `stripe:${event.id}`,
@@ -443,18 +447,18 @@ async function disputeReferences(
  */
 async function findLicenseForDispute(deps: AppDeps, dispute: Record<string, unknown>) {
 	const paymentIntent = str(dispute, 'payment_intent');
-	const direct = paymentIntent ? findLicenseByProviderId(deps, paymentIntent) : undefined;
+	const direct = paymentIntent ? await findLicenseByProviderId(deps, paymentIntent) : undefined;
 	if (direct) return direct;
 	const chargeId = str(dispute, 'charge');
 	const subId = chargeId && deps.stripe ? await deps.stripe.subscriptionForCharge(chargeId) : null;
-	return subId ? findLicenseByProviderId(deps, subId) : undefined;
+	return subId ? await findLicenseByProviderId(deps, subId) : undefined;
 }
 
 /** Find the license behind a refunded charge: payment intent, then invoice -> subscription. */
 async function findLicenseForCharge(deps: AppDeps, charge: Record<string, unknown>) {
 	const paymentIntent = str(charge, 'payment_intent');
 	if (paymentIntent) {
-		const found = findLicenseByProviderId(deps, paymentIntent);
+		const found = await findLicenseByProviderId(deps, paymentIntent);
 		if (found) return found;
 	}
 	// Renewal invoices carry a different payment intent than the checkout: resolve the
@@ -463,7 +467,7 @@ async function findLicenseForCharge(deps: AppDeps, charge: Record<string, unknow
 	if (!subId && typeof charge.invoice === 'string' && deps.stripe) {
 		subId = await deps.stripe.invoiceSubscription(charge.invoice);
 	}
-	return subId ? findLicenseByProviderId(deps, subId) : undefined;
+	return subId ? await findLicenseByProviderId(deps, subId) : undefined;
 }
 
 /**

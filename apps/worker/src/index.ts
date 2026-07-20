@@ -8,7 +8,7 @@ import {
 	resolveEmailSender,
 	runSweeps,
 } from '@coolbeans/api/runtime';
-import { createDb, migrate, openSqlite } from '@coolbeans/db';
+import { assertSchemaCurrent, createDb, createPool } from '@coolbeans/db';
 import { createLogger } from '@coolbeans/logger';
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
@@ -21,8 +21,23 @@ if (!config.redisUrl) {
 	process.exit(1);
 }
 
-const db = createDb(openSqlite(config.databaseUrl));
-migrate(db);
+if (!config.databaseUrl.startsWith('postgres')) {
+	logger.error(
+		'DATABASE_URL must be a postgres:// URL. Cool Beans runs on PostgreSQL; docker compose provides one for self-hosting (see README).',
+	);
+	process.exit(1);
+}
+const db = createDb(createPool(config.databaseUrl));
+
+// The worker never migrates, not even with MIGRATE_ON_BOOT: it always runs beside an API
+// process, so "single-process self-host" can never describe it. It only refuses to start
+// against a schema it does not understand.
+try {
+	await assertSchemaCurrent(db);
+} catch (err) {
+	logger.error('Schema check failed', { message: (err as Error).message });
+	process.exit(1);
+}
 
 const deps: AppDeps = {
 	db,
@@ -46,7 +61,7 @@ const worker = new Worker(
 			const n = await drainOutbox(deps);
 			if (n > 0) logger.info('Drained outbox jobs', { count: n });
 		} else if (job.name === 'run-sweeps') {
-			const result = runSweeps(deps);
+			const result = await runSweeps(deps);
 			logger.info('Ran sweeps', result);
 		}
 	},

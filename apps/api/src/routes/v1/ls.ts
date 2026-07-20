@@ -12,19 +12,19 @@ import { ApiError } from '../../http/errors.js';
 import { activate, deactivate, resolveLicense, validate } from '../../services/licensing.js';
 
 /** LS-shaped license_key object. status maps active | expired (trial) | disabled. */
-function lsLicenseKey(deps: AppDeps, license: License, product: Product) {
+async function lsLicenseKey(deps: AppDeps, license: License, product: Product) {
 	const nowIso = nowDate(deps).toISOString();
 	const leaseCondition =
 		product.activationModel === 'floating'
 			? sql`${activations.leaseExpiresAt} > ${nowIso}`
 			: sql`1 = 1`;
-	const liveSeats = deps.db
+	const [liveSeats] = await deps.db
 		.select({ n: sql<number>`count(*)` })
 		.from(activations)
 		.where(
 			and(eq(activations.licenseId, license.id), isNull(activations.deactivatedAt), leaseCondition),
 		)
-		.get();
+		.limit(1);
 	let status: string = license.status;
 	if (license.status === 'disabled') {
 		status = license.disabledReason === 'trial_expired' ? 'expired' : 'disabled';
@@ -71,11 +71,11 @@ async function readParams(c: {
  * The LS license/meta objects for a key we actually know, or undefined when the key
  * is unknown or malformed — those stay null-shaped so we leak nothing about them.
  */
-function knownLicenseShape(deps: AppDeps, keyInput: string) {
+async function knownLicenseShape(deps: AppDeps, keyInput: string) {
 	try {
-		const resolved = resolveLicense(deps, keyInput);
+		const resolved = await resolveLicense(deps, keyInput);
 		return {
-			licenseKey: lsLicenseKey(deps, resolved.license, resolved.product),
+			licenseKey: await lsLicenseKey(deps, resolved.license, resolved.product),
 			meta: lsMeta(resolved.product, null),
 		};
 	} catch {
@@ -94,11 +94,11 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 	app.post('/v1/licenses/activate', async (c) => {
 		const params = await readParams(c);
 		try {
-			const result = activate(deps, params.license_key ?? '', params.instance_name ?? '');
+			const result = await activate(deps, params.license_key ?? '', params.instance_name ?? '');
 			return c.json({
 				activated: true,
 				error: null,
-				license_key: lsLicenseKey(deps, result.license, result.product),
+				license_key: await lsLicenseKey(deps, result.license, result.product),
 				instance: {
 					id: result.activation.instanceId,
 					name: result.activation.name,
@@ -109,7 +109,7 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 		} catch (err) {
 			// LS still returns the license object when it refuses a known key, and a
 			// migrating client reads status off it — so carry it whenever we can.
-			const known = knownLicenseShape(deps, params.license_key ?? '');
+			const known = await knownLicenseShape(deps, params.license_key ?? '');
 			const { status, body } = errorShape(err, {
 				activated: false,
 				license_key: known?.licenseKey ?? null,
@@ -125,21 +125,21 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 		try {
 			// LS semantics: without an instance_id, validate the key alone (instance: null).
 			if (!params.instance_id) {
-				const resolved = resolveLicense(deps, params.license_key ?? '');
+				const resolved = await resolveLicense(deps, params.license_key ?? '');
 				const valid = resolved.status === 'active';
 				return c.json({
 					valid,
 					error: valid ? null : 'This license key has been disabled.',
-					license_key: lsLicenseKey(deps, resolved.license, resolved.product),
+					license_key: await lsLicenseKey(deps, resolved.license, resolved.product),
 					instance: null,
 					meta: lsMeta(resolved.product, null),
 				});
 			}
-			const result = validate(deps, params.license_key ?? '', params.instance_id);
+			const result = await validate(deps, params.license_key ?? '', params.instance_id);
 			return c.json({
 				valid: result.valid,
 				error: result.valid ? null : 'License is not valid for this instance.',
-				license_key: lsLicenseKey(deps, result.license, result.product),
+				license_key: await lsLicenseKey(deps, result.license, result.product),
 				instance: result.activation
 					? {
 							id: result.activation.instanceId,
@@ -163,12 +163,12 @@ export function registerLemonSqueezyRoutes(app: OpenAPIHono, deps: AppDeps): voi
 	app.post('/v1/licenses/deactivate', async (c) => {
 		const params = await readParams(c);
 		try {
-			const resolved = resolveLicense(deps, params.license_key ?? '');
-			deactivate(deps, params.license_key ?? '', params.instance_id ?? '');
+			const resolved = await resolveLicense(deps, params.license_key ?? '');
+			await deactivate(deps, params.license_key ?? '', params.instance_id ?? '');
 			return c.json({
 				deactivated: true,
 				error: null,
-				license_key: lsLicenseKey(deps, resolved.license, resolved.product),
+				license_key: await lsLicenseKey(deps, resolved.license, resolved.product),
 				meta: lsMeta(resolved.product, null),
 			});
 		} catch (err) {

@@ -2,14 +2,15 @@
 // ABOUTME: status is binary (active|disabled); key is stored normalized (no dashes, uppercased).
 
 import { sql } from 'drizzle-orm';
-import { check, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
+import { isoNow } from './columns.js';
 import { products } from './products.js';
 import { purchases } from './purchases.js';
 
-export const licenses = sqliteTable(
+export const licenses = pgTable(
 	'licenses',
 	{
-		id: integer('id').primaryKey({ autoIncrement: true }),
+		id: serial('id').primaryKey(),
 		productId: integer('product_id')
 			.notNull()
 			.references(() => products.id),
@@ -27,11 +28,13 @@ export const licenses = sqliteTable(
 			enum: ['refund', 'subscription_canceled', 'manual', 'trial_expired', 'chargeback'],
 		}),
 		emailSentAt: text('email_sent_at'),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+		createdAt: text('created_at').notNull().default(isoNow),
 	},
 	(t) => [
 		check('ck_licenses_tier', sql`${t.tier} IN ('lifetime','yearly','trial')`),
 		check('ck_licenses_status', sql`${t.status} IN ('active','disabled')`),
+		// The active-licence count behind the plan cap reads exactly this pair.
+		index('idx_licenses_product_status').on(t.productId, t.status),
 	],
 );
 

@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { Config } from '../../config.js';
 import { fakeBillingGateway, fakeStripeGateway, makeHarness } from '../../test/harness.js';
+import { rawQuery } from '../../test/pg.js';
 import { createProduct, signUp } from '../../test/seed.js';
 
 const cloud: Partial<Config> = {
@@ -18,8 +19,8 @@ const cloud: Partial<Config> = {
 	logMagicCodes: true,
 };
 
-function harness() {
-	const h = makeHarness({ config: cloud });
+async function harness() {
+	const h = await makeHarness({ config: cloud });
 	h.deps.stripe = fakeStripeGateway({}, { cs_1: ['price_lifetime_alpha-app'] });
 	h.deps.billing = fakeBillingGateway({
 		subscriptions: {
@@ -32,18 +33,18 @@ function harness() {
 			},
 		},
 	});
-	h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1)).run();
+	await h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1));
 	return h;
 }
 
-async function eventsFor(h: ReturnType<typeof harness>, headers: Record<string, string>) {
+async function eventsFor(h: Awaited<ReturnType<typeof harness>>, headers: Record<string, string>) {
 	const res = await h.app.request('/admin/events', { headers });
 	return ((await res.json()) as { events: { id: string }[] }).events.map((e) => e.id);
 }
 
 describe('provider event attribution', () => {
 	it('shows a product delivery to the account that owns the product', async () => {
-		const h = harness();
+		const h = await harness();
 		const alice = await signUp(h.app, h.logger, 'alice@alpha.test', 'alpha');
 		const bob = await signUp(h.app, h.logger, 'bob@beta.test', 'beta');
 		await createProduct(
@@ -87,11 +88,11 @@ describe('provider event attribution', () => {
 	});
 
 	it('shows a platform billing delivery to the account that was billed', async () => {
-		const h = harness();
+		const h = await harness();
 		const alice = await signUp(h.app, h.logger, 'alice@alpha.test', 'alpha');
-		const accountId = h.deps.db.$client
-			.prepare("SELECT id FROM accounts WHERE name = 'alpha'")
-			.get() as { id: number };
+		const accountId = (
+			await rawQuery<{ id: number }>("SELECT id FROM accounts WHERE name = 'alpha'")
+		)[0];
 
 		const res = await h.app.request('/v1/billing/stripe/webhook', {
 			method: 'POST',
@@ -118,7 +119,9 @@ describe('provider event attribution', () => {
 	it('still shows unattributed deliveries to a self-host instance token', async () => {
 		// The global webhook has no product in the URL, so nothing identifies an account.
 		// Those rows are instance-level operational noise and must not vanish on self-host.
-		const h = makeHarness({ config: { stripe: { secretKey: 'sk', webhookSecret: 'whsec' } } });
+		const h = await makeHarness({
+			config: { stripe: { secretKey: 'sk', webhookSecret: 'whsec' } },
+		});
 		h.deps.stripe = fakeStripeGateway();
 		await h.app.request('/v1/stripe/webhook', {
 			method: 'POST',

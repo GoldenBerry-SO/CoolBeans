@@ -9,7 +9,7 @@ import { recentValidationCounts, recordValidation } from './validation-stats.js'
 let h: TestHarness;
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
@@ -19,11 +19,11 @@ beforeEach(async () => {
 });
 
 describe('validation counters', () => {
-	it('counts each validation for the product on the day it happened', () => {
-		recordValidation(h.deps, 1);
-		recordValidation(h.deps, 1);
-		recordValidation(h.deps, 1);
-		const days = recentValidationCounts(h.deps, { days: 16 });
+	it('counts each validation for the product on the day it happened', async () => {
+		await recordValidation(h.deps, 1);
+		await recordValidation(h.deps, 1);
+		await recordValidation(h.deps, 1);
+		const days = await recentValidationCounts(h.deps, { days: 16 });
 		const today = h.clock.now().toISOString().slice(0, 10);
 		expect(days.find((d) => d.day === today)?.count).toBe(3);
 	});
@@ -35,25 +35,25 @@ describe('validation counters', () => {
 			key_prefix: 'HEX',
 			email_from: 'r@hexis.app',
 		});
-		recordValidation(h.deps, 1);
-		recordValidation(h.deps, 2);
-		recordValidation(h.deps, 2);
+		await recordValidation(h.deps, 1);
+		await recordValidation(h.deps, 2);
+		await recordValidation(h.deps, 2);
 		const today = h.clock.now().toISOString().slice(0, 10);
-		const latest = (productId: number) => {
-			const days = recentValidationCounts(h.deps, { days: 16, productId });
+		const latest = async (productId: number) => {
+			const days = await recentValidationCounts(h.deps, { days: 16, productId });
 			return days[days.length - 1];
 		};
-		expect(latest(1)).toMatchObject({ day: today, count: 1 });
-		expect(latest(2)).toMatchObject({ day: today, count: 2 });
+		expect(await latest(1)).toMatchObject({ day: today, count: 1 });
+		expect(await latest(2)).toMatchObject({ day: today, count: 2 });
 
 		// And with no product filter the chart totals them rather than picking one.
-		const all = recentValidationCounts(h.deps, { days: 16 });
+		const all = await recentValidationCounts(h.deps, { days: 16 });
 		expect(all[all.length - 1]).toMatchObject({ day: today, count: 3 });
 	});
 
-	it('returns a full window with zeroes, so the chart has no gaps', () => {
-		recordValidation(h.deps, 1);
-		const days = recentValidationCounts(h.deps, { days: 16 });
+	it('returns a full window with zeroes, so the chart has no gaps', async () => {
+		await recordValidation(h.deps, 1);
+		const days = await recentValidationCounts(h.deps, { days: 16 });
 		expect(days).toHaveLength(16);
 		expect(days[days.length - 1]?.day).toBe(h.clock.now().toISOString().slice(0, 10));
 		// Oldest first, so the chart reads left to right.
@@ -61,12 +61,12 @@ describe('validation counters', () => {
 		expect(days.slice(0, 15).every((d) => d.count === 0)).toBe(true);
 	});
 
-	it('rolls over to a new row when the day changes', () => {
-		recordValidation(h.deps, 1);
+	it('rolls over to a new row when the day changes', async () => {
+		await recordValidation(h.deps, 1);
 		h.clock.advance(24 * 60 * 60 * 1000);
-		recordValidation(h.deps, 1);
-		recordValidation(h.deps, 1);
-		const days = recentValidationCounts(h.deps, { days: 16 });
+		await recordValidation(h.deps, 1);
+		await recordValidation(h.deps, 1);
+		const days = await recentValidationCounts(h.deps, { days: 16 });
 		const counted = days.filter((d) => d.count > 0);
 		expect(counted).toHaveLength(2);
 		expect(counted[0]?.count).toBe(1);

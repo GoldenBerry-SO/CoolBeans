@@ -7,8 +7,8 @@ import { createProduct, defineMetric, issueKey, post } from './seed.js';
 
 let h: TestHarness;
 
-beforeEach(() => {
-	h = makeHarness();
+beforeEach(async () => {
+	h = await makeHarness();
 });
 
 /**

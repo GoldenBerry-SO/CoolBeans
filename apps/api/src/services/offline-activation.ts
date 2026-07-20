@@ -36,10 +36,10 @@ export interface OfflineActivation {
  * refresh, and mintToken clamps it to the licence's own expiry so a year-long token
  * cannot outlive what the customer paid for.
  */
-export function issueOfflineActivation(
+export async function issueOfflineActivation(
 	deps: AppDeps,
 	args: { keyInput: string; fingerprint: string; actor: string },
-): OfflineActivation {
+): Promise<OfflineActivation> {
 	// Naming the seat after the fingerprint is what makes it recognisable in the console:
 	// an operator looking at the activation list can tell which machine it belongs to.
 	// Floating is refused outright, not adapted. A floating seat is held by a lease the
@@ -47,7 +47,7 @@ export function issueOfflineActivation(
 	// server frees the seat, and an operator can mint unlimited air-gapped tokens while
 	// every earlier machine stays unlocked for a year. Offline activation is inherently
 	// node-locked, and pretending otherwise would quietly void the activation limit.
-	const target = resolveLicense(deps, args.keyInput);
+	const target = await resolveLicense(deps, args.keyInput);
 	if (target.product.activationModel === 'floating') {
 		throw conflict(
 			'floating_not_supported',
@@ -55,13 +55,13 @@ export function issueOfflineActivation(
 		);
 	}
 
-	const { license, product, activation, displayKey } = activate(
+	const { license, product, activation, displayKey } = await activate(
 		deps,
 		args.keyInput,
 		`offline:${args.fingerprint}`,
 	);
 
-	const { token, payload } = mintToken(deps, {
+	const { token, payload } = await mintToken(deps, {
 		license,
 		product,
 		instanceId: activation.instanceId,
@@ -76,7 +76,7 @@ export function issueOfflineActivation(
 
 	// The one activation a customer never performs themselves, so the operator who did it
 	// belongs on the record along with the machine it was for.
-	writeAudit(deps.db, {
+	await writeAudit(deps.db, {
 		action: 'activation.offline_issued',
 		actor: args.actor,
 		accountId: product.accountId,

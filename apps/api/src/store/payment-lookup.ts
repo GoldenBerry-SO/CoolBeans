@@ -8,11 +8,11 @@ import type { AppDeps } from '../deps.js';
 import { getProductById } from './products.js';
 
 /** Find the license behind a purchase matched by any provider id. */
-export function findLicenseByProviderId(
+export async function findLicenseByProviderId(
 	deps: AppDeps,
 	providerId: string,
-): { license: License; product: Product } | undefined {
-	const row = deps.db
+): Promise<{ license: License; product: Product } | undefined> {
+	const [row] = await deps.db
 		.select()
 		.from(licenses)
 		.innerJoin(purchases, eq(purchases.id, licenses.purchaseId))
@@ -23,8 +23,8 @@ export function findLicenseByProviderId(
 				eq(purchases.providerCheckoutId, providerId),
 			),
 		)
-		.get();
+		.limit(1);
 	if (!row) return undefined;
-	const product = getProductById(deps.db, row.licenses.productId);
+	const product = await getProductById(deps.db, row.licenses.productId);
 	return product ? { license: row.licenses, product } : undefined;
 }

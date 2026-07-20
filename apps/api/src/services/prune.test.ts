@@ -5,105 +5,96 @@ import { providerEvents } from '@coolbeans/db';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { writeAudit } from '../store/audit.js';
 import { makeHarness, type TestHarness } from '../test/harness.js';
+import { rawQuery } from '../test/pg.js';
 import { PROVIDER_EVENT_RETENTION_DAYS, pruneProviderEvents } from './prune.js';
 
 let h: TestHarness;
 
 const DAY = 24 * 60 * 60 * 1000;
 
-function seedEvent(id: string, ageDays: number) {
+async function seedEvent(id: string, ageDays: number) {
 	const receivedAt = new Date(h.clock.now().getTime() - ageDays * DAY).toISOString();
-	h.deps.db
-		.insert(providerEvents)
-		.values({
-			id,
-			provider: 'stripe',
-			type: 'checkout.session.completed',
-			status: 'done',
-			receivedAt,
-		})
-		.run();
+	await h.deps.db.insert(providerEvents).values({
+		id,
+		provider: 'stripe',
+		type: 'checkout.session.completed',
+		status: 'done',
+		receivedAt,
+	});
 }
 
-const remaining = () =>
-	h.deps.db
-		.select()
-		.from(providerEvents)
-		.all()
-		.map((r) => r.id);
+const remaining = async () => (await h.deps.db.select().from(providerEvents)).map((r) => r.id);
 
-beforeEach(() => {
-	h = makeHarness();
+beforeEach(async () => {
+	h = await makeHarness();
 });
 
 describe('pruneProviderEvents', () => {
-	it('keeps anything a provider could still redeliver', () => {
+	it('keeps anything a provider could still redeliver', async () => {
 		// Stripe gives up after ~3 days. Pruning inside that window would let a
 		// redelivery re-run issuance and hand out a second key.
-		seedEvent('evt_today', 0);
-		seedEvent('evt_recent', 3);
-		seedEvent('evt_edge', PROVIDER_EVENT_RETENTION_DAYS - 1);
-		expect(pruneProviderEvents(h.deps)).toBe(0);
-		expect(remaining()).toHaveLength(3);
+		await seedEvent('evt_today', 0);
+		await seedEvent('evt_recent', 3);
+		await seedEvent('evt_edge', PROVIDER_EVENT_RETENTION_DAYS - 1);
+		expect(await pruneProviderEvents(h.deps)).toBe(0);
+		expect(await remaining()).toHaveLength(3);
 	});
 
-	it('drops rows well past every retry window', () => {
-		seedEvent('evt_ancient', PROVIDER_EVENT_RETENTION_DAYS + 10);
-		seedEvent('evt_fresh', 1);
-		expect(pruneProviderEvents(h.deps)).toBe(1);
-		expect(remaining()).toEqual(['evt_fresh']);
+	it('drops rows well past every retry window', async () => {
+		await seedEvent('evt_ancient', PROVIDER_EVENT_RETENTION_DAYS + 10);
+		await seedEvent('evt_fresh', 1);
+		expect(await pruneProviderEvents(h.deps)).toBe(1);
+		expect(await remaining()).toEqual(['evt_fresh']);
 	});
 
-	it('never prunes an event still in flight, however old the claim looks', () => {
+	it('never prunes an event still in flight, however old the claim looks', async () => {
 		// A stuck 'processing' row is a bug worth seeing, not garbage to sweep away:
 		// deleting it silently lets the same event run twice.
 		const old = new Date(h.clock.now().getTime() - (PROVIDER_EVENT_RETENTION_DAYS + 30) * DAY);
-		h.deps.db
-			.insert(providerEvents)
-			.values({
-				id: 'evt_stuck',
-				provider: 'stripe',
-				type: 'charge.refunded',
-				status: 'processing',
-				receivedAt: old.toISOString(),
-				claimedAt: old.toISOString(),
-			})
-			.run();
-		expect(pruneProviderEvents(h.deps)).toBe(0);
-		expect(remaining()).toEqual(['evt_stuck']);
+		await h.deps.db.insert(providerEvents).values({
+			id: 'evt_stuck',
+			provider: 'stripe',
+			type: 'charge.refunded',
+			status: 'processing',
+			receivedAt: old.toISOString(),
+			claimedAt: old.toISOString(),
+		});
+		expect(await pruneProviderEvents(h.deps)).toBe(0);
+		expect(await remaining()).toEqual(['evt_stuck']);
 	});
 
-	it('leaves the audit log completely alone', () => {
+	it('leaves the audit log completely alone', async () => {
 		// "Who disabled this key" outliving the row is the whole point (ARCHITECTURE).
-		writeAudit(h.deps.db, { action: 'license.disabled', actor: 'admin:someone@example.com' });
-		seedEvent('evt_ancient', PROVIDER_EVENT_RETENTION_DAYS + 100);
-		pruneProviderEvents(h.deps);
+		await writeAudit(h.deps.db, { action: 'license.disabled', actor: 'admin:someone@example.com' });
+		await seedEvent('evt_ancient', PROVIDER_EVENT_RETENTION_DAYS + 100);
+		await pruneProviderEvents(h.deps);
 		// The original entry survives untouched. (The prune adds a row of its own, which
 		// is why this checks the entry rather than the table's size.)
-		const kept = h.deps.db.$client
-			.prepare("SELECT actor FROM audit_log WHERE action = 'license.disabled'")
-			.all() as Array<{ actor: string }>;
+		const kept = await rawQuery<{ actor: string }>(
+			"SELECT actor FROM audit_log WHERE action = 'license.disabled'",
+		);
 		expect(kept).toHaveLength(1);
 		expect(kept[0]?.actor).toBe('admin:someone@example.com');
 	});
 
-	it('records what it pruned, so the trail explains the missing rows', () => {
-		seedEvent('evt_ancient', PROVIDER_EVENT_RETENTION_DAYS + 5);
-		pruneProviderEvents(h.deps);
-		const row = h.deps.db.$client
-			.prepare("SELECT actor, detail FROM audit_log WHERE action = 'provider_events.pruned'")
-			.get() as { actor: string; detail: string } | undefined;
+	it('records what it pruned, so the trail explains the missing rows', async () => {
+		await seedEvent('evt_ancient', PROVIDER_EVENT_RETENTION_DAYS + 5);
+		await pruneProviderEvents(h.deps);
+		const [row] = await rawQuery<{ actor: string; detail: string }>(
+			"SELECT actor, detail FROM audit_log WHERE action = 'provider_events.pruned'",
+		);
 		expect(row).toBeDefined();
 		expect(row?.actor).toBe('system');
 		expect(JSON.parse(row?.detail ?? '{}')).toMatchObject({ deleted: 1 });
 	});
 
-	it('writes no audit row when there was nothing to prune', () => {
-		seedEvent('evt_fresh', 1);
-		expect(pruneProviderEvents(h.deps)).toBe(0);
-		const n = h.deps.db.$client
-			.prepare("SELECT COUNT(*) n FROM audit_log WHERE action = 'provider_events.pruned'")
-			.get() as { n: number };
-		expect(n.n).toBe(0);
+	it('writes no audit row when there was nothing to prune', async () => {
+		await seedEvent('evt_fresh', 1);
+		expect(await pruneProviderEvents(h.deps)).toBe(0);
+		const [n] = await rawQuery<{ n: number }>(
+			"SELECT COUNT(*) n FROM audit_log WHERE action = 'provider_events.pruned'",
+		);
+		// Postgres COUNT(*) comes back as a bigint the driver serialises to a string.
+		expect(Number(n.n)).toBe(0);
 	});
 });

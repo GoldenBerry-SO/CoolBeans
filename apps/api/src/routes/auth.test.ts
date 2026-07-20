@@ -29,8 +29,8 @@ async function post(path: string, body: unknown, token?: string) {
 	return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-beforeEach(() => {
-	h = makeHarness();
+beforeEach(async () => {
+	h = await makeHarness();
 });
 
 describe('console magic-code auth', () => {
@@ -117,7 +117,7 @@ describe('console magic-code auth', () => {
 	});
 
 	it('rate limits code requests and verification separately from the public API', async () => {
-		h = makeHarness({
+		h = await makeHarness({
 			authRateLimit: authRateLimiter({
 				config: testConfig(),
 				logger: createLogger({ level: 'error' }),
@@ -197,7 +197,7 @@ describe('audit attribution (PRD §16)', () => {
 
 describe('dev convenience: logging the magic code', () => {
 	it('logs the code when explicitly enabled for local development', async () => {
-		h = makeHarness({ config: { logMagicCodes: true } });
+		h = await makeHarness({ config: { logMagicCodes: true } });
 		await post('/auth/request-code', { email: 'chris@goldenberry.io' });
 		const code = lastCode();
 		const logged = h.logger.lines.find((l) => l.message.includes('magic code'));
@@ -208,7 +208,7 @@ describe('dev convenience: logging the magic code', () => {
 	it('still issues a usable code with no email sender, which is the point of the flag', async () => {
 		// The local setup this exists for has no Resend key and no SMTP: if we bail before
 		// generating a code, a developer still cannot sign in.
-		h = makeHarness({ config: { logMagicCodes: true } });
+		h = await makeHarness({ config: { logMagicCodes: true } });
 		h.deps.email = undefined;
 
 		const req = await post('/auth/request-code', { email: 'chris@goldenberry.io' });
@@ -229,7 +229,7 @@ describe('dev convenience: logging the magic code', () => {
 		expect(JSON.stringify(h.logger.lines)).not.toContain(code);
 	});
 
-	it('refuses to start with code logging enabled outside development', () => {
+	it('refuses to start with code logging enabled outside development', async () => {
 		// A code is a credential (§19). Making this a config error means it cannot be
 		// switched on in production by accident or by a copied .env.
 		expect(() =>

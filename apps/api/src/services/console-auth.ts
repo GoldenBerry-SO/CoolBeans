@@ -54,23 +54,28 @@ const MAX_LIVE_CODES_PER_EMAIL = 3;
  */
 export async function requestCode(deps: AppDeps, emailInput: string): Promise<RequestCodeResult> {
 	const email = normalizeEmail(emailInput);
-	const known = deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).get();
+	const [known] = await deps.db
+		.select()
+		.from(adminUsers)
+		.where(eq(adminUsers.email, email))
+		.limit(1);
 	if (!known && !isBillingEnabled(deps)) {
-		const anyAdmin = deps.db.select({ id: adminUsers.id }).from(adminUsers).limit(1).get();
+		const [anyAdmin] = await deps.db.select({ id: adminUsers.id }).from(adminUsers).limit(1);
 		if (anyAdmin) return { sent: false };
 	}
 	const nowIso = nowDate(deps).toISOString();
-	const live = deps.db
-		.select({ id: authCodes.id })
-		.from(authCodes)
-		.where(
-			and(
-				eq(authCodes.email, email),
-				isNull(authCodes.consumedAt),
-				gt(authCodes.expiresAt, nowIso),
-			),
-		)
-		.all().length;
+	const live = (
+		await deps.db
+			.select({ id: authCodes.id })
+			.from(authCodes)
+			.where(
+				and(
+					eq(authCodes.email, email),
+					isNull(authCodes.consumedAt),
+					gt(authCodes.expiresAt, nowIso),
+				),
+			)
+	).length;
 	if (live >= MAX_LIVE_CODES_PER_EMAIL) {
 		// Silent: saying "too many" would confirm the address is being targeted, and the
 		// caller already gets the same uniform success.
@@ -86,14 +91,11 @@ export async function requestCode(deps: AppDeps, emailInput: string): Promise<Re
 
 	const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
 	const now = nowDate(deps);
-	deps.db
-		.insert(authCodes)
-		.values({
-			email,
-			codeHash: sha256(code),
-			expiresAt: new Date(now.getTime() + CODE_TTL_MINUTES * 60_000).toISOString(),
-		})
-		.run();
+	await deps.db.insert(authCodes).values({
+		email,
+		codeHash: sha256(code),
+		expiresAt: new Date(now.getTime() + CODE_TTL_MINUTES * 60_000).toISOString(),
+	});
 
 	if (deps.config.logMagicCodes) {
 		// Local development only (see Config.logMagicCodes): saves digging through a mail
@@ -125,19 +127,19 @@ function accountNameFor(email: string): string {
 }
 
 /** Verify a code and mint a session token (returned once; only its hash is stored). */
-export function verifyCode(
+export async function verifyCode(
 	deps: AppDeps,
 	emailInput: string,
 	code: string,
 	name?: string,
 	accountName?: string,
-): VerifyCodeResult | null {
+): Promise<VerifyCodeResult | null> {
 	const email = normalizeEmail(emailInput);
 	const now = nowDate(deps);
 	const nowIso = now.toISOString();
 
-	return deps.db.transaction((tx): VerifyCodeResult | null => {
-		const candidate = tx
+	return await deps.db.transaction(async (tx): Promise<VerifyCodeResult | null> => {
+		const [candidate] = await tx
 			.select()
 			.from(authCodes)
 			.where(
@@ -149,14 +151,15 @@ export function verifyCode(
 				),
 			)
 			.orderBy(sql`${authCodes.id} DESC`)
-			.get();
+			.limit(1);
 		if (!candidate) return null;
 
 		const codeHash = sha256(code);
 		if (!hashesEqual(candidate.codeHash, codeHash)) {
 			// Increment from the stored value under a guard. Concurrent guesses cannot all
 			// overwrite the same stale attempts+1 value or push beyond the cap.
-			tx.update(authCodes)
+			await tx
+				.update(authCodes)
 				.set({ attempts: sql`${authCodes.attempts} + 1` })
 				.where(
 					and(
@@ -165,14 +168,13 @@ export function verifyCode(
 						gt(authCodes.expiresAt, nowIso),
 						lt(authCodes.attempts, MAX_CODE_ATTEMPTS),
 					),
-				)
-				.run();
+				);
 			return null;
 		}
 
 		// Consume with all validity checks in the UPDATE itself. Only one verifier can
 		// receive the row and continue to mint a session, even across server replicas.
-		const consumed = tx
+		const [consumed] = await tx
 			.update(authCodes)
 			.set({ consumedAt: nowIso })
 			.where(
@@ -184,30 +186,27 @@ export function verifyCode(
 					lt(authCodes.attempts, MAX_CODE_ATTEMPTS),
 				),
 			)
-			.returning({ id: authCodes.id })
-			.get();
+			.returning({ id: authCodes.id });
 		if (!consumed) return null;
 
-		let admin = tx.select().from(adminUsers).where(eq(adminUsers.email, email)).get();
+		let [admin] = await tx.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
 		if (!admin) {
 			if (isBillingEnabled(deps)) {
 				// Cloud signup: a new address gets its own account, on the free plan.
-				const created = tx
+				const [created] = await tx
 					.insert(accounts)
 					.values({ name: accountName ?? accountNameFor(email) })
-					.returning()
-					.get();
-				admin = tx
+					.returning();
+				[admin] = await tx
 					.insert(adminUsers)
 					.values({ accountId: created.id, email, name: name ?? null })
-					.returning()
-					.get();
-				writeAudit(tx, {
+					.returning();
+				await writeAudit(tx, {
 					action: 'account.created',
 					actor: `admin:${email}`,
 					accountId: created.id,
 				});
-				writeAudit(tx, {
+				await writeAudit(tx, {
 					action: 'admin.created',
 					actor: `admin:${email}`,
 					accountId: created.id,
@@ -216,42 +215,43 @@ export function verifyCode(
 				// Self-host bootstrap. Rechecked at verification time because two emails can
 				// request a code while the table is empty; once one creates the first admin,
 				// the other must not silently bootstrap a second, unrelated account.
-				const anyAdmin = tx.select({ id: adminUsers.id }).from(adminUsers).limit(1).get();
+				const [anyAdmin] = await tx.select({ id: adminUsers.id }).from(adminUsers).limit(1);
 				if (anyAdmin) return null;
-				admin = tx
+				[admin] = await tx
 					.insert(adminUsers)
 					.values({ email, name: name ?? null })
-					.returning()
-					.get();
-				writeAudit(tx, {
+					.returning();
+				await writeAudit(tx, {
 					action: 'admin.created',
 					actor: `admin:${email}`,
 					accountId: admin.accountId,
 				});
 			}
 		}
-		tx.update(adminUsers)
+		await tx
+			.update(adminUsers)
 			.set({ lastLoginAt: nowIso, ...(name ? { name } : {}) })
-			.where(eq(adminUsers.id, admin.id))
-			.run();
+			.where(eq(adminUsers.id, admin.id));
 
 		const token = `cbs_${randomBytes(24).toString('hex')}`;
-		tx.insert(adminSessions)
-			.values({
-				tokenHash: sha256(token),
-				// The tenant travels with the credential, so scoping reads the session.
-				accountId: admin.accountId,
-				adminUserId: admin.id,
-				expiresAt: new Date(now.getTime() + SESSION_TTL_DAYS * 86_400_000).toISOString(),
-			})
-			.run();
-		writeAudit(tx, {
+		await tx.insert(adminSessions).values({
+			tokenHash: sha256(token),
+			// The tenant travels with the credential, so scoping reads the session.
+			accountId: admin.accountId,
+			adminUserId: admin.id,
+			expiresAt: new Date(now.getTime() + SESSION_TTL_DAYS * 86_400_000).toISOString(),
+		});
+		await writeAudit(tx, {
 			action: 'admin.signed_in',
 			actor: `admin:${email}`,
 			accountId: admin.accountId,
 		});
 
-		const account = tx.select().from(accounts).where(eq(accounts.id, admin.accountId)).get();
+		const [account] = await tx
+			.select()
+			.from(accounts)
+			.where(eq(accounts.id, admin.accountId))
+			.limit(1);
 		return {
 			token,
 			admin: { email: admin.email, name: name ?? admin.name },
@@ -270,24 +270,24 @@ export interface SessionIdentity {
 }
 
 /** Resolve a session token to its admin and account, or undefined when absent/expired. */
-export function adminForSession(deps: AppDeps, token: string): SessionIdentity | undefined {
+export async function adminForSession(
+	deps: AppDeps,
+	token: string,
+): Promise<SessionIdentity | undefined> {
 	if (!token.startsWith('cbs_')) return undefined;
 	const nowIso = nowDate(deps).toISOString();
-	const row = deps.db
+	const [row] = await deps.db
 		.select({ admin: adminUsers, accountId: adminSessions.accountId })
 		.from(adminSessions)
 		.innerJoin(adminUsers, eq(adminUsers.id, adminSessions.adminUserId))
 		.where(and(eq(adminSessions.tokenHash, sha256(token)), gt(adminSessions.expiresAt, nowIso)))
-		.get();
+		.limit(1);
 	return row ? { admin: row.admin, accountId: row.accountId } : undefined;
 }
 
 /** Revoke a session (sign out). Idempotent. */
-export function revokeSession(deps: AppDeps, token: string): void {
-	deps.db
-		.delete(adminSessions)
-		.where(eq(adminSessions.tokenHash, sha256(token)))
-		.run();
+export async function revokeSession(deps: AppDeps, token: string): Promise<void> {
+	await deps.db.delete(adminSessions).where(eq(adminSessions.tokenHash, sha256(token)));
 }
 
 export interface TeamMember {
@@ -309,8 +309,8 @@ function toMember(row: AdminUser): TeamMember {
 }
 
 /** Everyone in one account who can sign in to the console. Never exposes session material. */
-export function listTeam(deps: AppDeps, accountId: number): TeamMember[] {
-	return deps.db
+export async function listTeam(deps: AppDeps, accountId: number): Promise<TeamMember[]> {
+	return await deps.db
 		.select({
 			id: adminUsers.id,
 			email: adminUsers.email,
@@ -320,8 +320,7 @@ export function listTeam(deps: AppDeps, accountId: number): TeamMember[] {
 		})
 		.from(adminUsers)
 		.where(eq(adminUsers.accountId, accountId))
-		.orderBy(adminUsers.id)
-		.all();
+		.orderBy(adminUsers.id);
 }
 
 /**
@@ -332,24 +331,27 @@ export function listTeam(deps: AppDeps, accountId: number): TeamMember[] {
  * caller an admin whose sessions carry a different account id — a silent cross-tenant
  * takeover rather than an invitation.
  */
-export function inviteAdmin(
+export async function inviteAdmin(
 	deps: AppDeps,
 	accountId: number,
 	emailInput: string,
 	actor: string,
 	name?: string,
-): TeamMember | 'email_in_use' {
+): Promise<TeamMember | 'email_in_use'> {
 	const email = normalizeEmail(emailInput);
-	const existing = deps.db.select().from(adminUsers).where(eq(adminUsers.email, email)).get();
+	const [existing] = await deps.db
+		.select()
+		.from(adminUsers)
+		.where(eq(adminUsers.email, email))
+		.limit(1);
 	if (existing) {
 		return existing.accountId === accountId ? toMember(existing) : 'email_in_use';
 	}
-	const created = deps.db
+	const [created] = await deps.db
 		.insert(adminUsers)
 		.values({ accountId, email, name: name ?? null })
-		.returning()
-		.get();
-	writeAudit(deps.db, { action: 'admin.invited', actor, accountId, detail: { email } });
+		.returning();
+	await writeAudit(deps.db, { action: 'admin.invited', actor, accountId, detail: { email } });
 	return toMember(created);
 }
 
@@ -363,29 +365,35 @@ export type RevokeResult = 'revoked' | 'not_found' | 'last_admin';
  * of the console. Counting instance-wide instead would let one account's last admin be
  * removed as soon as any other account had two.
  */
-export function revokeAdmin(
+export async function revokeAdmin(
 	deps: AppDeps,
 	accountId: number,
 	id: number,
 	actor: string,
-): RevokeResult {
-	return deps.db.transaction((tx): RevokeResult => {
-		const target = tx.select().from(adminUsers).where(eq(adminUsers.id, id)).get();
+): Promise<RevokeResult> {
+	return await deps.db.transaction(async (tx): Promise<RevokeResult> => {
+		const [target] = await tx.select().from(adminUsers).where(eq(adminUsers.id, id)).limit(1);
 		// Another account's admin is "not found", not "forbidden": a 403 would confirm the
 		// id exists somewhere else on the instance.
 		if (!target || target.accountId !== accountId) return 'not_found';
-		const total = tx
-			.select({ id: adminUsers.id })
-			.from(adminUsers)
-			.where(eq(adminUsers.accountId, accountId))
-			.all().length;
+		const total = (
+			await tx
+				.select({ id: adminUsers.id })
+				.from(adminUsers)
+				.where(eq(adminUsers.accountId, accountId))
+		).length;
 		if (total <= 1) return 'last_admin';
 
-		tx.delete(adminSessions).where(eq(adminSessions.adminUserId, id)).run();
-		tx.delete(adminUsers).where(eq(adminUsers.id, id)).run();
+		await tx.delete(adminSessions).where(eq(adminSessions.adminUserId, id));
+		await tx.delete(adminUsers).where(eq(adminUsers.id, id));
 		// Pending codes would otherwise let them sign straight back in.
-		tx.delete(authCodes).where(eq(authCodes.email, target.email)).run();
-		writeAudit(tx, { action: 'admin.revoked', actor, accountId, detail: { email: target.email } });
+		await tx.delete(authCodes).where(eq(authCodes.email, target.email));
+		await writeAudit(tx, {
+			action: 'admin.revoked',
+			actor,
+			accountId,
+			detail: { email: target.email },
+		});
 		return 'revoked';
 	});
 }

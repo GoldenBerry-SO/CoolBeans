@@ -1,10 +1,10 @@
 // ABOUTME: Per-product per-day validation counts (issue #37) — the Overview chart's source.
 // ABOUTME: An aggregate, not a log: validate is the hot path and must not grow a row per check.
 
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, pgTable, primaryKey, text } from 'drizzle-orm/pg-core';
 import { products } from './products.js';
 
-export const validationCounters = sqliteTable(
+export const validationCounters = pgTable(
 	'validation_counters',
 	{
 		productId: integer('product_id')

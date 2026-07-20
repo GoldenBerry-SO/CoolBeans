@@ -1,5 +1,5 @@
 // ABOUTME: Barrel for the Drizzle schema — the PRD §17 data model, one table group per file.
-// ABOUTME: SQLite schema for the current runtime; a future Postgres adapter will need its own dialect.
+// ABOUTME: PostgreSQL dialect; every date is an ISO-8601 string, see ./columns.ts for why.
 
 export * from './account-subscriptions.js';
 export * from './accounts.js';

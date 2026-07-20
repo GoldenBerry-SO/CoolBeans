@@ -8,7 +8,7 @@ import { createProduct, issueKey } from '../../test/seed.js';
 let h: TestHarness;
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',

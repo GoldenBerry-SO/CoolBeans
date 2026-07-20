@@ -16,8 +16,13 @@ export type DisableReason =
 	| 'chargeback';
 
 /** Record a cause as outstanding. Idempotent per (license, cause). */
-function openCause(deps: AppDeps, license: License, cause: DisableReason, actor: string): void {
-	const existing = deps.db
+async function openCause(
+	deps: AppDeps,
+	license: License,
+	cause: DisableReason,
+	actor: string,
+): Promise<void> {
+	const [existing] = await deps.db
 		.select()
 		.from(licenseRevocations)
 		.where(
@@ -27,40 +32,38 @@ function openCause(deps: AppDeps, license: License, cause: DisableReason, actor:
 				isNull(licenseRevocations.clearedAt),
 			),
 		)
-		.get();
+		.limit(1);
 	if (existing) return;
-	deps.db
+	await deps.db
 		.insert(licenseRevocations)
-		.values({ licenseId: license.id, cause, actor, createdAt: nowDate(deps).toISOString() })
-		.run();
+		.values({ licenseId: license.id, cause, actor, createdAt: nowDate(deps).toISOString() });
 }
 
 /** Causes still standing against a license. */
-function openCauses(deps: AppDeps, licenseId: number): string[] {
-	return deps.db
+async function openCauses(deps: AppDeps, licenseId: number): Promise<string[]> {
+	const rows = await deps.db
 		.select({ cause: licenseRevocations.cause })
 		.from(licenseRevocations)
-		.where(and(eq(licenseRevocations.licenseId, licenseId), isNull(licenseRevocations.clearedAt)))
-		.all()
-		.map((r) => r.cause);
+		.where(and(eq(licenseRevocations.licenseId, licenseId), isNull(licenseRevocations.clearedAt)));
+	return rows.map((r) => r.cause);
 }
 
 /** Disable a license (the single signal a client acts on to revoke access). Idempotent. */
-export function disableLicense(
+export async function disableLicense(
 	deps: AppDeps,
 	args: { license: License; reason: DisableReason; actor: string },
-): License {
+): Promise<License> {
 	const { db } = deps;
 	// Always record the cause, even when already disabled: two things can revoke at once
 	// and clearing one of them must not hand access back while the other still stands.
-	openCause(deps, args.license, args.reason, args.actor);
+	await openCause(deps, args.license, args.reason, args.actor);
 	if (args.license.status === 'disabled') return args.license;
 	const disabledAt = nowDate(deps).toISOString();
-	db.update(licenses)
+	await db
+		.update(licenses)
 		.set({ status: 'disabled', disabledAt, disabledReason: args.reason })
-		.where(eq(licenses.id, args.license.id))
-		.run();
-	writeAudit(db, {
+		.where(eq(licenses.id, args.license.id));
+	await writeAudit(db, {
 		action: 'license.disabled',
 		actor: args.actor,
 		productId: args.license.productId,
@@ -95,15 +98,15 @@ export function restoreAllowed(reason: string | null, trigger: RestoreTrigger): 
  * Undo a disable when the cause of it goes away — a subscriber pays up, or we win a
  * dispute. Does nothing unless the recorded reason matches the trigger.
  */
-export function restoreLicense(
+export async function restoreLicense(
 	deps: AppDeps,
 	args: { license: License; trigger: RestoreTrigger; actor: string },
-): License {
+): Promise<License> {
 	if (args.license.status !== 'disabled') return args.license;
 
 	// Clear only the cause this trigger owns. A licence disabled for a chargeback AND a
 	// cancellation is still cancelled after we win the dispute.
-	const cleared = openCauses(deps, args.license.id).filter((cause) =>
+	const cleared = (await openCauses(deps, args.license.id)).filter((cause) =>
 		restoreAllowed(cause, args.trigger),
 	);
 	if (cleared.length === 0) {
@@ -112,7 +115,7 @@ export function restoreLicense(
 		if (!restoreAllowed(args.license.disabledReason, args.trigger)) return args.license;
 	}
 	for (const cause of cleared) {
-		deps.db
+		await deps.db
 			.update(licenseRevocations)
 			.set({ clearedAt: nowDate(deps).toISOString() })
 			.where(
@@ -121,11 +124,10 @@ export function restoreLicense(
 					eq(licenseRevocations.cause, cause),
 					isNull(licenseRevocations.clearedAt),
 				),
-			)
-			.run();
+			);
 	}
 
-	const remaining = openCauses(deps, args.license.id);
+	const remaining = await openCauses(deps, args.license.id);
 	if (remaining.length > 0) {
 		deps.logger.info('Licence stays disabled: another cause is still outstanding', {
 			license: args.license.id,
@@ -133,25 +135,28 @@ export function restoreLicense(
 		});
 		return args.license;
 	}
-	return enableLicense(deps, { license: args.license, actor: args.actor });
+	return await enableLicense(deps, { license: args.license, actor: args.actor });
 }
 
 /** Re-enable a disabled license, clearing the disabled fields. */
-export function enableLicense(deps: AppDeps, args: { license: License; actor: string }): License {
+export async function enableLicense(
+	deps: AppDeps,
+	args: { license: License; actor: string },
+): Promise<License> {
 	const { db } = deps;
 	// An explicit re-enable overrides every outstanding cause: a human looked at it and
 	// decided. Leaving causes open would let the next payment event re-disable silently.
-	db.update(licenseRevocations)
+	await db
+		.update(licenseRevocations)
 		.set({ clearedAt: nowDate(deps).toISOString() })
 		.where(
 			and(eq(licenseRevocations.licenseId, args.license.id), isNull(licenseRevocations.clearedAt)),
-		)
-		.run();
-	db.update(licenses)
+		);
+	await db
+		.update(licenses)
 		.set({ status: 'active', disabledAt: null, disabledReason: null })
-		.where(eq(licenses.id, args.license.id))
-		.run();
-	writeAudit(db, {
+		.where(eq(licenses.id, args.license.id));
+	await writeAudit(db, {
 		action: 'license.reenabled',
 		actor: args.actor,
 		productId: args.license.productId,

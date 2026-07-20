@@ -6,14 +6,14 @@ import { makeHarness } from './test/harness.js';
 
 describe('createApp', () => {
 	it('responds ok on /health', async () => {
-		const { app } = makeHarness();
+		const { app } = await makeHarness();
 		const res = await app.request('/health');
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({ ok: true, status: 'ok' });
 	});
 
 	it('serves an OpenAPI document on /doc', async () => {
-		const { app } = makeHarness();
+		const { app } = await makeHarness();
 		const res = await app.request('/doc');
 		expect(res.status).toBe(200);
 		const doc = (await res.json()) as { openapi: string; info: { title: string } };
@@ -24,7 +24,7 @@ describe('createApp', () => {
 
 describe('OpenAPI document (issue #48)', () => {
 	it('describes the frozen public contract instead of advertising nothing', async () => {
-		const h = makeHarness();
+		const h = await makeHarness();
 		const res = await h.app.request('/doc');
 		const doc = (await res.json()) as { paths: Record<string, unknown> };
 		expect(Object.keys(doc.paths ?? {}).sort()).toEqual([
@@ -39,7 +39,7 @@ describe('OpenAPI document (issue #48)', () => {
 	});
 
 	it('never documents a path that is not actually served', async () => {
-		const h = makeHarness();
+		const h = await makeHarness();
 		const res = await h.app.request('/doc');
 		const doc = (await res.json()) as {
 			paths: Record<string, Record<string, unknown>>;
@@ -64,7 +64,7 @@ describe('OpenAPI document (issue #48)', () => {
 	});
 
 	it('documents the usage response with the frozen snake_case fields', async () => {
-		const h = makeHarness();
+		const h = await makeHarness();
 		const res = await h.app.request('/doc');
 		const doc = (await res.json()) as { paths: Record<string, unknown> };
 		const usage = JSON.stringify(doc.paths['/v1/usage']);

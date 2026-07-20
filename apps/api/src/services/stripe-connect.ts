@@ -65,16 +65,15 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running
 	// connect against an existing one returns nothing, so writing it through would
 	// blank the stored secret and every later webhook would fail verification.
-	deps.db
+	await deps.db
 		.update(products)
 		.set({
 			stripePriceLifetime: result.lifetimePriceId,
 			stripePriceYearly: result.yearlyPriceId,
 			...(result.webhookSecret ? { stripeWebhookSecret: result.webhookSecret } : {}),
 		})
-		.where(eq(products.id, args.product.id))
-		.run();
-	writeAudit(deps.db, {
+		.where(eq(products.id, args.product.id));
+	await writeAudit(deps.db, {
 		action: 'product.stripe_connected',
 		actor: args.actor ?? 'admin',
 		productId: args.product.id,

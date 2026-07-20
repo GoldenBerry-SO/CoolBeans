@@ -33,8 +33,8 @@ async function signIn(email: string): Promise<string> {
 	return verify.body.token as string;
 }
 
-beforeEach(() => {
-	h = makeHarness();
+beforeEach(async () => {
+	h = await makeHarness();
 });
 
 describe('team management (PRD §16)', () => {

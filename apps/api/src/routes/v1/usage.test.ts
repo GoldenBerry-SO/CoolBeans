@@ -10,7 +10,7 @@ let key: string;
 let instanceId: string;
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',

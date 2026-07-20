@@ -13,11 +13,11 @@ import { isBillingEnabled, planUsage } from '../../services/plan-limits.js';
 import { accountScope, adminEmail } from './util.js';
 
 export function registerAdminBillingRoutes(admin: OpenAPIHono, deps: AppDeps): void {
-	admin.get('/billing', (c) => {
+	admin.get('/billing', async (c) => {
 		const account = accountScope(c);
 		const enabled = isBillingEnabled(deps);
-		const row = enabled ? getSubscriptionRow(deps, account.id) : undefined;
-		const usage = planUsage(deps, account);
+		const row = enabled ? await getSubscriptionRow(deps, account.id) : undefined;
+		const usage = await planUsage(deps, account);
 		return c.json({
 			ok: true,
 			billing: {
@@ -43,7 +43,7 @@ export function registerAdminBillingRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		if (!deps.billing || !deps.config.billing) {
 			throw conflict('billing_not_configured', 'Billing is not configured on this server.');
 		}
-		const row = ensureSubscriptionRow(deps, account.id);
+		const row = await ensureSubscriptionRow(deps, account.id);
 
 		// Already subscribed. Send them to the portal instead of opening a second
 		// subscription, which is what a stale tab left open would otherwise do.
@@ -75,7 +75,7 @@ export function registerAdminBillingRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			});
 			// Persist before creating the session, so a checkout that falls over leaves a
 			// reusable customer rather than an orphan we create again next time.
-			setCustomerId(deps, account.id, customerId);
+			await setCustomerId(deps, account.id, customerId);
 		}
 
 		const url = await deps.billing.createCheckoutSession({
@@ -93,7 +93,7 @@ export function registerAdminBillingRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		if (!deps.billing) {
 			throw conflict('billing_not_configured', 'Billing is not configured on this server.');
 		}
-		const row = getSubscriptionRow(deps, account.id);
+		const row = await getSubscriptionRow(deps, account.id);
 		if (!row?.stripeCustomerId) {
 			throw conflict(
 				'no_billing_account',

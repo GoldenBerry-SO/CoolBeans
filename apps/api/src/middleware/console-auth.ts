@@ -54,14 +54,14 @@ function scopeAllows(method: string, path: string): boolean {
  * what keeps the CLI and the existing tests working untouched. Past that, it has to name
  * one — guessing would mean acting on an arbitrary tenant's data.
  */
-function accountForAdminToken(deps: AppDeps, header: string | undefined): Account {
+async function accountForAdminToken(deps: AppDeps, header: string | undefined): Promise<Account> {
 	if (header) {
 		const trimmed = header.trim();
-		const byId = /^\d+$/.test(trimmed) ? getAccountById(deps.db, Number(trimmed)) : undefined;
+		const byId = /^\d+$/.test(trimmed) ? await getAccountById(deps.db, Number(trimmed)) : undefined;
 		if (byId) return byId;
 		// Names are not unique, so an ambiguous one has to be refused rather than resolved
 		// to whichever row came back first — that would act on an arbitrary tenant.
-		const byName = findAccountsByName(deps.db, trimmed);
+		const byName = await findAccountsByName(deps.db, trimmed);
 		if (byName.length > 1) {
 			throw badRequest(
 				`More than one account is named "${trimmed}". Use its numeric id in ${ACCOUNT_HEADER} instead.`,
@@ -71,8 +71,8 @@ function accountForAdminToken(deps: AppDeps, header: string | undefined): Accoun
 		if (!account) throw badRequest(`No account matches ${ACCOUNT_HEADER}: ${trimmed}`);
 		return account;
 	}
-	if (countAccounts(deps.db) === 1) {
-		const only = listAccounts(deps.db)[0];
+	if ((await countAccounts(deps.db)) === 1) {
+		const only = (await listAccounts(deps.db))[0];
 		if (only) return only;
 	}
 	throw badRequest(
@@ -84,16 +84,16 @@ export function consoleAuth(deps: AppDeps): MiddlewareHandler {
 	return async (c, next) => {
 		const header = c.req.header('Authorization') ?? '';
 		if (isAdminRequest(header, deps.config.adminToken)) {
-			c.set('accountScope', accountForAdminToken(deps, c.req.header(ACCOUNT_HEADER)));
+			c.set('accountScope', await accountForAdminToken(deps, c.req.header(ACCOUNT_HEADER)));
 			await next();
 			return;
 		}
 		const presented = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
 		if (!presented) throw unauthorized();
 
-		const session = adminForSession(deps, presented);
+		const session = await adminForSession(deps, presented);
 		if (session) {
-			const account = getAccountById(deps.db, session.accountId);
+			const account = await getAccountById(deps.db, session.accountId);
 			// The session names an account that has since vanished. Treat it as signed out
 			// rather than falling back to a default, which would be a cross-tenant read.
 			if (!account) throw unauthorized();
@@ -103,13 +103,13 @@ export function consoleAuth(deps: AppDeps): MiddlewareHandler {
 			return;
 		}
 
-		const product = productForToken(deps, presented);
+		const product = await productForToken(deps, presented);
 		if (!product) throw unauthorized();
 		const path = new URL(c.req.url).pathname.replace(/^\/admin/, '');
 		if (!scopeAllows(c.req.method, path)) {
 			throw forbidden('This token is scoped to one product and cannot reach that endpoint.');
 		}
-		const account = getAccountById(deps.db, product.accountId);
+		const account = await getAccountById(deps.db, product.accountId);
 		if (!account) throw unauthorized();
 		c.set('productScope', product);
 		c.set('accountScope', account);

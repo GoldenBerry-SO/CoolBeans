@@ -2,10 +2,10 @@
 // ABOUTME: ensureLicense is idempotent on provider_checkout_id; email failures leave email_sent_at NULL.
 
 import type { License, Product } from '@coolbeans/db';
-import { licenses, providerEvents, purchases } from '@coolbeans/db';
+import { applied, licenses, providerEvents, purchases } from '@coolbeans/db';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
-import { nowDate, nowIso } from '../deps.js';
+import { nowDate, nowIso, withTx } from '../deps.js';
 import { getAccountById } from '../store/accounts.js';
 import { writeAudit } from '../store/audit.js';
 import { isUniqueConstraintError } from '../store/db-errors.js';
@@ -57,7 +57,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 			product: args.product.slug,
 			checkout: args.checkoutId,
 		});
-		writeAudit(deps.db, {
+		await writeAudit(deps.db, {
 			action: 'license.issued_for_archived_product',
 			actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
 			accountId: args.product.accountId,
@@ -69,9 +69,9 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 	// customer's buyer has just paid *them*, so withholding the key breaks their business
 	// to collect $99 from us. Record it instead — that is what the console banner and the
 	// upgrade nudge hang off. Same shape as the archived-product case above.
-	const account = getAccountById(deps.db, args.product.accountId);
+	const account = await getAccountById(deps.db, args.product.accountId);
 	if (account) {
-		const licences = planUsage(deps, account).activeLicenses;
+		const licences = (await planUsage(deps, account)).activeLicenses;
 		if (!withinLimit(licences)) {
 			deps.logger.error('Licence issued past the plan limit; issuing anyway', {
 				account: account.id,
@@ -80,32 +80,39 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 				current: licences.current,
 				limit: licences.limit,
 			});
-			writeAudit(deps.db, {
+			await writeAudit(deps.db, {
 				action: 'account.license_limit_exceeded',
 				actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
 				accountId: account.id,
 				productId: args.product.id,
 				detail: { checkout: args.checkoutId, current: licences.current, limit: licences.limit },
 			});
-			markOverLimit(deps, account.id, nowIso(deps));
+			await markOverLimit(deps, account.id, nowIso(deps));
 		}
 	}
 	const { db } = deps;
 	let created = false;
 
-	let license = db
+	const [existing] = await db
 		.select()
 		.from(licenses)
 		.innerJoin(purchases, eq(purchases.id, licenses.purchaseId))
 		.where(eq(purchases.providerCheckoutId, args.checkoutId))
-		.get()?.licenses;
+		.limit(1);
+	let license = existing?.licenses;
 
 	if (!license) {
 		try {
 			// One transaction: a failure anywhere leaves no orphaned purchase behind, so a
 			// provider retry re-enters this path cleanly instead of hitting a dead UNIQUE row.
-			license = db.transaction((): License => {
-				const purchase = createPurchase(deps, {
+			license = await db.transaction(async (tx): Promise<License> => {
+				// Bind the bundle to the transaction: createPurchase, issueLicense and the
+				// outbox enqueue must live or die together. A purchase that survives a failed
+				// issuance is not merely untidy — provider_checkout_id is UNIQUE, so the
+				// orphan permanently blocks the provider's retry and the customer who paid
+				// can never be issued a key without manual surgery.
+				const scoped = withTx(deps, tx);
+				const purchase = await createPurchase(scoped, {
 					productId: args.product.id,
 					provider: args.provider,
 					providerCheckoutId: args.checkoutId,
@@ -116,7 +123,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 					amountTotal: args.amountTotal ?? null,
 					currency: args.currency ?? null,
 				});
-				const issued = issueLicense(deps, {
+				const issued = await issueLicense(scoped, {
 					product: args.product,
 					purchaseId: purchase.id,
 					tier: args.tier,
@@ -124,8 +131,8 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 					actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
 				});
 				// Durable backstop: if inline send and provider retries all fail, the worker sends later.
-				enqueue(
-					deps,
+				await enqueue(
+					scoped,
 					'send_key_email',
 					{ licenseId: issued.id, email: args.email },
 					EMAIL_BACKSTOP_DELAY_MS,
@@ -141,12 +148,13 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 					'purchases_provider_checkout_id_unique',
 				])
 			) {
-				license = db
+				const [winner] = await db
 					.select()
 					.from(licenses)
 					.innerJoin(purchases, eq(purchases.id, licenses.purchaseId))
 					.where(eq(purchases.providerCheckoutId, args.checkoutId))
-					.get()?.licenses;
+					.limit(1);
+				license = winner?.licenses;
 			}
 			if (!license) throw err;
 		}
@@ -154,7 +162,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 
 	// Terminal events can arrive before checkout issuance. Reconcile before either the
 	// inline email or its durable outbox backstop can expose a key that is already revoked.
-	license = applyPendingRevocation(deps, {
+	license = await applyPendingRevocation(deps, {
 		license,
 		provider: args.provider,
 		references: [args.paymentId, args.subscriptionId, args.checkoutId],
@@ -216,20 +224,28 @@ export interface ClaimableEvent {
 	accountId?: number;
 }
 
-export function claimEventStatus(deps: AppDeps, event: ClaimableEvent): Claim {
-	if (claimEvent(deps, event)) {
-		const row = deps.db.select().from(providerEvents).where(eq(providerEvents.id, event.id)).get();
+export async function claimEventStatus(deps: AppDeps, event: ClaimableEvent): Promise<Claim> {
+	if (await claimEvent(deps, event)) {
+		const [row] = await deps.db
+			.select()
+			.from(providerEvents)
+			.where(eq(providerEvents.id, event.id))
+			.limit(1);
 		return { result: 'claimed', token: row?.claimedAt ?? undefined };
 	}
-	const row = deps.db.select().from(providerEvents).where(eq(providerEvents.id, event.id)).get();
+	const [row] = await deps.db
+		.select()
+		.from(providerEvents)
+		.where(eq(providerEvents.id, event.id))
+		.limit(1);
 	return { result: claimOutcomeForRow(row) };
 }
 
-export function claimEvent(deps: AppDeps, event: ClaimableEvent): boolean {
+export async function claimEvent(deps: AppDeps, event: ClaimableEvent): Promise<boolean> {
 	const nowIso = nowDate(deps).toISOString();
 	const staleBefore = new Date(nowDate(deps).getTime() - CLAIM_STALE_MS).toISOString();
 	const accountId = event.accountId ?? null;
-	const claimed = deps.db.run(sql`
+	const claimed = await deps.db.execute(sql`
 		INSERT INTO provider_events (id, account_id, provider, type, status, claimed_at, received_at)
 		VALUES (${event.id}, ${accountId}, ${event.provider}, ${event.type}, 'processing', ${nowIso}, ${nowIso})
 		ON CONFLICT(id) DO UPDATE SET
@@ -239,8 +255,9 @@ export function claimEvent(deps: AppDeps, event: ClaimableEvent): boolean {
 			account_id = COALESCE(provider_events.account_id, ${accountId})
 		WHERE provider_events.status = 'processing'
 			AND (provider_events.claimed_at IS NULL OR provider_events.claimed_at < ${staleBefore})
+		RETURNING id
 	`);
-	return claimed.changes > 0;
+	return applied(claimed);
 }
 
 /**
@@ -248,49 +265,57 @@ export function claimEvent(deps: AppDeps, event: ClaimableEvent): boolean {
  * account by parsing the payload (platform billing reads it from Stripe metadata).
  * Never overwrites an attribution already made at claim time.
  */
-export function attributeEvent(deps: AppDeps, eventId: string, accountId: number): void {
-	deps.db
+export async function attributeEvent(
+	deps: AppDeps,
+	eventId: string,
+	accountId: number,
+): Promise<void> {
+	await deps.db
 		.update(providerEvents)
 		.set({ accountId })
-		.where(and(eq(providerEvents.id, eventId), isNull(providerEvents.accountId)))
-		.run();
+		.where(and(eq(providerEvents.id, eventId), isNull(providerEvents.accountId)));
 }
 
 /** Mark a claimed event fully processed (including its email). */
-export function completeEvent(deps: AppDeps, eventId: string, claimToken?: string): void {
+export async function completeEvent(
+	deps: AppDeps,
+	eventId: string,
+	claimToken?: string,
+): Promise<void> {
 	// Fenced by the claim stamp: if a stale takeover happened, the original worker's
 	// late completion must not mark the successor's work done.
 	const where = claimToken
 		? and(eq(providerEvents.id, eventId), eq(providerEvents.claimedAt, claimToken))
 		: eq(providerEvents.id, eventId);
-	deps.db.update(providerEvents).set({ status: 'done', claimedAt: null }).where(where).run();
+	await deps.db.update(providerEvents).set({ status: 'done', claimedAt: null }).where(where);
 }
 
 /**
  * Give up a claim after a failed handler, so the provider's retry re-enters the
  * idempotent path rather than being deduped away with the work half-done.
  */
-export function releaseEvent(deps: AppDeps, eventId: string, claimToken?: string): void {
+export async function releaseEvent(
+	deps: AppDeps,
+	eventId: string,
+	claimToken?: string,
+): Promise<void> {
 	// Same fence: only the current claimant may hand the event back.
 	const conditions = [eq(providerEvents.id, eventId), eq(providerEvents.status, 'processing')];
 	if (claimToken) conditions.push(eq(providerEvents.claimedAt, claimToken));
-	deps.db
-		.delete(providerEvents)
-		.where(and(...conditions))
-		.run();
+	await deps.db.delete(providerEvents).where(and(...conditions));
 }
 
 /** Set expires_at on the license tied to a subscription (renewal date advance). */
-export function advanceSubscriptionExpiry(
+export async function advanceSubscriptionExpiry(
 	deps: AppDeps,
 	subscriptionId: string,
 	expiresAt: string,
 	actor: string,
-): void {
-	const found = findLicenseByProviderId(deps, subscriptionId);
+): Promise<void> {
+	const found = await findLicenseByProviderId(deps, subscriptionId);
 	if (!found || found.license.expiresAt === expiresAt) return;
-	deps.db.update(licenses).set({ expiresAt }).where(eq(licenses.id, found.license.id)).run();
-	writeAudit(deps.db, {
+	await deps.db.update(licenses).set({ expiresAt }).where(eq(licenses.id, found.license.id));
+	await writeAudit(deps.db, {
 		action: 'license.expiry_advanced',
 		actor,
 		productId: found.license.productId,
@@ -300,19 +325,23 @@ export function advanceSubscriptionExpiry(
 }
 
 /** Look up a purchase's license for the success-page endpoint. */
-export function findByCheckoutId(
+export async function findByCheckoutId(
 	deps: AppDeps,
 	checkoutId: string,
-): { license: License; product: Product; email: string } | undefined {
-	const purchase = deps.db
+): Promise<{ license: License; product: Product; email: string } | undefined> {
+	const [purchase] = await deps.db
 		.select()
 		.from(purchases)
 		.where(and(eq(purchases.providerCheckoutId, checkoutId)))
-		.get();
+		.limit(1);
 	if (!purchase) return undefined;
-	const license = deps.db.select().from(licenses).where(eq(licenses.purchaseId, purchase.id)).get();
+	const [license] = await deps.db
+		.select()
+		.from(licenses)
+		.where(eq(licenses.purchaseId, purchase.id))
+		.limit(1);
 	if (!license) return undefined;
-	const product = getProductById(deps.db, purchase.productId);
+	const product = await getProductById(deps.db, purchase.productId);
 	if (!product) return undefined;
 	return { license, product, email: purchase.email };
 }

@@ -10,7 +10,7 @@ import { publicRateLimiter } from './rate-limit.js';
 let h: TestHarness;
 
 beforeEach(async () => {
-	h = makeHarness({
+	h = await makeHarness({
 		rateLimit: publicRateLimiter({
 			config: testConfig(),
 			logger: createLogger({ level: 'error' }),
@@ -70,7 +70,7 @@ describe('rate limiting', () => {
 
 describe('per-key throttle (issue #39)', () => {
 	it('throttles repeated failures against one key even as the IP rotates', async () => {
-		const h = makeHarness();
+		const h = await makeHarness();
 		await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',
@@ -94,7 +94,7 @@ describe('per-key throttle (issue #39)', () => {
 	});
 
 	it('a successful activation is never throttled by earlier failures elsewhere', async () => {
-		const h = makeHarness();
+		const h = await makeHarness();
 		await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',

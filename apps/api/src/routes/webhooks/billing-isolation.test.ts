@@ -21,8 +21,8 @@ const bothConfigured: Partial<Config> = {
 	},
 };
 
-function harness() {
-	const h = makeHarness({ config: bothConfigured });
+async function harness() {
+	const h = await makeHarness({ config: bothConfigured });
 	h.deps.stripe = fakeStripeGateway({}, { cs_platform: [PRO_PRICE] });
 	h.deps.billing = fakeBillingGateway({
 		subscriptions: {
@@ -35,16 +35,18 @@ function harness() {
 			},
 		},
 	});
-	h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1)).run();
+	await h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1));
 	return h;
 }
 
-const planOf = (h: ReturnType<typeof harness>) =>
-	h.deps.db.select().from(accounts).where(eq(accounts.id, 1)).get()?.plan;
+const planOf = async (h: Awaited<ReturnType<typeof harness>>) => {
+	const [row] = await h.deps.db.select().from(accounts).where(eq(accounts.id, 1)).limit(1);
+	return row?.plan;
+};
 
 describe('a platform subscription event cannot issue a licence key', () => {
 	it('is not matched to any product by the product webhook', async () => {
-		const h = harness();
+		const h = await harness();
 		await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',
@@ -75,13 +77,13 @@ describe('a platform subscription event cannot issue a licence key', () => {
 		});
 		expect(res.status).toBe(200);
 		// No key issued: the Pro price matches no product.
-		expect(h.deps.db.select().from(licenses).all()).toHaveLength(0);
+		expect(await h.deps.db.select().from(licenses)).toHaveLength(0);
 	});
 });
 
 describe('a product sale cannot grant Pro', () => {
 	it('fails signature verification at the billing endpoint', async () => {
-		const h = harness();
+		const h = await harness();
 		// 'valid' is the product gateway's signature. The billing endpoint verifies against
 		// a different secret, so the payload cannot get past the door — no parsing, no
 		// price check, nothing.
@@ -97,13 +99,13 @@ describe('a product sale cannot grant Pro', () => {
 		});
 		expect(res.status).toBe(400);
 		expect((await res.json()) as { error: string }).toMatchObject({ error: 'invalid_signature' });
-		expect(planOf(h)).toBe('free');
+		expect(await planOf(h)).toBe('free');
 	});
 
 	it('is ignored at the billing endpoint even when correctly signed', async () => {
 		// Belt and braces: if the two ever did share a secret, the price filter still has
 		// to refuse. A product sale is not a subscription to our Pro price.
-		const h = harness();
+		const h = await harness();
 		const res = await h.app.request('/v1/billing/stripe/webhook', {
 			method: 'POST',
 			headers: { 'stripe-signature': 'valid-billing', 'Content-Type': 'application/json' },
@@ -122,7 +124,7 @@ describe('a product sale cannot grant Pro', () => {
 			}),
 		});
 		expect(res.status).toBe(200);
-		expect(planOf(h)).toBe('free');
+		expect(await planOf(h)).toBe('free');
 	});
 });
 
@@ -130,7 +132,7 @@ describe('the two webhook URLs are distinct routes', () => {
 	it('does not let the billing path be matched as a :product slug', async () => {
 		// /v1/stripe/webhook/:product and /v1/billing/stripe/webhook differ at the second
 		// segment, so neither can capture the other.
-		const h = harness();
+		const h = await harness();
 		const res = await h.app.request('/v1/billing/stripe/webhook', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -145,7 +147,7 @@ describe('the reverse guard on product prices', () => {
 	it('refuses to store the Pro price as a product price at creation', async () => {
 		// Without this, getProductByStripePrice would match a Cool Beans Pro purchase and
 		// issue somebody a licence key for it.
-		const h = harness();
+		const h = await harness();
 		const res = await h.app.request('/admin/products', {
 			method: 'POST',
 			headers: h.adminHeaders,
@@ -162,7 +164,7 @@ describe('the reverse guard on product prices', () => {
 	});
 
 	it('refuses to patch a product onto the Pro price', async () => {
-		const h = harness();
+		const h = await harness();
 		await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',

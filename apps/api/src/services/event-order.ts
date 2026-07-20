@@ -33,25 +33,27 @@ export function shouldApplySubscriptionEvent(
  * checkout webhook lands within seconds while a lapse takes days, so the window where
  * that matters is not one real customers hit.
  */
-export function lastSubscriptionEventAt(deps: AppDeps, subscriptionId: string): number | null {
-	const row = deps.db
+export async function lastSubscriptionEventAt(
+	deps: AppDeps,
+	subscriptionId: string,
+): Promise<number | null> {
+	const [row] = await deps.db
 		.select({ at: purchases.lastSubscriptionEventAt })
 		.from(purchases)
 		.where(eq(purchases.providerSubscriptionId, subscriptionId))
-		.get();
+		.limit(1);
 	return row?.at ?? null;
 }
 
 /** Remember this event as the newest applied, so a later stale delivery is ignored. */
-export function markSubscriptionEventApplied(
+export async function markSubscriptionEventApplied(
 	deps: AppDeps,
 	subscriptionId: string,
 	eventCreated: number | undefined,
-): void {
+): Promise<void> {
 	if (eventCreated === undefined) return;
-	deps.db
+	await deps.db
 		.update(purchases)
 		.set({ lastSubscriptionEventAt: eventCreated })
-		.where(eq(purchases.providerSubscriptionId, subscriptionId))
-		.run();
+		.where(eq(purchases.providerSubscriptionId, subscriptionId));
 }

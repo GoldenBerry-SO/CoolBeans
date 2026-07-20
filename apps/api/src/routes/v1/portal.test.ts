@@ -3,13 +3,14 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
+import { rawExec } from '../../test/pg.js';
 import { createProduct, issueKey, post } from '../../test/seed.js';
 
 let h: TestHarness;
 let key: string;
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
@@ -106,9 +107,7 @@ describe('billing portal session (PRD §15, issue #35)', () => {
 			tier: 'yearly',
 		});
 		// Attach a Stripe customer to the purchase behind this key.
-		h.deps.db.$client
-			.prepare("UPDATE purchases SET provider = 'stripe', provider_customer_id = 'cus_123'")
-			.run();
+		await rawExec("UPDATE purchases SET provider = 'stripe', provider_customer_id = 'cus_123'");
 
 		const res = await post(h.app, '/v1/portal/billing-session', {
 			license_key: key,

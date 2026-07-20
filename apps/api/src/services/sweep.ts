@@ -1,7 +1,7 @@
 // ABOUTME: Periodic sweeps (PRD §17) — disable expired trials and reap dead floating leases.
 // ABOUTME: Trial expiry is enforced lazily at validate too; the sweep keeps state consistent offline.
 
-import { activations, licenses, products } from '@coolbeans/db';
+import { activations, affected, licenses, products } from '@coolbeans/db';
 import { and, eq, isNotNull, lte, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
@@ -9,9 +9,9 @@ import { writeAudit } from '../store/audit.js';
 import { pruneProviderEvents } from './prune.js';
 
 /** Disable every active trial whose expires_at has passed. Returns the count disabled. */
-export function sweepExpiredTrials(deps: AppDeps): number {
+export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 	const nowIso = nowDate(deps).toISOString();
-	const due = deps.db
+	const due = await deps.db
 		.select()
 		.from(licenses)
 		.where(
@@ -21,15 +21,13 @@ export function sweepExpiredTrials(deps: AppDeps): number {
 				isNotNull(licenses.expiresAt),
 				lte(licenses.expiresAt, nowIso),
 			),
-		)
-		.all();
+		);
 	for (const license of due) {
-		deps.db
+		await deps.db
 			.update(licenses)
 			.set({ status: 'disabled', disabledAt: nowIso, disabledReason: 'trial_expired' })
-			.where(eq(licenses.id, license.id))
-			.run();
-		writeAudit(deps.db, {
+			.where(eq(licenses.id, license.id));
+		await writeAudit(deps.db, {
 			action: 'license.disabled',
 			actor: 'system',
 			productId: license.productId,
@@ -41,9 +39,9 @@ export function sweepExpiredTrials(deps: AppDeps): number {
 }
 
 /** Mark expired floating leases deactivated so seat counts and listings stay tidy. */
-export function reapFloatingLeases(deps: AppDeps): number {
+export async function reapFloatingLeases(deps: AppDeps): Promise<number> {
 	const nowIso = nowDate(deps).toISOString();
-	const result = deps.db
+	const result = await deps.db
 		.update(activations)
 		.set({ deactivatedAt: nowIso })
 		.where(
@@ -54,24 +52,27 @@ export function reapFloatingLeases(deps: AppDeps): number {
 				sql`${activations.licenseId} IN (SELECT id FROM licenses WHERE product_id IN (SELECT id FROM ${products} WHERE activation_model = 'floating'))`,
 			),
 		)
-		.run();
+		.returning({ id: activations.id });
+	const freed = affected(result);
 	// §16 says every state change is auditable; an automated seat release is a state
 	// change even though no human asked for it.
-	if (result.changes > 0) {
-		writeAudit(deps.db, {
+	if (freed > 0) {
+		await writeAudit(deps.db, {
 			action: 'lease.reaped',
 			actor: 'system',
-			detail: { seats_freed: result.changes },
+			detail: { seats_freed: freed },
 		});
 	}
-	return result.changes;
+	return freed;
 }
 
 /** Run all periodic sweeps. Scheduled by the worker (BullMQ repeatable) in production. */
-export function runSweeps(deps: AppDeps): { trials: number; leases: number; pruned: number } {
+export async function runSweeps(
+	deps: AppDeps,
+): Promise<{ trials: number; leases: number; pruned: number }> {
 	return {
-		trials: sweepExpiredTrials(deps),
-		leases: reapFloatingLeases(deps),
-		pruned: pruneProviderEvents(deps),
+		trials: await sweepExpiredTrials(deps),
+		leases: await reapFloatingLeases(deps),
+		pruned: await pruneProviderEvents(deps),
 	};
 }

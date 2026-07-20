@@ -39,7 +39,7 @@ export function registerAuthRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	app.post('/auth/verify', async (c) => {
 		const body = await readBody(c, verifyBody);
-		const result = verifyCode(deps, body.email, body.code, body.name, body.account_name);
+		const result = await verifyCode(deps, body.email, body.code, body.name, body.account_name);
 		if (!result) throw unauthorized();
 		return c.json({
 			ok: true,
@@ -51,7 +51,7 @@ export function registerAuthRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	app.post('/auth/signout', async (c) => {
 		const header = c.req.header('Authorization') ?? '';
-		if (header.startsWith('Bearer ')) revokeSession(deps, header.slice('Bearer '.length));
+		if (header.startsWith('Bearer ')) await revokeSession(deps, header.slice('Bearer '.length));
 		return c.json({ ok: true });
 	});
 }

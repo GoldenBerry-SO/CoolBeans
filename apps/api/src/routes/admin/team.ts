@@ -14,10 +14,10 @@ const inviteBody = z.object({
 });
 
 export function registerAdminTeamRoutes(admin: OpenAPIHono, deps: AppDeps): void {
-	admin.get('/team', (c) =>
+	admin.get('/team', async (c) =>
 		c.json({
 			ok: true,
-			team: listTeam(deps, accountScope(c).id).map((m) => ({
+			team: (await listTeam(deps, accountScope(c).id)).map((m) => ({
 				id: m.id,
 				email: m.email,
 				name: m.name,
@@ -29,7 +29,13 @@ export function registerAdminTeamRoutes(admin: OpenAPIHono, deps: AppDeps): void
 
 	admin.post('/team', async (c) => {
 		const body = await readBody(c, inviteBody);
-		const invited = inviteAdmin(deps, accountScope(c).id, body.email, auditActor(c), body.name);
+		const invited = await inviteAdmin(
+			deps,
+			accountScope(c).id,
+			body.email,
+			auditActor(c),
+			body.name,
+		);
 		if (invited === 'email_in_use') {
 			// They already belong to another account. Returning that row instead would hand
 			// this account an admin whose sessions carry someone else's account id.
@@ -48,10 +54,10 @@ export function registerAdminTeamRoutes(admin: OpenAPIHono, deps: AppDeps): void
 		});
 	});
 
-	admin.delete('/team/:id', (c) => {
+	admin.delete('/team/:id', async (c) => {
 		const id = Number(c.req.param('id'));
 		if (!Number.isInteger(id)) throw notFound('No admin with that id.');
-		const result = revokeAdmin(deps, accountScope(c).id, id, auditActor(c));
+		const result = await revokeAdmin(deps, accountScope(c).id, id, auditActor(c));
 		if (result === 'not_found') throw notFound('No admin with that id.');
 		if (result === 'last_admin') {
 			throw conflict(

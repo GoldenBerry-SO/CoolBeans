@@ -10,18 +10,20 @@ import { mintToken } from './signing.js';
 
 const DAY = 86_400_000;
 
-function seed(h: TestHarness, tier: 'lifetime' | 'yearly' | 'trial', expiresAt: string | null) {
-	const product = h.deps.db
+async function seed(
+	h: TestHarness,
+	tier: 'lifetime' | 'yearly' | 'trial',
+	expiresAt: string | null,
+) {
+	const [product] = await h.deps.db
 		.insert(products)
 		.values({ slug: 'clementine', name: 'Clementine', keyPrefix: 'CLEM', emailFrom: 'r@c.io' })
-		.returning()
-		.get();
-	const purchase = h.deps.db
+		.returning();
+	const [purchase] = await h.deps.db
 		.insert(purchases)
 		.values({ productId: product.id, provider: 'manual', email: 'b@c.io' })
-		.returning()
-		.get();
-	const license = h.deps.db
+		.returning();
+	const [license] = await h.deps.db
 		.insert(licenses)
 		.values({
 			productId: product.id,
@@ -30,8 +32,7 @@ function seed(h: TestHarness, tier: 'lifetime' | 'yearly' | 'trial', expiresAt: 
 			tier,
 			expiresAt,
 		})
-		.returning()
-		.get();
+		.returning();
 	return { product: product as Product, license: license as License };
 }
 
@@ -41,9 +42,13 @@ function payloadOf(token: string): TokenPayload {
 	return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as TokenPayload;
 }
 
-function claimOf(h: TestHarness, tier: 'lifetime' | 'yearly' | 'trial', expiresAt: string | null) {
-	const { product, license } = seed(h, tier, expiresAt);
-	const { token } = mintToken(h.deps, {
+async function claimOf(
+	h: TestHarness,
+	tier: 'lifetime' | 'yearly' | 'trial',
+	expiresAt: string | null,
+) {
+	const { product, license } = await seed(h, tier, expiresAt);
+	const { token } = await mintToken(h.deps, {
 		license,
 		product,
 		instanceId: 'inst-1',
@@ -53,57 +58,57 @@ function claimOf(h: TestHarness, tier: 'lifetime' | 'yearly' | 'trial', expiresA
 }
 
 describe('offline token expiry buffer', () => {
-	it('pushes a yearly licence expiry out by the configured buffer', () => {
+	it('pushes a yearly licence expiry out by the configured buffer', async () => {
 		// The client now treats a past expires_at as definitive, so the raw licence expiry
 		// would lock out a subscriber who renewed while offline and holds a stale token.
-		const h = makeHarness();
+		const h = await makeHarness();
 		const expiry = new Date(h.clock.now().getTime() + 30 * DAY).toISOString();
-		const payload = claimOf(h, 'yearly', expiry);
+		const payload = await claimOf(h, 'yearly', expiry);
 		const claimed = new Date(payload.expires_at ?? '').getTime();
 		expect(claimed).toBe(new Date(expiry).getTime() + 14 * DAY);
 	});
 
-	it('honours a custom buffer from config', () => {
-		const h = makeHarness({ config: { offlineTokenBufferDays: 3 } });
+	it('honours a custom buffer from config', async () => {
+		const h = await makeHarness({ config: { offlineTokenBufferDays: 3 } });
 		const expiry = new Date(h.clock.now().getTime() + 30 * DAY).toISOString();
-		const payload = claimOf(h, 'yearly', expiry);
+		const payload = await claimOf(h, 'yearly', expiry);
 		const claimed = new Date(payload.expires_at ?? '').getTime();
 		expect(claimed).toBe(new Date(expiry).getTime() + 3 * DAY);
 	});
 
-	it('leaves a lifetime licence with no expiry at all', () => {
+	it('leaves a lifetime licence with no expiry at all', async () => {
 		// A buffer applied to null would invent an expiry for a licence that has none.
-		const h = makeHarness();
-		expect(claimOf(h, 'lifetime', null).expires_at).toBeNull();
+		const h = await makeHarness();
+		expect((await claimOf(h, 'lifetime', null)).expires_at).toBeNull();
 	});
 
-	it('never extends a trial', () => {
+	it('never extends a trial', async () => {
 		// A buffered trial is a longer trial. §9 says the token must not outlive it.
-		const h = makeHarness();
+		const h = await makeHarness();
 		const expiry = new Date(h.clock.now().getTime() + 5 * DAY).toISOString();
-		const payload = claimOf(h, 'trial', expiry);
+		const payload = await claimOf(h, 'trial', expiry);
 		expect(new Date(payload.expires_at ?? '').getTime()).toBe(new Date(expiry).getTime());
 	});
 
-	it('still clamps a trial token TTL to the trial end', () => {
-		const h = makeHarness();
+	it('still clamps a trial token TTL to the trial end', async () => {
+		const h = await makeHarness();
 		const expiry = new Date(h.clock.now().getTime() + 2 * DAY).toISOString();
-		const payload = claimOf(h, 'trial', expiry);
+		const payload = await claimOf(h, 'trial', expiry);
 		expect(payload.exp * 1000).toBeLessThanOrEqual(new Date(expiry).getTime());
 	});
 
-	it('does not modify the licence row', () => {
+	it('does not modify the licence row', async () => {
 		// The buffer is a property of the token we hand out, not of the licence itself.
-		const h = makeHarness();
+		const h = await makeHarness();
 		const expiry = new Date(h.clock.now().getTime() + 30 * DAY).toISOString();
-		const { product, license } = seed(h, 'yearly', expiry);
-		mintToken(h.deps, {
+		const { product, license } = await seed(h, 'yearly', expiry);
+		await mintToken(h.deps, {
 			license,
 			product,
 			instanceId: 'inst-1',
 			displayKey: 'CLEM-ABCD-EFGH-JKMN-PQRS',
 		});
-		const row = h.deps.db.select().from(licenses).all()[0];
+		const row = (await h.deps.db.select().from(licenses))[0];
 		expect(row?.expiresAt).toBe(expiry);
 	});
 });

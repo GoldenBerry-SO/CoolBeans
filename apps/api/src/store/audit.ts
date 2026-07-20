@@ -21,15 +21,13 @@ export interface AuditEntry {
 
 type AuditDb = Pick<Database, 'insert'>;
 
-export function writeAudit(db: AuditDb, entry: AuditEntry): void {
-	db.insert(auditLog)
-		.values({
-			accountId: entry.accountId ?? DEFAULT_ACCOUNT_ID,
-			action: entry.action,
-			actor: entry.actor,
-			productId: entry.productId ?? null,
-			licenseId: entry.licenseId ?? null,
-			detail: entry.detail ? JSON.stringify(entry.detail) : null,
-		})
-		.run();
+export async function writeAudit(db: AuditDb, entry: AuditEntry): Promise<void> {
+	await db.insert(auditLog).values({
+		accountId: entry.accountId ?? DEFAULT_ACCOUNT_ID,
+		action: entry.action,
+		actor: entry.actor,
+		productId: entry.productId ?? null,
+		licenseId: entry.licenseId ?? null,
+		detail: entry.detail ? JSON.stringify(entry.detail) : null,
+	});
 }

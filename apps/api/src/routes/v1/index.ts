@@ -47,7 +47,7 @@ async function readJson<T>(
 export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	app.post('/v1/activate', async (c) => {
 		const body = await readJson(c, activateBody);
-		const result = activate(deps, body.license_key, body.instance_name);
+		const result = await activate(deps, body.license_key, body.instance_name);
 		return c.json({
 			ok: true,
 			license: serializeLicense(result.license, result.product, 'active'),
@@ -57,7 +57,7 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	app.post('/v1/validate', async (c) => {
 		const body = await readJson(c, validateBody);
-		const result = validate(deps, body.license_key, body.instance_id);
+		const result = await validate(deps, body.license_key, body.instance_id);
 		return c.json({
 			ok: true,
 			valid: result.valid,
@@ -69,23 +69,24 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	app.post('/v1/deactivate', async (c) => {
 		const body = await readJson(c, validateBody);
-		deactivate(deps, body.license_key, body.instance_id);
+		await deactivate(deps, body.license_key, body.instance_id);
 		return c.json({ ok: true });
 	});
 
 	app.post('/v1/heartbeat', async (c) => {
 		const body = await readJson(c, validateBody);
-		const result = heartbeat(deps, body.license_key, body.instance_id);
+		const result = await heartbeat(deps, body.license_key, body.instance_id);
 		return c.json({ ok: true, lease_expires_at: result.leaseExpiresAt });
 	});
 
 	// Public signing keys for offline token verification (SDK embeds these). PRD §11.
-	app.get('/v1/pubkey', (c) => {
+	app.get('/v1/pubkey', async (c) => {
 		const slug = c.req.query('product');
 		if (!slug) throw notFound('A product query parameter is required.');
-		const product = getProductBySlugGlobal(deps.db, slug);
+		const product = await getProductBySlugGlobal(deps.db, slug);
 		if (!product) throw notFound('No product with that slug.');
-		return c.json({ ok: true, algorithm: 'ed25519', keys: publicKeysFor(deps, product.id) });
+		const keys = await publicKeysFor(deps, product.id);
+		return c.json({ ok: true, algorithm: 'ed25519', keys });
 	});
 
 	// Purchase lookup for a landing site's success page (PRD §13). Product-token authed
@@ -95,21 +96,21 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	app.get('/v1/purchase/session/:checkout_session_id', async (c) => {
 		const header = c.req.header('Authorization') ?? '';
 		const presented = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
-		const tokenProduct = presented ? productForToken(deps, presented) : undefined;
+		const tokenProduct = presented ? await productForToken(deps, presented) : undefined;
 		// Not a product token: require the global admin token (constant-time).
 		if (!tokenProduct && !isAdminRequest(header, deps.config.adminToken)) {
 			throw unauthorized();
 		}
 
 		const sessionId = c.req.param('checkout_session_id');
-		let found = findByCheckoutId(deps, sessionId);
+		let found = await findByCheckoutId(deps, sessionId);
 		if (!found && deps.stripe) {
 			// Success-page race: the webhook hasn't landed yet. Retrieve the paid session
 			// from Stripe and issue through the same idempotent path (PRD §13/§14).
 			const session = await deps.stripe.getCheckoutSession(sessionId);
 			if (session) {
 				const ensured = await ensureLicenseForSession(deps, session, `lookup:${sessionId}`);
-				if (ensured) found = findByCheckoutId(deps, sessionId);
+				if (ensured) found = await findByCheckoutId(deps, sessionId);
 			}
 		}
 		if (!found && deps.paypal) {
@@ -117,7 +118,7 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			const order = await deps.paypal.getOrder(sessionId);
 			if (order) {
 				const ensured = await ensureLicenseForOrder(deps, order, `lookup:${sessionId}`);
-				if (ensured) found = findByCheckoutId(deps, sessionId);
+				if (ensured) found = await findByCheckoutId(deps, sessionId);
 			}
 		}
 		if (!found) throw notFound('No purchase for that checkout session.');

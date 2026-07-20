@@ -11,7 +11,7 @@ let h: TestHarness;
 const UNKNOWN = 'CLEM-ZZZZ-ZZZZ-ZZZZ-ZZZZ';
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
@@ -25,31 +25,31 @@ const failTimes = (key: string, n: number) => {
 };
 
 describe('per-key throttle', () => {
-	it('allows a reasonable number of failures before locking', () => {
+	it('allows a reasonable number of failures before locking', async () => {
 		failTimes(UNKNOWN, 9);
 		expect(() => assertKeyNotThrottled(h.deps, UNKNOWN)).not.toThrow();
 	});
 
-	it('locks the key out once the failures pile up', () => {
+	it('locks the key out once the failures pile up', async () => {
 		failTimes(UNKNOWN, 10);
 		expect(() => assertKeyNotThrottled(h.deps, UNKNOWN)).toThrow(ApiError);
 	});
 
-	it('throttles the key, not the caller, so rotating IPs does not help', () => {
+	it('throttles the key, not the caller, so rotating IPs does not help', async () => {
 		// The whole point: state is keyed by the licence key. A different key is unaffected.
 		failTimes(UNKNOWN, 12);
 		expect(() => assertKeyNotThrottled(h.deps, UNKNOWN)).toThrow();
 		expect(() => assertKeyNotThrottled(h.deps, 'CLEM-AAAA-BBBB-CCCC-DDDD')).not.toThrow();
 	});
 
-	it('normalizes, so dashes and case cannot dodge the count', () => {
+	it('normalizes, so dashes and case cannot dodge the count', async () => {
 		failTimes(UNKNOWN, 10);
 		expect(() =>
 			assertKeyNotThrottled(h.deps, UNKNOWN.replaceAll('-', '').toLowerCase()),
 		).toThrow();
 	});
 
-	it('lets the key back in once the lockout lapses', () => {
+	it('lets the key back in once the lockout lapses', async () => {
 		failTimes(UNKNOWN, 10);
 		expect(() => assertKeyNotThrottled(h.deps, UNKNOWN)).toThrow();
 		// A lockout that never lifts turns a burst of typos into a permanent denial.
@@ -57,14 +57,14 @@ describe('per-key throttle', () => {
 		expect(() => assertKeyNotThrottled(h.deps, UNKNOWN)).not.toThrow();
 	});
 
-	it('forgets failures that fall outside the window', () => {
+	it('forgets failures that fall outside the window', async () => {
 		failTimes(UNKNOWN, 9);
 		h.clock.advance(61_000);
 		failTimes(UNKNOWN, 9);
 		expect(() => assertKeyNotThrottled(h.deps, UNKNOWN)).not.toThrow();
 	});
 
-	it('clears the count when the key turns out to be real', () => {
+	it('clears the count when the key turns out to be real', async () => {
 		failTimes(UNKNOWN, 9);
 		clearKeyFailures(UNKNOWN);
 		failTimes(UNKNOWN, 9);

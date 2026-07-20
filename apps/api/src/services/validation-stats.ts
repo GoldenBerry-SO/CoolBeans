@@ -15,16 +15,15 @@ function dayOf(date: Date): string {
  * Count one validation. Called on the hot path, so it is a single upsert and its failure
  * is swallowed: a broken counter must never turn a healthy licence check into an error.
  */
-export function recordValidation(deps: AppDeps, productId: number): void {
+export async function recordValidation(deps: AppDeps, productId: number): Promise<void> {
 	try {
-		deps.db
+		await deps.db
 			.insert(validationCounters)
 			.values({ productId, day: dayOf(nowDate(deps)), count: 1 })
 			.onConflictDoUpdate({
 				target: [validationCounters.productId, validationCounters.day],
 				set: { count: sql`${validationCounters.count} + 1` },
-			})
-			.run();
+			});
 	} catch (err) {
 		deps.logger.error('Validation counter failed', { message: (err as Error).message });
 	}
@@ -43,10 +42,10 @@ export interface ValidationDay {
  * products). Passing neither totals across the whole instance, which only the self-host
  * single-account case should be doing.
  */
-export function recentValidationCounts(
+export async function recentValidationCounts(
 	deps: AppDeps,
 	args: { days: number; productId?: number; productIds?: number[] },
-): ValidationDay[] {
+): Promise<ValidationDay[]> {
 	const today = nowDate(deps);
 	const window: string[] = [];
 	for (let i = args.days - 1; i >= 0; i -= 1) {
@@ -66,13 +65,12 @@ export function recentValidationCounts(
 			: args.productIds
 				? inArray(validationCounters.productId, args.productIds)
 				: undefined;
-	const rows = deps.db
+	const rows = await deps.db
 		.select({ day: validationCounters.day, count: validationCounters.count })
 		.from(validationCounters)
 		.where(
 			scope ? and(gte(validationCounters.day, oldest), scope) : gte(validationCounters.day, oldest),
-		)
-		.all();
+		);
 
 	// Several products can share a day, so total rather than overwrite.
 	const totals = new Map<string, number>();

@@ -33,14 +33,14 @@ describe('core configuration boundaries', () => {
 		},
 	);
 
-	it('accepts the supported server-port boundaries', () => {
+	it('accepts the supported server-port boundaries', async () => {
 		expect(loadConfig({ ...base, PORT: '0' }).port).toBe(0);
 		expect(loadConfig({ ...base, PORT: '65535' }).port).toBe(65_535);
 	});
 });
 
 describe('SMTP configuration boundaries', () => {
-	it('uses port 587 by default and accepts a valid override', () => {
+	it('uses port 587 by default and accepts a valid override', async () => {
 		expect(
 			loadConfig({ ...base, EMAIL_PROVIDER: 'smtp', SMTP_HOST: 'smtp.test' }).email,
 		).toMatchObject({ provider: 'smtp', port: 587 });
@@ -65,7 +65,7 @@ describe('SMTP configuration boundaries', () => {
 });
 
 describe('STRIPE_API_BASE (journey tests, stripe-mock)', () => {
-	it('is carried into config so the gateway can be pointed at a local mock', () => {
+	it('is carried into config so the gateway can be pointed at a local mock', async () => {
 		const config = loadConfig({
 			...base,
 			STRIPE_SECRET_KEY: 'sk_test_123',
@@ -74,7 +74,7 @@ describe('STRIPE_API_BASE (journey tests, stripe-mock)', () => {
 		expect(config.stripe?.apiBase).toBe('http://localhost:12111');
 	});
 
-	it('is absent by default, so production always talks to the real Stripe', () => {
+	it('is absent by default, so production always talks to the real Stripe', async () => {
 		const config = loadConfig({
 			...base,
 			STRIPE_SECRET_KEY: 'sk_test_123',
@@ -84,7 +84,7 @@ describe('STRIPE_API_BASE (journey tests, stripe-mock)', () => {
 });
 
 describe('RESEND_BASE_URL (journey tests, mirrors STRIPE_API_BASE)', () => {
-	it('is carried into config so the Resend client can be pointed at a local mock', () => {
+	it('is carried into config so the Resend client can be pointed at a local mock', async () => {
 		const config = loadConfig({
 			...base,
 			EMAIL_PROVIDER: 'resend',
@@ -95,7 +95,7 @@ describe('RESEND_BASE_URL (journey tests, mirrors STRIPE_API_BASE)', () => {
 		expect(config.email.baseUrl).toBe('http://localhost:12112');
 	});
 
-	it('is absent by default, so production always talks to the real Resend', () => {
+	it('is absent by default, so production always talks to the real Resend', async () => {
 		const config = loadConfig({
 			...base,
 			EMAIL_PROVIDER: 'resend',
@@ -115,12 +115,12 @@ function assertResend(config: ReturnType<typeof loadConfig>): asserts config is 
 }
 
 describe('EMAIL_PROVIDER=console (development)', () => {
-	it('is accepted for local development', () => {
+	it('is accepted for local development', async () => {
 		const config = loadConfig({ ...base, EMAIL_PROVIDER: 'console' } as NodeJS.ProcessEnv);
 		expect(config.email?.provider).toBe('console');
 	});
 
-	it('refuses to start in production, where silently not sending email is a disaster', () => {
+	it('refuses to start in production, where silently not sending email is a disaster', async () => {
 		expect(() =>
 			loadConfig({
 				...base,
@@ -132,12 +132,12 @@ describe('EMAIL_PROVIDER=console (development)', () => {
 });
 
 describe('no email sender at all', () => {
-	it('is fine in development, where most work does not involve email', () => {
+	it('is fine in development, where most work does not involve email', async () => {
 		const config = loadConfig(base);
 		expect(config.email).toBeUndefined();
 	});
 
-	it('refuses to start in production: issuing keys nobody receives looks healthy', () => {
+	it('refuses to start in production: issuing keys nobody receives looks healthy', async () => {
 		// Without a sender the buyer gets no key email AND recovery cannot help them,
 		// so the instance takes money and delivers nothing while reporting success.
 		expect(() => loadConfig({ ...base, NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toThrow(
@@ -145,7 +145,7 @@ describe('no email sender at all', () => {
 		);
 	});
 
-	it('starts in production once a real sender is configured', () => {
+	it('starts in production once a real sender is configured', async () => {
 		const config = loadConfig({
 			...base,
 			NODE_ENV: 'production',
@@ -157,11 +157,11 @@ describe('no email sender at all', () => {
 });
 
 describe('offline token buffer', () => {
-	it('defaults to 14 days', () => {
+	it('defaults to 14 days', async () => {
 		expect(loadConfig(base).offlineTokenBufferDays).toBe(14);
 	});
 
-	it('accepts an explicit value, including zero for no buffer at all', () => {
+	it('accepts an explicit value, including zero for no buffer at all', async () => {
 		expect(loadConfig({ ...base, OFFLINE_TOKEN_BUFFER_DAYS: '30' }).offlineTokenBufferDays).toBe(
 			30,
 		);
@@ -185,11 +185,11 @@ describe('platform billing configuration', () => {
 		BILLING_STRIPE_PRO_PRICE_ID: 'price_pro_123',
 	} as NodeJS.ProcessEnv;
 
-	it('is absent unless a billing key is set, which is what makes self-host unlimited', () => {
+	it('is absent unless a billing key is set, which is what makes self-host unlimited', async () => {
 		expect(loadConfig(base).billing).toBeUndefined();
 	});
 
-	it('does not turn on just because the product-sales integration is configured', () => {
+	it('does not turn on just because the product-sales integration is configured', async () => {
 		// A self-hoster selling their own software sets STRIPE_SECRET_KEY. That must never
 		// put them on the hosted billing path or behind the hosted plan limits.
 		const config = loadConfig({ ...base, STRIPE_SECRET_KEY: 'sk_test_customer' });
@@ -197,7 +197,7 @@ describe('platform billing configuration', () => {
 		expect(config.billing).toBeUndefined();
 	});
 
-	it('parses the BILLING_ namespace', () => {
+	it('parses the BILLING_ namespace', async () => {
 		const config = loadConfig({
 			...billing,
 			BILLING_STRIPE_WEBHOOK_SECRET: 'whsec_billing',
@@ -211,7 +211,7 @@ describe('platform billing configuration', () => {
 		});
 	});
 
-	it('refuses a billing key with no price id, in every environment', () => {
+	it('refuses a billing key with no price id, in every environment', async () => {
 		// The console would show an Upgrade button that 500s on click, and every account
 		// would sit on Free with no way off it.
 		const noPrice = { ...billing };
@@ -219,7 +219,7 @@ describe('platform billing configuration', () => {
 		expect(() => loadConfig(noPrice)).toThrow(/BILLING_STRIPE_PRO_PRICE_ID/);
 	});
 
-	it('refuses a billing key with no webhook secret in production', () => {
+	it('refuses a billing key with no webhook secret in production', async () => {
 		// Checkout succeeds, Stripe charges the card, the webhook is rejected, and the
 		// customer stays on Free having paid us.
 		expect(() => loadConfig({ ...billing, NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toThrow(
@@ -227,11 +227,11 @@ describe('platform billing configuration', () => {
 		);
 	});
 
-	it('allows a missing webhook secret outside production so the route can run inert', () => {
+	it('allows a missing webhook secret outside production so the route can run inert', async () => {
 		expect(loadConfig(billing).billing?.stripeWebhookSecret).toBeUndefined();
 	});
 
-	it('refuses to share one Stripe key with the product-sales integration in production', () => {
+	it('refuses to share one Stripe key with the product-sales integration in production', async () => {
 		// One account means both flows arrive on one event stream, leaving the price-id
 		// filter as the only thing stopping a Cool Beans Pro purchase from issuing
 		// somebody a licence key.
@@ -247,19 +247,19 @@ describe('platform billing configuration', () => {
 		).toThrow(/same Stripe key/);
 	});
 
-	it('makes ADMIN_TOKEN optional once billing is on, because cloud has no god-mode', () => {
+	it('makes ADMIN_TOKEN optional once billing is on, because cloud has no god-mode', async () => {
 		const noToken = { ...billing };
 		delete noToken.ADMIN_TOKEN;
 		expect(loadConfig(noToken).adminToken).toBeUndefined();
 	});
 
-	it('still requires ADMIN_TOKEN for a self-host instance', () => {
+	it('still requires ADMIN_TOKEN for a self-host instance', async () => {
 		const noToken = { ...base };
 		delete noToken.ADMIN_TOKEN;
 		expect(() => loadConfig(noToken)).toThrow(/ADMIN_TOKEN/);
 	});
 
-	it('still enforces the length floor on an ADMIN_TOKEN that is supplied', () => {
+	it('still enforces the length floor on an ADMIN_TOKEN that is supplied', async () => {
 		expect(() => loadConfig({ ...billing, ADMIN_TOKEN: 'short' })).toThrow(/16 characters/);
 	});
 });

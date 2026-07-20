@@ -1,9 +1,7 @@
-// ABOUTME: Node (self-host / k8s) entrypoint — loads config, opens the DB, migrates, and serves.
+// ABOUTME: Node (self-host / k8s) entrypoint — loads config, checks the schema, and serves.
 // ABOUTME: Reads configuration from process.env; see .env.example at the repo root.
 
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { createDb, migrate, openSqlite } from '@coolbeans/db';
+import { assertSchemaCurrent, createDb, createPool, migrate } from '@coolbeans/db';
 import { createLogger } from '@coolbeans/logger';
 import { serve } from '@hono/node-server';
 import { Redis } from 'ioredis';
@@ -30,23 +28,37 @@ try {
 	process.exit(1);
 }
 
-if (config.databaseUrl.startsWith('postgres')) {
-	// Guard: without this we'd silently create a SQLite file literally named "postgres://…".
+if (!config.databaseUrl.startsWith('postgres')) {
+	// The guard used to point the other way, refusing postgres URLs while the adapter was
+	// SQLite. Inverted rather than removed: a leftover SQLite path from an old .env would
+	// otherwise surface as an opaque driver error instead of an instruction.
 	logger.error(
-		'DATABASE_URL points at Postgres, which is not supported yet (see the Postgres issue). Use a SQLite file path.',
+		'DATABASE_URL must be a postgres:// URL. Cool Beans runs on PostgreSQL; docker compose provides one for self-hosting (see README).',
 	);
 	process.exit(1);
 }
-// Ensure the SQLite directory exists before opening the file.
-if (config.databaseUrl !== ':memory:') mkdirSync(dirname(config.databaseUrl), { recursive: true });
-const db = createDb(openSqlite(config.databaseUrl));
-migrate(db);
+const db = createDb(createPool(config.databaseUrl));
+
+// Migrations do NOT run at boot. With replicas, a worker and the migration Job all
+// starting inside one deploy, boot-time DDL is a race with a half-applied schema as its
+// failure mode. The Job (db:migrate) is the single migrator; a single-process self-host
+// can opt back into the old behaviour explicitly.
+if (process.env.MIGRATE_ON_BOOT === 'true') {
+	await migrate(db);
+} else {
+	try {
+		await assertSchemaCurrent(db);
+	} catch (err) {
+		logger.error('Schema check failed', { message: (err as Error).message });
+		process.exit(1);
+	}
+}
 
 // products.account_id and admin_users.account_id carry no foreign key (SQLite would not
 // take one on an added NOT NULL column), so this is the constraint. A backfill that went
 // wrong should stop the process, not serve one tenant another's data.
 try {
-	assertAccountsResolve(db);
+	await assertAccountsResolve(db);
 } catch (err) {
 	logger.error('Account integrity check failed', { message: (err as Error).message });
 	process.exit(1);
@@ -55,7 +67,7 @@ try {
 // Fail fast if the configured secret cannot read the signing keys already stored:
 // discovering that on the first token request looks like an outage, not a config error.
 try {
-	assertSigningKeysUsable({ db, config });
+	await assertSigningKeysUsable({ db, config });
 } catch (err) {
 	logger.error('Signing key validation failed', { message: (err as Error).message });
 	process.exit(1);

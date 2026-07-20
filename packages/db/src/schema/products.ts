@@ -2,17 +2,21 @@
 // ABOUTME: Onboarding a product is an admin action; the key prefix resolves keys to their product.
 
 import { sql } from 'drizzle-orm';
-import { check, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
+import { accounts } from './accounts.js';
+import { isoNow } from './columns.js';
 
-export const products = sqliteTable(
+export const products = pgTable(
 	'products',
 	{
-		id: integer('id').primaryKey({ autoIncrement: true }),
-		// The owning tenant. Deliberately declared without .references(): SQLite refuses a
-		// non-NULL default on a column added with a REFERENCES clause while foreign_keys is
-		// ON, and rebuilding this table is not an option because six others reference it.
-		// node.ts asserts at boot that every account_id resolves. See drizzle/0010.
-		accountId: integer('account_id').notNull().default(1),
+		id: serial('id').primaryKey(),
+		// The owning tenant. RESTRICT is deliberate: deleting an account that still owns
+		// products must fail loudly rather than silently delete a tenant's licences. SQLite
+		// could not add this FK to an existing table, so it went unenforced there; now it can.
+		accountId: integer('account_id')
+			.notNull()
+			.default(1)
+			.references(() => accounts.id, { onDelete: 'restrict' }),
 		// Globally unique, not per-account: slug and key_prefix both appear in public URLs
 		// (/v1/pubkey?product=, /v1/stripe/webhook/:product) and key_prefix is how the
 		// public path resolves a key to its product without an account in hand.
@@ -37,10 +41,11 @@ export const products = sqliteTable(
 		// Archiving retires a product without deleting it: §9 is frozen, so issued keys
 		// must keep validating forever. Null means live.
 		archivedAt: text('archived_at'),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+		createdAt: text('created_at').notNull().default(isoNow),
 	},
 	(t) => [
 		check('ck_products_activation_model', sql`${t.activationModel} IN ('node_locked','floating')`),
+		index('idx_products_account').on(t.accountId),
 	],
 );
 

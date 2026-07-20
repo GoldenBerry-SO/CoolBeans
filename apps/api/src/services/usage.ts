@@ -5,7 +5,7 @@ import type { Metric, UsageCounter } from '@coolbeans/db';
 import { activations, metrics, usageCounters } from '@coolbeans/db';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
-import { nowDate } from '../deps.js';
+import { nowDate, withTx } from '../deps.js';
 import { licenseDisabled, notFound, unknownInstance } from '../http/errors.js';
 import { resolveLicense } from './licensing.js';
 
@@ -42,26 +42,30 @@ function nextReset(from: Date, period: 'daily' | 'monthly'): Date {
 	);
 }
 
-function getMetric(deps: AppDeps, productId: number, key: string): Metric {
-	const metric = deps.db
+async function getMetric(deps: AppDeps, productId: number, key: string): Promise<Metric> {
+	const [metric] = await deps.db
 		.select()
 		.from(metrics)
 		.where(and(eq(metrics.productId, productId), eq(metrics.key, key)))
-		.get();
+		.limit(1);
 	if (!metric) throw notFound(`No metric "${key}" is defined for this product.`);
 	return metric;
 }
 
-function getOrCreateCounter(deps: AppDeps, licenseId: number, metric: Metric): UsageCounter {
-	const existing = deps.db
+async function getOrCreateCounter(
+	deps: AppDeps,
+	licenseId: number,
+	metric: Metric,
+): Promise<UsageCounter> {
+	const [existing] = await deps.db
 		.select()
 		.from(usageCounters)
 		.where(and(eq(usageCounters.licenseId, licenseId), eq(usageCounters.metricId, metric.id)))
-		.get();
+		.limit(1);
 	if (existing) return existing;
 	const now = nowDate(deps);
 	const resetsAt = metric.resetPeriod ? nextReset(now, metric.resetPeriod).toISOString() : null;
-	return deps.db
+	const [created] = await deps.db
 		.insert(usageCounters)
 		.values({
 			licenseId,
@@ -70,21 +74,24 @@ function getOrCreateCounter(deps: AppDeps, licenseId: number, metric: Metric): U
 			periodStart: now.toISOString(),
 			resetsAt,
 		})
-		.returning()
-		.get();
+		.returning();
+	return created;
 }
 
 /** Reset the counter to zero and advance the period if the reset time has passed. */
-function applyResetIfDue(deps: AppDeps, counter: UsageCounter, metric: Metric): UsageCounter {
+async function applyResetIfDue(
+	deps: AppDeps,
+	counter: UsageCounter,
+	metric: Metric,
+): Promise<UsageCounter> {
 	if (!metric.resetPeriod || !counter.resetsAt) return counter;
 	const now = nowDate(deps);
 	if (now.getTime() < new Date(counter.resetsAt).getTime()) return counter;
 	const resetsAt = nextReset(now, metric.resetPeriod).toISOString();
-	deps.db
+	await deps.db
 		.update(usageCounters)
 		.set({ current: 0, periodStart: now.toISOString(), resetsAt })
-		.where(eq(usageCounters.id, counter.id))
-		.run();
+		.where(eq(usageCounters.id, counter.id));
 	return { ...counter, current: 0, periodStart: now.toISOString(), resetsAt };
 }
 
@@ -92,21 +99,21 @@ function applyResetIfDue(deps: AppDeps, counter: UsageCounter, metric: Metric): 
  * Increment a metric atomically, enforcing its quota. Over-limit returns exceeded:true
  * with the unchanged counter state — §9 requires the 429 body to carry current/limit/resets_at.
  */
-export function incrementUsage(
+export async function incrementUsage(
 	deps: AppDeps,
 	keyInput: string,
 	instanceId: string,
 	metricKey: string,
 	delta: number,
-): IncrementResult {
-	const resolved = resolveLicense(deps, keyInput);
+): Promise<IncrementResult> {
+	const resolved = await resolveLicense(deps, keyInput);
 	// Fail closed: a disabled (or lazily-expired trial) license cannot consume quota.
 	if (resolved.status === 'disabled') throw licenseDisabled();
 	// §9 sends instance_id with every increment: metering belongs to a live seat, so a
 	// device that was deactivated (its seat handed back) stops counting. A lapsed
 	// floating lease is deliberately NOT rejected here — the seat frees itself and the
 	// client has not been told, so failing its metering mid-run would be a surprise.
-	const seat = deps.db
+	const [seat] = await deps.db
 		.select({ id: activations.id })
 		.from(activations)
 		.where(
@@ -116,22 +123,22 @@ export function incrementUsage(
 				isNull(activations.deactivatedAt),
 			),
 		)
-		.get();
+		.limit(1);
 	if (!seat) throw unknownInstance();
-	const metric = getMetric(deps, resolved.product.id, metricKey);
+	const metric = await getMetric(deps, resolved.product.id, metricKey);
 
-	return deps.db.transaction((): IncrementResult => {
-		let counter = getOrCreateCounter(deps, resolved.license.id, metric);
-		counter = applyResetIfDue(deps, counter, metric);
+	return await deps.db.transaction(async (tx): Promise<IncrementResult> => {
+		const scoped = withTx(deps, tx);
+		let counter = await getOrCreateCounter(scoped, resolved.license.id, metric);
+		counter = await applyResetIfDue(scoped, counter, metric);
 		const limit = counter.limitOverride ?? metric.defaultLimit ?? null;
 
 		if (limit === null) {
-			const row = deps.db
+			const [row] = await scoped.db
 				.update(usageCounters)
 				.set({ current: sql`current + ${delta}` })
 				.where(eq(usageCounters.id, counter.id))
-				.returning({ current: usageCounters.current })
-				.get();
+				.returning({ current: usageCounters.current });
 			return {
 				exceeded: false,
 				state: {
@@ -143,12 +150,11 @@ export function incrementUsage(
 		}
 
 		// Single guarded UPDATE: applies only if it stays within the limit (atomic on the row).
-		const row = deps.db
+		const [row] = await scoped.db
 			.update(usageCounters)
 			.set({ current: sql`current + ${delta}` })
 			.where(and(eq(usageCounters.id, counter.id), sql`current + ${delta} <= ${limit}`))
-			.returning({ current: usageCounters.current })
-			.get();
+			.returning({ current: usageCounters.current });
 		if (!row) {
 			return {
 				exceeded: true,
@@ -167,21 +173,22 @@ export interface UsageCounterView {
 }
 
 /** Current counters for a key (PRD §9 GET /v1/usage). Overdue resets apply on read too. */
-export function getUsage(deps: AppDeps, keyInput: string): UsageCounterView[] {
-	const resolved = resolveLicense(deps, keyInput);
-	const rows = deps.db
+export async function getUsage(deps: AppDeps, keyInput: string): Promise<UsageCounterView[]> {
+	const resolved = await resolveLicense(deps, keyInput);
+	const rows = await deps.db
 		.select({ counter: usageCounters, metric: metrics })
 		.from(usageCounters)
 		.innerJoin(metrics, eq(metrics.id, usageCounters.metricId))
-		.where(eq(usageCounters.licenseId, resolved.license.id))
-		.all();
-	return rows.map((r) => {
-		const counter = applyResetIfDue(deps, r.counter, r.metric);
-		return {
+		.where(eq(usageCounters.licenseId, resolved.license.id));
+	const views: UsageCounterView[] = [];
+	for (const r of rows) {
+		const counter = await applyResetIfDue(deps, r.counter, r.metric);
+		views.push({
 			metric: r.metric.key,
 			current: counter.current,
 			limit: counter.limitOverride ?? r.metric.defaultLimit ?? null,
 			resetsAt: counter.resetsAt,
-		};
-	});
+		});
+	}
+	return views;
 }

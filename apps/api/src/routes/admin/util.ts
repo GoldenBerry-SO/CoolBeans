@@ -66,8 +66,12 @@ export function accountScope(c: Context): Account {
  * other tenants' products. "Not found" is the honest answer to "your account has no
  * product by that name".
  */
-export function requireProduct(c: Context, deps: Pick<AppDeps, 'db'>, slug: string): Product {
-	const product = getAccountProductBySlug(deps.db, accountScope(c).id, slug);
+export async function requireProduct(
+	c: Context,
+	deps: Pick<AppDeps, 'db'>,
+	slug: string,
+): Promise<Product> {
+	const product = await getAccountProductBySlug(deps.db, accountScope(c).id, slug);
 	if (!product) throw notFound('No product with that slug.');
 	assertScope(c, product);
 	return product;

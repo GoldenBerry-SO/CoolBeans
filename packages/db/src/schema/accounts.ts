@@ -2,12 +2,13 @@
 // ABOUTME: `plan` is the effective plan limits read; Stripe bookkeeping lives in account_subscriptions.
 
 import { sql } from 'drizzle-orm';
-import { check, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
+import { isoNow } from './columns.js';
 
-export const accounts = sqliteTable(
+export const accounts = pgTable(
 	'accounts',
 	{
-		id: integer('id').primaryKey({ autoIncrement: true }),
+		id: serial('id').primaryKey(),
 		name: text('name').notNull(),
 		plan: text('plan', { enum: ['free', 'pro'] })
 			.notNull()
@@ -21,7 +22,7 @@ export const accounts = sqliteTable(
 		// changed hands, so we issue and record rather than refuse; this drives the
 		// console banner and the upgrade nudge.
 		overLimitSince: text('over_limit_since'),
-		createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+		createdAt: text('created_at').notNull().default(isoNow),
 	},
 	(t) => [check('ck_accounts_plan', sql`${t.plan} IN ('free','pro')`)],
 );

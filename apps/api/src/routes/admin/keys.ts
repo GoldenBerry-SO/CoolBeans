@@ -55,39 +55,48 @@ const issueBody = z.object({
  * failure is the same "no license with that key" as a key that does not exist — telling
  * the two apart would confirm that a key belongs to another tenant.
  */
-function resolveKey(
+async function resolveKey(
 	deps: AppDeps,
 	accountId: number,
 	keyInput: string,
-): { license: License; product: Product } {
-	const parsed = normalizeAgainst(keyInput, listPrefixes(deps.db));
+): Promise<{ license: License; product: Product }> {
+	const parsed = normalizeAgainst(keyInput, await listPrefixes(deps.db));
 	if (!parsed) throw notFound('That key is not in a valid format.');
-	const license = deps.db.select().from(licenses).where(eq(licenses.key, parsed.normalized)).get();
+	const [license] = await deps.db
+		.select()
+		.from(licenses)
+		.where(eq(licenses.key, parsed.normalized))
+		.limit(1);
 	if (!license) throw notFound('No license with that key.');
-	const product = getProductById(deps.db, license.productId);
+	const product = await getProductById(deps.db, license.productId);
 	if (!product || product.accountId !== accountId) throw notFound('No license with that key.');
 	return { license, product };
 }
 
-export function adminLicenseView(deps: AppDeps, license: License, product: Product) {
+export async function adminLicenseView(deps: AppDeps, license: License, product: Product) {
 	// A floating seat only counts while its lease is current ("expired lease frees automatically").
 	const nowIso = nowDate(deps).toISOString();
 	const leaseCondition =
 		product.activationModel === 'floating'
 			? sql`${activations.leaseExpiresAt} > ${nowIso}`
 			: sql`1 = 1`;
-	const liveSeats = deps.db
-		.select({ id: activations.id })
-		.from(activations)
-		.where(
-			and(eq(activations.licenseId, license.id), isNull(activations.deactivatedAt), leaseCondition),
-		)
-		.all().length;
-	const purchase = deps.db
+	const liveSeats = (
+		await deps.db
+			.select({ id: activations.id })
+			.from(activations)
+			.where(
+				and(
+					eq(activations.licenseId, license.id),
+					isNull(activations.deactivatedAt),
+					leaseCondition,
+				),
+			)
+	).length;
+	const [purchase] = await deps.db
 		.select({ email: purchases.email })
 		.from(purchases)
 		.where(eq(purchases.id, license.purchaseId))
-		.get();
+		.limit(1);
 	return {
 		...serializeLicense(license, product),
 		id: license.id,
@@ -113,13 +122,13 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		if (body.tier === 'trial' && body.expires_at !== undefined && body.trial_days !== undefined) {
 			throw validationError('Provide expires_at or trial_days for a trial license, not both.');
 		}
-		const product = requireProduct(c, deps, body.product);
+		const product = await requireProduct(c, deps, body.product);
 		if (product.archivedAt) {
 			throw conflict('product_archived', 'This product is archived and cannot issue new keys.');
 		}
 		// Hard refusal here, because an admin is at a keyboard and no money has moved. The
 		// webhook issuance path deliberately does the opposite: see ensureLicense.
-		const licences = planUsage(deps, accountScope(c)).activeLicenses;
+		const licences = (await planUsage(deps, accountScope(c))).activeLicenses;
 		if (!withinLimit(licences)) {
 			throw planLimitReached(
 				'license_limit_reached',
@@ -133,7 +142,7 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		if (body.tier === 'trial' && !expiresAt) {
 			expiresAt = trialExpiry(deps, body.trial_days ?? 14);
 		}
-		const license = issueManual(deps, {
+		const license = await issueManual(deps, {
 			product,
 			email: body.email,
 			tier: body.tier,
@@ -147,7 +156,7 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			try {
 				await sendKeyEmail(deps, { license, product, email: body.email });
 			} catch {
-				enqueue(deps, 'send_key_email', { licenseId: license.id, email: body.email }, 60_000);
+				await enqueue(deps, 'send_key_email', { licenseId: license.id, email: body.email }, 60_000);
 			}
 		}
 		return c.json({
@@ -162,13 +171,13 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 	admin.post('/keys/:key/offline-activation', async (c) => {
 		// Resolve within the account first, so a key from another tenant is 404 and not a
 		// seat quietly taken on somebody else's licence.
-		const { license, product } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
+		const { license, product } = await resolveKey(deps, accountScope(c).id, c.req.param('key'));
 		// PRODUCT_SCOPED is default-deny and does not list this route, so a cbp_ token
 		// never reaches here. Assert anyway: a route that mints year-long credentials
 		// should not depend on an allowlist elsewhere staying correct.
 		assertScope(c, product);
 		const body = await readBody(c, offlineActivationBody);
-		const issued = issueOfflineActivation(deps, {
+		const issued = await issueOfflineActivation(deps, {
 			keyInput: license.key,
 			fingerprint: body.fingerprint,
 			actor: auditActor(c),
@@ -185,30 +194,29 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		});
 	});
 
-	admin.post('/keys/:key/disable', (c) => {
-		const { license, product } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
+	admin.post('/keys/:key/disable', async (c) => {
+		const { license, product } = await resolveKey(deps, accountScope(c).id, c.req.param('key'));
 		assertScope(c, product);
-		const updated = disableLicense(deps, { license, reason: 'manual', actor: auditActor(c) });
+		const updated = await disableLicense(deps, { license, reason: 'manual', actor: auditActor(c) });
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 
-	admin.post('/keys/:key/enable', (c) => {
-		const { license, product } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
+	admin.post('/keys/:key/enable', async (c) => {
+		const { license, product } = await resolveKey(deps, accountScope(c).id, c.req.param('key'));
 		assertScope(c, product);
-		const updated = enableLicense(deps, { license, actor: auditActor(c) });
+		const updated = await enableLicense(deps, { license, actor: auditActor(c) });
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 
-	admin.get('/keys/:key', (c) => {
-		const { license, product } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
+	admin.get('/keys/:key', async (c) => {
+		const { license, product } = await resolveKey(deps, accountScope(c).id, c.req.param('key'));
 		assertScope(c, product);
-		const acts = deps.db
+		const acts = await deps.db
 			.select()
 			.from(activations)
 			.where(eq(activations.licenseId, license.id))
-			.orderBy(desc(activations.createdAt))
-			.all();
-		const usage = deps.db
+			.orderBy(desc(activations.createdAt));
+		const usage = await deps.db
 			.select({
 				metric: metrics.key,
 				current: usageCounters.current,
@@ -218,11 +226,10 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			})
 			.from(usageCounters)
 			.innerJoin(metrics, eq(metrics.id, usageCounters.metricId))
-			.where(eq(usageCounters.licenseId, license.id))
-			.all();
+			.where(eq(usageCounters.licenseId, license.id));
 		return c.json({
 			ok: true,
-			license: adminLicenseView(deps, license, product),
+			license: await adminLicenseView(deps, license, product),
 			activations: acts.map((a) => ({
 				instance_id: a.instanceId,
 				name: a.name,
@@ -240,38 +247,37 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		});
 	});
 
-	admin.get('/products/:slug/keys', (c) => {
-		const product = requireProduct(c, deps, c.req.param('slug'));
+	admin.get('/products/:slug/keys', async (c) => {
+		const product = await requireProduct(c, deps, c.req.param('slug'));
 		const status = c.req.query('status');
 		const emailFilter = c.req.query('email');
 		const conditions = [eq(licenses.productId, product.id)];
 		if (status === 'active' || status === 'disabled') {
 			conditions.push(eq(licenses.status, status));
 		}
-		let rows = deps.db
+		let rows = await deps.db
 			.select()
 			.from(licenses)
 			.where(and(...conditions))
-			.orderBy(desc(licenses.createdAt))
-			.all();
+			.orderBy(desc(licenses.createdAt));
 		if (emailFilter) {
 			const purchaseIds = new Set(
-				deps.db
-					.select({ id: purchases.id })
-					.from(purchases)
-					.where(like(purchases.email, `%${emailFilter}%`))
-					.all()
-					.map((p) => p.id),
+				(
+					await deps.db
+						.select({ id: purchases.id })
+						.from(purchases)
+						.where(like(purchases.email, `%${emailFilter}%`))
+				).map((p) => p.id),
 			);
 			rows = rows.filter((l) => purchaseIds.has(l.purchaseId));
 		}
 		return c.json({
 			ok: true,
-			keys: rows.map((l) => adminLicenseView(deps, l, product)),
+			keys: await Promise.all(rows.map((l) => adminLicenseView(deps, l, product))),
 		});
 	});
 
-	admin.get('/purchases', (c) => {
+	admin.get('/purchases', async (c) => {
 		const email = c.req.query('email');
 		const providerId = c.req.query('provider_id');
 		if (!email && !providerId) throw badRequest('Provide email or provider_id.');
@@ -286,16 +292,15 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 				),
 			);
 		}
-		let rows = deps.db
+		let rows = await deps.db
 			.select()
 			.from(purchases)
 			.where(conditions.length === 1 ? conditions[0] : or(...conditions))
-			.orderBy(desc(purchases.createdAt))
-			.all();
+			.orderBy(desc(purchases.createdAt));
 		// Account first, then the narrower product-token scope inside it. The email and
 		// provider_id filters are free text, so without this an admin could read any
 		// tenant's purchase by guessing an address.
-		const ownIds = new Set(accountProductIds(deps.db, accountScope(c).id));
+		const ownIds = new Set(await accountProductIds(deps.db, accountScope(c).id));
 		rows = rows.filter((r) => ownIds.has(r.productId));
 		const scope = productScope(c);
 		if (scope) rows = rows.filter((r) => r.productId === scope.id);

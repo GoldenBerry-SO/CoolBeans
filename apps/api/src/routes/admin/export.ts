@@ -39,16 +39,18 @@ const COLUMNS = [
 ];
 
 export function registerAdminExportRoutes(admin: OpenAPIHono, deps: AppDeps): void {
-	admin.get('/products/:slug/keys/export', (c) => {
-		const product = requireProduct(c, deps, c.req.param('slug'));
+	admin.get('/products/:slug/keys/export', async (c) => {
+		const product = await requireProduct(c, deps, c.req.param('slug'));
 
-		const rows = deps.db
-			.select()
-			.from(licenses)
-			.where(eq(licenses.productId, product.id))
-			.orderBy(desc(licenses.createdAt))
-			.all()
-			.map((l) => adminLicenseView(deps, l, product));
+		const rows = await Promise.all(
+			(
+				await deps.db
+					.select()
+					.from(licenses)
+					.where(eq(licenses.productId, product.id))
+					.orderBy(desc(licenses.createdAt))
+			).map((l) => adminLicenseView(deps, l, product)),
+		);
 
 		if (c.req.query('format') === 'json') {
 			return c.json({ ok: true, keys: rows });

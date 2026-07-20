@@ -13,9 +13,9 @@ const cloud: Partial<Config> = {
 };
 
 /** A cloud harness whose single account is on the free plan. */
-function freeAccount(overrides: Partial<Config> = {}) {
-	const h = makeHarness({ config: { ...cloud, ...overrides } });
-	h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1)).run();
+async function freeAccount(overrides: Partial<Config> = {}) {
+	const h = await makeHarness({ config: { ...cloud, ...overrides } });
+	await h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1));
 	return h;
 }
 
@@ -31,7 +31,7 @@ function productBody(slug: string) {
 	};
 }
 
-async function postProduct(h: ReturnType<typeof makeHarness>, slug: string) {
+async function postProduct(h: Awaited<ReturnType<typeof makeHarness>>, slug: string) {
 	return h.app.request('/admin/products', {
 		method: 'POST',
 		headers: h.adminHeaders,
@@ -41,7 +41,7 @@ async function postProduct(h: ReturnType<typeof makeHarness>, slug: string) {
 
 describe('product limit', () => {
 	it('allows the first product on Free and refuses the second', async () => {
-		const h = freeAccount();
+		const h = await freeAccount();
 		expect((await postProduct(h, 'alpha')).status).toBe(200);
 		const second = await postProduct(h, 'beta');
 		expect(second.status).toBe(409);
@@ -51,22 +51,22 @@ describe('product limit', () => {
 	});
 
 	it('allows any number on Pro', async () => {
-		const h = makeHarness({ config: cloud });
-		h.deps.db.update(accounts).set({ plan: 'pro' }).where(eq(accounts.id, 1)).run();
+		const h = await makeHarness({ config: cloud });
+		await h.deps.db.update(accounts).set({ plan: 'pro' }).where(eq(accounts.id, 1));
 		expect((await postProduct(h, 'alpha')).status).toBe(200);
 		expect((await postProduct(h, 'beta')).status).toBe(200);
 	});
 
 	it('never limits a self-host instance', async () => {
 		// No billing configured. PRD §7 says self-host is unlimited, full stop.
-		const h = makeHarness();
-		h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1)).run();
+		const h = await makeHarness();
+		await h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1));
 		expect((await postProduct(h, 'alpha')).status).toBe(200);
 		expect((await postProduct(h, 'beta')).status).toBe(200);
 	});
 
 	it('frees the slot when a product is archived', async () => {
-		const h = freeAccount();
+		const h = await freeAccount();
 		await postProduct(h, 'alpha');
 		expect((await postProduct(h, 'beta')).status).toBe(409);
 		await h.app.request('/admin/products/alpha', { method: 'DELETE', headers: h.adminHeaders });
@@ -76,8 +76,8 @@ describe('product limit', () => {
 	});
 
 	it('respects a per-account override', async () => {
-		const h = freeAccount();
-		h.deps.db.update(accounts).set({ productLimit: 2 }).where(eq(accounts.id, 1)).run();
+		const h = await freeAccount();
+		await h.deps.db.update(accounts).set({ productLimit: 2 }).where(eq(accounts.id, 1));
 		expect((await postProduct(h, 'alpha')).status).toBe(200);
 		expect((await postProduct(h, 'beta')).status).toBe(200);
 		expect((await postProduct(h, 'gamma')).status).toBe(409);
@@ -92,26 +92,26 @@ describe('product limit', () => {
 		// The atomicity itself lives in the statement shape — the count is a subquery
 		// inside the INSERT, matching the seat cap in services/licensing.ts — and is
 		// exercised for real, with a negative control, in scripts/postgres/atomicity.mjs.
-		const h = freeAccount();
+		const h = await freeAccount();
 		const results = await Promise.all(
 			['a', 'b', 'c', 'd', 'e'].map((slug) => postProduct(h, `prod-${slug}`)),
 		);
 		expect(results.filter((r) => r.status === 200)).toHaveLength(1);
 		expect(results.filter((r) => r.status === 409)).toHaveLength(4);
-		expect(h.deps.db.select().from(products).all()).toHaveLength(1);
+		expect(await h.deps.db.select().from(products)).toHaveLength(1);
 	});
 });
 
 describe('manual key limit', () => {
 	/** A free account holding `count` active licences, with the cap set just above/at it. */
 	async function accountAtLicenceCap(limit: number) {
-		const h = freeAccount();
-		h.deps.db.update(accounts).set({ activeLicenseLimit: limit }).where(eq(accounts.id, 1)).run();
+		const h = await freeAccount();
+		await h.deps.db.update(accounts).set({ activeLicenseLimit: limit }).where(eq(accounts.id, 1));
 		await createProduct(h.app, productBody('alpha'), h.adminHeaders);
 		return h;
 	}
 
-	async function issue(h: ReturnType<typeof makeHarness>, email: string) {
+	async function issue(h: Awaited<ReturnType<typeof makeHarness>>, email: string) {
 		return h.app.request('/admin/keys', {
 			method: 'POST',
 			headers: h.adminHeaders,
@@ -144,12 +144,11 @@ describe('manual key limit', () => {
 	});
 
 	it('never limits a self-host instance', async () => {
-		const h = makeHarness();
-		h.deps.db
+		const h = await makeHarness();
+		await h.deps.db
 			.update(accounts)
 			.set({ plan: 'free', activeLicenseLimit: 1 })
-			.where(eq(accounts.id, 1))
-			.run();
+			.where(eq(accounts.id, 1));
 		await createProduct(h.app, productBody('alpha'), h.adminHeaders);
 		expect((await issue(h, 'one@c.io')).status).toBe(200);
 		expect((await issue(h, 'two@c.io')).status).toBe(200);

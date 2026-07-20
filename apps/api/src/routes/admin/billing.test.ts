@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { Config } from '../../config.js';
 import { fakeBillingGateway, makeHarness } from '../../test/harness.js';
+import { rawQuery } from '../../test/pg.js';
 import { createProduct, signUp } from '../../test/seed.js';
 
 const PRO_PRICE = 'price_pro_123';
@@ -19,10 +20,10 @@ const cloud: Partial<Config> = {
 	logMagicCodes: true,
 };
 
-function harness(config: Partial<Config> = cloud) {
-	const h = makeHarness({ config });
+async function harness(config: Partial<Config> = cloud) {
+	const h = await makeHarness({ config });
 	if (config.billing) h.deps.billing = fakeBillingGateway();
-	h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1)).run();
+	await h.deps.db.update(accounts).set({ plan: 'free' }).where(eq(accounts.id, 1));
 	return h;
 }
 
@@ -31,19 +32,17 @@ function harness(config: Partial<Config> = cloud) {
  * address. Sign up so these tests exercise the path a real customer takes.
  */
 async function withSession() {
-	const h = harness();
+	const h = await harness();
 	const headers = await signUp(h.app, h.logger, 'chris@alpha.test', 'alpha');
-	const account = h.deps.db.$client
-		.prepare("SELECT id FROM accounts WHERE name = 'alpha'")
-		.get() as {
-		id: number;
-	};
+	const account = (
+		await rawQuery<{ id: number }>("SELECT id FROM accounts WHERE name = 'alpha'")
+	)[0];
 	return { h, headers, accountId: account.id };
 }
 
 describe('GET /admin/billing', () => {
 	it('reports the plan and current usage', async () => {
-		const h = harness();
+		const h = await harness();
 		await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',
@@ -62,7 +61,7 @@ describe('GET /admin/billing', () => {
 	it('reports billing disabled on a self-host instance', async () => {
 		// The console hides the page entirely on this, so a self-hoster is never shown an
 		// upgrade button for something they already own outright.
-		const h = harness({});
+		const h = await harness({});
 		const res = await h.app.request('/admin/billing', { headers: h.adminHeaders });
 		const body = (await res.json()) as { billing: Record<string, unknown> };
 		expect(body.billing.enabled).toBe(false);
@@ -73,7 +72,7 @@ describe('GET /admin/billing', () => {
 	});
 
 	it('requires authentication', async () => {
-		const h = harness();
+		const h = await harness();
 		expect((await h.app.request('/admin/billing')).status).toBe(401);
 	});
 });
@@ -98,7 +97,7 @@ describe('POST /admin/billing/checkout', () => {
 	it('refuses an instance token, which has no address for card-failure notices', async () => {
 		// A subscription whose owner never hears that their payment is failing is the
 		// dunning blind spot invoice.payment_failed exists to close.
-		const h = harness();
+		const h = await harness();
 		const res = await h.app.request('/admin/billing/checkout', {
 			method: 'POST',
 			headers: h.adminHeaders,
@@ -122,10 +121,11 @@ describe('POST /admin/billing/checkout', () => {
 		// A stale tab would otherwise open a second subscription on the same account.
 		const { h, headers, accountId } = await withSession();
 		await h.app.request('/admin/billing/checkout', { method: 'POST', headers });
-		h.deps.db.$client
-			.prepare('UPDATE account_subscriptions SET stripe_subscription_id = ? WHERE account_id = ?')
-			.run('sub_1', accountId);
-		h.deps.db.update(accounts).set({ plan: 'pro' }).where(eq(accounts.id, accountId)).run();
+		await rawQuery(
+			'UPDATE account_subscriptions SET stripe_subscription_id = $1 WHERE account_id = $2',
+			['sub_1', accountId],
+		);
+		await h.deps.db.update(accounts).set({ plan: 'pro' }).where(eq(accounts.id, accountId));
 
 		const res = await h.app.request('/admin/billing/checkout', { method: 'POST', headers });
 		const body = (await res.json()) as { url: string; already_subscribed: boolean };
@@ -134,7 +134,7 @@ describe('POST /admin/billing/checkout', () => {
 	});
 
 	it('refuses when billing is not configured', async () => {
-		const h = harness({});
+		const h = await harness({});
 		const res = await h.app.request('/admin/billing/checkout', {
 			method: 'POST',
 			headers: h.adminHeaders,
@@ -158,7 +158,7 @@ describe('POST /admin/billing/portal', () => {
 	});
 
 	it('409s for an account that has never been to checkout', async () => {
-		const h = harness();
+		const h = await harness();
 		const res = await h.app.request('/admin/billing/portal', {
 			method: 'POST',
 			headers: h.adminHeaders,
@@ -170,7 +170,7 @@ describe('POST /admin/billing/portal', () => {
 
 describe('a product-scoped token', () => {
 	async function productToken() {
-		const h = harness();
+		const h = await harness();
 		const res = await h.app.request('/admin/products', {
 			method: 'POST',
 			headers: h.adminHeaders,

@@ -18,7 +18,7 @@ async function ls(path: string, body: Record<string, string>) {
 }
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',

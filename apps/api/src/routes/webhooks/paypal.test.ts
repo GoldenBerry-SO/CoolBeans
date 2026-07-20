@@ -31,7 +31,7 @@ async function keys(h: TestHarness, email: string) {
 }
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	h.deps.config.paypal = { clientId: 'id', secret: 'sec', webhookId: 'wh_1' };
 	h.deps.paypal = fakePayPalGateway({ verified: true });
 	await createProduct(h.app, {

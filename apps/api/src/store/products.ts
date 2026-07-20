@@ -13,63 +13,74 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
  * unique because they appear in public URLs). Admin handlers must not use this — they
  * want requireProduct(), which resolves within the caller's account and 404s outside it.
  */
-export function getProductBySlugGlobal(db: Database, slug: string): Product | undefined {
-	return db.select().from(products).where(eq(products.slug, slug)).get();
+export async function getProductBySlugGlobal(
+	db: Database,
+	slug: string,
+): Promise<Product | undefined> {
+	const [row] = await db.select().from(products).where(eq(products.slug, slug)).limit(1);
+	return row;
 }
 
 /** Look a product up inside one account. Returns undefined for another account's slug. */
-export function getAccountProductBySlug(
+export async function getAccountProductBySlug(
 	db: Database,
 	accountId: number,
 	slug: string,
-): Product | undefined {
-	return db
+): Promise<Product | undefined> {
+	const [row] = await db
 		.select()
 		.from(products)
 		.where(and(eq(products.accountId, accountId), eq(products.slug, slug)))
-		.get();
+		.limit(1);
+	return row;
 }
 
-export function getProductByPrefix(db: Database, prefix: string): Product | undefined {
-	return db.select().from(products).where(eq(products.keyPrefix, prefix.toUpperCase())).get();
+export async function getProductByPrefix(
+	db: Database,
+	prefix: string,
+): Promise<Product | undefined> {
+	const [row] = await db
+		.select()
+		.from(products)
+		.where(eq(products.keyPrefix, prefix.toUpperCase()))
+		.limit(1);
+	return row;
 }
 
-export function getProductById(db: Database, id: number): Product | undefined {
-	return db.select().from(products).where(eq(products.id, id)).get();
+export async function getProductById(db: Database, id: number): Promise<Product | undefined> {
+	const [row] = await db.select().from(products).where(eq(products.id, id)).limit(1);
+	return row;
 }
 
 /** Every product on the instance. Admin listings want listAccountProducts instead. */
-export function listAllProducts(db: Database): Product[] {
-	return db.select().from(products).all();
+export async function listAllProducts(db: Database): Promise<Product[]> {
+	return await db.select().from(products);
 }
 
-export function listAccountProducts(db: Database, accountId: number): Product[] {
-	return db
+export async function listAccountProducts(db: Database, accountId: number): Promise<Product[]> {
+	return await db
 		.select()
 		.from(products)
 		.where(eq(products.accountId, accountId))
-		.orderBy(asc(products.id))
-		.all();
+		.orderBy(asc(products.id));
 }
 
 /** Ids of an account's live products, for scoping queries that join on product_id. */
-export function liveProductIds(db: Database, accountId: number): number[] {
-	return db
+export async function liveProductIds(db: Database, accountId: number): Promise<number[]> {
+	const rows = await db
 		.select({ id: products.id })
 		.from(products)
-		.where(and(eq(products.accountId, accountId), isNull(products.archivedAt)))
-		.all()
-		.map((r) => r.id);
+		.where(and(eq(products.accountId, accountId), isNull(products.archivedAt)));
+	return rows.map((r) => r.id);
 }
 
 /** Ids of every product an account owns, archived included. */
-export function accountProductIds(db: Database, accountId: number): number[] {
-	return db
+export async function accountProductIds(db: Database, accountId: number): Promise<number[]> {
+	const rows = await db
 		.select({ id: products.id })
 		.from(products)
-		.where(eq(products.accountId, accountId))
-		.all()
-		.map((r) => r.id);
+		.where(eq(products.accountId, accountId));
+	return rows.map((r) => r.id);
 }
 
 /**
@@ -78,12 +89,9 @@ export function accountProductIds(db: Database, accountId: number): number[] {
  * Deliberately NOT account-scoped, and it must stay that way. The public path resolves a
  * key with no account in hand, and PRD §8 says a valid key never stops validating.
  */
-export function listPrefixes(db: Database): string[] {
-	return db
-		.select({ prefix: products.keyPrefix })
-		.from(products)
-		.all()
-		.map((r) => r.prefix);
+export async function listPrefixes(db: Database): Promise<string[]> {
+	const rows = await db.select({ prefix: products.keyPrefix }).from(products);
+	return rows.map((r) => r.prefix);
 }
 
 export interface PriceMatch {
@@ -92,14 +100,21 @@ export interface PriceMatch {
 }
 
 /** Resolve a product (and its tier) from a Stripe price id (PRD §13). */
-export function getProductByStripePrice(db: Database, priceId: string): PriceMatch | undefined {
-	const lifetime = db
+export async function getProductByStripePrice(
+	db: Database,
+	priceId: string,
+): Promise<PriceMatch | undefined> {
+	const [lifetime] = await db
 		.select()
 		.from(products)
 		.where(eq(products.stripePriceLifetime, priceId))
-		.get();
+		.limit(1);
 	if (lifetime) return { product: lifetime, tier: 'lifetime' };
-	const yearly = db.select().from(products).where(eq(products.stripePriceYearly, priceId)).get();
+	const [yearly] = await db
+		.select()
+		.from(products)
+		.where(eq(products.stripePriceYearly, priceId))
+		.limit(1);
 	if (yearly) return { product: yearly, tier: 'yearly' };
 	return undefined;
 }

@@ -45,10 +45,10 @@ function captureIdFromLinks(resource: Record<string, unknown>): string | null {
 }
 
 /** Try each candidate id in order against the purchase provider-id columns. */
-function findLicenseByAnyId(deps: AppDeps, candidates: Array<string | null>) {
+async function findLicenseByAnyId(deps: AppDeps, candidates: Array<string | null>) {
 	for (const id of candidates) {
 		if (!id) continue;
-		const found = findLicenseByProviderId(deps, id);
+		const found = await findLicenseByProviderId(deps, id);
 		if (found) return found;
 	}
 	return undefined;
@@ -59,7 +59,7 @@ function findLicenseByAnyId(deps: AppDeps, candidates: Array<string | null>) {
  * provider's retry re-enters, and marked done only on full success (issue #34).
  */
 export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<void> {
-	const claim = claimEventStatus(deps, {
+	const claim = await claimEventStatus(deps, {
 		id: event.id,
 		provider: 'paypal',
 		type: event.event_type,
@@ -74,10 +74,10 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 	try {
 		await processPayPalEvent(deps, event);
 	} catch (err) {
-		releaseEvent(deps, event.id, claim.token);
+		await releaseEvent(deps, event.id, claim.token);
 		throw err;
 	}
-	completeEvent(deps, event.id, claim.token);
+	await completeEvent(deps, event.id, claim.token);
 }
 
 async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<void> {
@@ -89,9 +89,9 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 	 * account is only knowable once the payload resolves to one. Without this the
 	 * console's Webhooks page shows a cloud account nothing.
 	 */
-	const attributeTo = (productId: number) => {
-		const owner = getProductById(deps.db, productId);
-		if (owner) attributeEvent(deps, event.id, owner.accountId);
+	const attributeTo = async (productId: number) => {
+		const owner = await getProductById(deps.db, productId);
+		if (owner) await attributeEvent(deps, event.id, owner.accountId);
 	};
 
 	switch (event.event_type) {
@@ -104,12 +104,12 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 				pickString(resource, ['custom_id']) ??
 				pickString(resource, ['purchase_units', '0', 'custom_id']);
 			const [slug, tierRaw] = (custom ?? '').split(':');
-			const product = slug ? getProductBySlugGlobal(deps.db, slug) : undefined;
+			const product = slug ? await getProductBySlugGlobal(deps.db, slug) : undefined;
 			if (!product) {
 				deps.logger.error('PayPal capture for unknown product', { custom, event: event.id });
 				break;
 			}
-			attributeTo(product.id);
+			await attributeTo(product.id);
 			const tier = tierRaw === 'yearly' ? 'yearly' : 'lifetime';
 			const email =
 				pickString(resource, ['payer', 'email_address']) ??
@@ -138,9 +138,9 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 		case 'BILLING.SUBSCRIPTION.ACTIVATED': {
 			const subId = pickString(resource, ['id']);
 			const slug = (pickString(resource, ['custom_id']) ?? '').split(':')[0];
-			const product = slug ? getProductBySlugGlobal(deps.db, slug) : undefined;
+			const product = slug ? await getProductBySlugGlobal(deps.db, slug) : undefined;
 			if (!product || !subId) break;
-			attributeTo(product.id);
+			await attributeTo(product.id);
 			const email = pickString(resource, ['subscriber', 'email_address']) ?? '';
 			let expiresAt: string | null = null;
 			if (deps.paypal) expiresAt = await deps.paypal.subscriptionNextBilling(subId);
@@ -163,7 +163,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			const subId = pickString(resource, ['billing_agreement_id']);
 			if (subId && deps.paypal) {
 				const next = await deps.paypal.subscriptionNextBilling(subId);
-				if (next) advanceSubscriptionExpiry(deps, subId, next, `paypal:${event.id}`);
+				if (next) await advanceSubscriptionExpiry(deps, subId, next, `paypal:${event.id}`);
 			}
 			break;
 		}
@@ -178,10 +178,10 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 				pickString(resource, ['capture_id']),
 				pickString(resource, ['id']),
 			];
-			const found = findLicenseByAnyId(deps, references);
+			const found = await findLicenseByAnyId(deps, references);
 			if (found) {
-				attributeTo(found.license.productId);
-				disableLicense(deps, {
+				await attributeTo(found.license.productId);
+				await disableLicense(deps, {
 					license: found.license,
 					reason: 'refund',
 					actor: `paypal:${event.id}`,
@@ -190,7 +190,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 				// PayPal can deliver the refund before the capture. Park every usable
 				// capture reference so issuance cannot email or activate a refunded key.
 				for (const reference of new Set(references.filter((id): id is string => Boolean(id)))) {
-					recordPendingRevocation(deps, {
+					await recordPendingRevocation(deps, {
 						provider: 'paypal',
 						reference,
 						reason: 'refund',
@@ -204,16 +204,16 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 		case 'BILLING.SUBSCRIPTION.CANCELLED':
 		case 'BILLING.SUBSCRIPTION.SUSPENDED': {
 			const subId = pickString(resource, ['id']);
-			const found = subId && findLicenseByProviderId(deps, subId);
+			const found = subId ? await findLicenseByProviderId(deps, subId) : undefined;
 			if (found) {
-				attributeTo(found.license.productId);
-				disableLicense(deps, {
+				await attributeTo(found.license.productId);
+				await disableLicense(deps, {
 					license: found.license,
 					reason: 'subscription_canceled',
 					actor: `paypal:${event.id}`,
 				});
 			} else if (subId) {
-				recordPendingRevocation(deps, {
+				await recordPendingRevocation(deps, {
 					provider: 'paypal',
 					reference: subId,
 					reason: 'subscription_canceled',
@@ -265,7 +265,7 @@ export async function ensureLicenseForOrder(
 	const custom =
 		pickString(order, ['purchase_units', '0', 'custom_id']) ?? pickString(order, ['custom_id']);
 	const [slug, tierRaw] = (custom ?? '').split(':');
-	const product = slug ? getProductBySlugGlobal(deps.db, slug) : undefined;
+	const product = slug ? await getProductBySlugGlobal(deps.db, slug) : undefined;
 	if (!product) {
 		deps.logger.error('PayPal order resolves to no product', { custom, order: orderId });
 		return false;

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { isAdminRequest, safeEqual } from './admin-auth.js';
 
 describe('admin bearer auth', () => {
-	it('matches the configured token', () => {
+	it('matches the configured token', async () => {
 		expect(isAdminRequest('Bearer secret-token-value', 'secret-token-value')).toBe(true);
 	});
 
@@ -28,7 +28,7 @@ describe('admin bearer auth', () => {
 		},
 	);
 
-	it('compares equal-length and different-length values without throwing', () => {
+	it('compares equal-length and different-length values without throwing', async () => {
 		expect(safeEqual('a', 'a')).toBe(true);
 		expect(safeEqual('a', 'a-much-longer-value')).toBe(false);
 	});

@@ -19,8 +19,8 @@ const cloud: Partial<Config> = {
  * happens when a customer's card lapses or they choose to leave.
  */
 async function overEveryLimit() {
-	const h = makeHarness({ config: cloud });
-	h.deps.db.update(accounts).set({ plan: 'pro' }).where(eq(accounts.id, 1)).run();
+	const h = await makeHarness({ config: cloud });
+	await h.deps.db.update(accounts).set({ plan: 'pro' }).where(eq(accounts.id, 1));
 	for (const slug of ['alpha', 'beta', 'gamma']) {
 		await createProduct(h.app, {
 			slug,
@@ -39,11 +39,10 @@ async function overEveryLimit() {
 		await issueKey(h.app, { product: 'alpha', email, tier: 'lifetime' });
 	}
 	// The downgrade.
-	h.deps.db
+	await h.deps.db
 		.update(accounts)
 		.set({ plan: 'free', productLimit: 1, activeLicenseLimit: 1 })
-		.where(eq(accounts.id, 1))
-		.run();
+		.where(eq(accounts.id, 1));
 	return { ...h, key };
 }
 
@@ -120,10 +119,10 @@ describe('an account over every plan limit', () => {
 describe('downgrading from Pro to Free', () => {
 	it('revokes, archives and disables nothing', async () => {
 		const h = await overEveryLimit();
-		const allProducts = h.deps.db.select().from(products).all();
+		const allProducts = await h.deps.db.select().from(products);
 		expect(allProducts).toHaveLength(3);
 		expect(allProducts.every((p) => p.archivedAt === null)).toBe(true);
-		const allLicences = h.deps.db.select().from(licenses).all();
+		const allLicences = await h.deps.db.select().from(licenses);
 		expect(allLicences).toHaveLength(4);
 		expect(allLicences.every((l) => l.status === 'active')).toBe(true);
 	});
@@ -146,7 +145,11 @@ describe('downgrading from Pro to Free', () => {
 	it('keeps honouring a paid checkout for an over-limit account', async () => {
 		// The customer is over their plan, but their buyer's money is real.
 		const h = await overEveryLimit();
-		const product = h.deps.db.select().from(products).where(eq(products.slug, 'beta')).get();
+		const [product] = await h.deps.db
+			.select()
+			.from(products)
+			.where(eq(products.slug, 'beta'))
+			.limit(1);
 		if (!product) throw new Error('seed failed');
 		const result = await ensureLicense(h.deps, {
 			product,
@@ -157,11 +160,11 @@ describe('downgrading from Pro to Free', () => {
 		});
 		expect(result.created).toBe(true);
 
-		const purchase = h.deps.db
+		const [purchase] = await h.deps.db
 			.select()
 			.from(purchases)
 			.where(eq(purchases.providerCheckoutId, 'cs_over_limit'))
-			.get();
+			.limit(1);
 		expect(purchase).toBeDefined();
 	});
 });

@@ -13,9 +13,9 @@ import { assertSigningKeysUsable, getOrCreateActiveKey, publicKeysFor } from './
 let h: TestHarness;
 
 /** Seed a global (product_id NULL) active signing key. */
-function seedGlobalKey(): number {
+async function seedGlobalKey(): Promise<number> {
 	const pair = generateSigningKeyPair();
-	return h.deps.db
+	const [row] = await h.deps.db
 		.insert(signingKeys)
 		.values({
 			productId: null,
@@ -23,12 +23,12 @@ function seedGlobalKey(): number {
 			privateKey: encryptSecret(pair.privateKey, h.deps.config.signingKeySecret),
 			active: true,
 		})
-		.returning()
-		.get().id;
+		.returning();
+	return row.id;
 }
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
@@ -38,43 +38,42 @@ beforeEach(async () => {
 });
 
 describe('global signing key fallback (PRD §11)', () => {
-	it('signs product tokens with the global key instead of minting a per-product one', () => {
-		const globalId = seedGlobalKey();
-		const key = getOrCreateActiveKey(h.deps, 1);
+	it('signs product tokens with the global key instead of minting a per-product one', async () => {
+		const globalId = await seedGlobalKey();
+		const key = await getOrCreateActiveKey(h.deps, 1);
 		expect(key.id).toBe(globalId);
 
 		// No per-product key should have been created behind our back.
-		const perProduct = h.deps.db
+		const perProduct = await h.deps.db
 			.select()
 			.from(signingKeys)
-			.where(eq(signingKeys.productId, 1))
-			.all();
+			.where(eq(signingKeys.productId, 1));
 		expect(perProduct).toHaveLength(0);
 	});
 
-	it('still mints a per-product key when no global key exists', () => {
-		const key = getOrCreateActiveKey(h.deps, 1);
+	it('still mints a per-product key when no global key exists', async () => {
+		const key = await getOrCreateActiveKey(h.deps, 1);
 		expect(key.productId).toBe(1);
-		const globals = h.deps.db.select().from(signingKeys).where(isNull(signingKeys.productId)).all();
+		const globals = await h.deps.db.select().from(signingKeys).where(isNull(signingKeys.productId));
 		expect(globals).toHaveLength(0);
 	});
 
-	it('serves the global key in a product keyset so clients can verify its tokens', () => {
-		const globalId = seedGlobalKey();
-		getOrCreateActiveKey(h.deps, 1);
-		expect(Object.keys(publicKeysFor(h.deps, 1))).toContain(String(globalId));
+	it('serves the global key in a product keyset so clients can verify its tokens', async () => {
+		const globalId = await seedGlobalKey();
+		await getOrCreateActiveKey(h.deps, 1);
+		expect(Object.keys(await publicKeysFor(h.deps, 1))).toContain(String(globalId));
 	});
 });
 
 describe('boot validation (ARCHITECTURE: fail fast)', () => {
-	it('passes when every stored key decrypts with the configured secret', () => {
-		seedGlobalKey();
-		expect(() => assertSigningKeysUsable(h.deps)).not.toThrow();
+	it('passes when every stored key decrypts with the configured secret', async () => {
+		await seedGlobalKey();
+		await expect(assertSigningKeysUsable(h.deps)).resolves.not.toThrow();
 	});
 
-	it('fails loudly when the secret cannot decrypt a stored key', () => {
-		seedGlobalKey();
+	it('fails loudly when the secret cannot decrypt a stored key', async () => {
+		await seedGlobalKey();
 		const wrong = { ...h.deps, config: { ...h.deps.config, signingKeySecret: 'x'.repeat(32) } };
-		expect(() => assertSigningKeysUsable(wrong)).toThrow(/SIGNING_KEY_SECRET/);
+		await expect(assertSigningKeysUsable(wrong)).rejects.toThrow(/SIGNING_KEY_SECRET/);
 	});
 });

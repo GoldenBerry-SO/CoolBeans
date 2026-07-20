@@ -33,6 +33,26 @@ export interface AppDeps {
 	now?: () => Date;
 }
 
+/**
+ * The same dependency bundle, bound to a transaction handle.
+ *
+ * Every helper that writes takes `deps` and reaches the database as `deps.db`, so the only
+ * way to run a helper inside a transaction is to hand it a deps whose `db` IS the
+ * transaction. Threading a bare `tx` through twenty signatures was the alternative, and it
+ * is exactly how the leak happened: a body that takes `tx` but calls `helper(deps, ...)`
+ * compiles fine and writes outside the transaction.
+ *
+ * The failure modes of getting this wrong are not theoretical. On postgres-js a helper's
+ * write lands on another pool connection outside the transaction, so a rollback leaves an
+ * orphaned `purchases` row whose `provider_checkout_id` UNIQUE then blocks every provider
+ * retry — the customer paid and no retry can ever succeed. On the single-connection test
+ * driver the same call deadlocks against the transaction's own mutex. Either way: bind
+ * the bundle, never mix handles.
+ */
+export function withTx(deps: AppDeps, tx: AppDeps['db']): AppDeps {
+	return { ...deps, db: tx };
+}
+
 /** Current time as a Date, honoring an injected clock. */
 export function nowDate(deps: Pick<AppDeps, 'now'>): Date {
 	return deps.now ? deps.now() : new Date();

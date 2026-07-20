@@ -3,6 +3,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
+import { rawQuery } from '../../test/pg.js';
 import { createProduct } from '../../test/seed.js';
 
 let h: TestHarness;
@@ -28,7 +29,7 @@ async function keysForEmail(h: TestHarness, email: string) {
 }
 
 beforeEach(async () => {
-	h = makeHarness();
+	h = await makeHarness();
 	h.deps.config.stripe = { secretKey: 'sk_test', webhookSecret: 'whsec_test' };
 	h.deps.stripe = fakeStripeGateway({ sub_1: PERIOD_END });
 	await createProduct(h.app, {
@@ -526,7 +527,7 @@ describe('Stripe webhook', () => {
 		expect(keys[0]?.status, 'we kept the money, so they keep the licence').toBe('active');
 	});
 
-	it('still revokes when a dispute is lost before the checkout lands', () => {
+	it('still revokes when a dispute is lost before the checkout lands', async () => {
 		return (async () => {
 			await webhook(h.app, {
 				id: 'evt_dispute_early',
@@ -652,9 +653,11 @@ describe('Stripe webhook', () => {
 		expect(keys[0]?.status, 'we kept the money').toBe('active');
 
 		// And nothing is left parked to re-disable them later.
-		const stranded = h.deps.db.$client
-			.prepare('SELECT COUNT(*) n FROM pending_revocations WHERE consumed_at IS NULL')
-			.get() as { n: number };
+		const stranded = (
+			await rawQuery<{ n: number }>(
+				'SELECT COUNT(*)::int n FROM pending_revocations WHERE consumed_at IS NULL',
+			)
+		)[0];
 		expect(stranded.n).toBe(0);
 	});
 

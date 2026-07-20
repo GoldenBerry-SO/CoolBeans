@@ -3,7 +3,7 @@
 
 import { auditLog } from '@coolbeans/db';
 import { OpenAPIHono } from '@hono/zod-openapi';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, type SQL, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { badRequest } from '../../http/errors.js';
@@ -36,22 +36,26 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	// Raw SQL, so it sidesteps every store helper and type-level guard in the scoping
 	// layer. Each count therefore has to carry its own account filter — licences and
 	// activations reach it by joining back through products.
-	admin.get('/stats', (c) => {
+	admin.get('/stats', async (c) => {
 		const accountId = accountScope(c).id;
-		const count = (sqlText: string) =>
-			(deps.db.$client.prepare(sqlText).get(accountId) as { n: number }).n;
+		// COUNT(*) is bigint, which the driver hands back as a string to avoid losing
+		// precision. Number() here keeps the JSON shape these counts have always had.
+		const count = async (statement: SQL) => {
+			const [row] = await deps.db.execute<{ n: number | string }>(statement);
+			return Number(row.n);
+		};
 		return c.json({
 			ok: true,
 			stats: {
-				products: count('SELECT COUNT(*) n FROM products WHERE account_id = ?'),
-				active_licenses: count(
-					"SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ? AND l.status = 'active'",
+				products: await count(sql`SELECT COUNT(*) n FROM products WHERE account_id = ${accountId}`),
+				active_licenses: await count(
+					sql`SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND l.status = 'active'`,
 				),
-				total_licenses: count(
-					'SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ?',
+				total_licenses: await count(
+					sql`SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId}`,
 				),
-				live_activations: count(
-					'SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ? AND a.deactivated_at IS NULL',
+				live_activations: await count(
+					sql`SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND a.deactivated_at IS NULL`,
 				),
 			},
 		});
@@ -59,35 +63,34 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	// Validation traffic for the Overview chart (issue #37). Sixteen days to match the
 	// design; missing days come back as zero so the chart never has holes in it.
-	admin.get('/validations', (c) => {
+	admin.get('/validations', async (c) => {
 		const accountId = accountScope(c).id;
 		const productSlug = c.req.query('product');
-		const product = productSlug ? requireProduct(c, deps, productSlug) : undefined;
+		const product = productSlug ? await requireProduct(c, deps, productSlug) : undefined;
 		return c.json({
 			ok: true,
-			validations: recentValidationCounts(deps, {
+			validations: await recentValidationCounts(deps, {
 				days: 16,
 				productId: product?.id,
 				// With no slug the chart covers the whole account, which means every product
 				// it owns and no one else's.
-				...(product ? {} : { productIds: accountProductIds(deps.db, accountId) }),
+				...(product ? {} : { productIds: await accountProductIds(deps.db, accountId) }),
 			}),
 		});
 	});
 
-	admin.get('/audit', (c) => {
+	admin.get('/audit', async (c) => {
 		const requestedLimit = Number(c.req.query('limit') ?? 100);
 		if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
 			throw badRequest('limit must be a positive integer.');
 		}
 		const limit = Math.min(requestedLimit, 500);
-		const rows = deps.db
+		const rows = await deps.db
 			.select()
 			.from(auditLog)
 			.where(eq(auditLog.accountId, accountScope(c).id))
 			.orderBy(desc(auditLog.id))
-			.limit(limit)
-			.all();
+			.limit(limit);
 		return c.json({
 			ok: true,
 			audit: rows.map((r) => ({
@@ -102,10 +105,10 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		});
 	});
 
-	admin.post('/products/:slug/signing-keys/rotate', (c) => {
-		const product = requireProduct(c, deps, c.req.param('slug'));
-		const key = rotateKey(deps, product.id);
-		writeAudit(deps.db, {
+	admin.post('/products/:slug/signing-keys/rotate', async (c) => {
+		const product = await requireProduct(c, deps, c.req.param('slug'));
+		const key = await rotateKey(deps, product.id);
+		await writeAudit(deps.db, {
 			action: 'signing_key.rotated',
 			actor: auditActor(c),
 			accountId: product.accountId,
@@ -116,12 +119,15 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	});
 
 	// Rotate the per-product token (success-page scope). The plaintext is returned ONCE.
-	admin.post('/products/:slug/token/rotate', (c) => {
+	admin.post('/products/:slug/token/rotate', async (c) => {
 		// This one never called assertScope. It was covered by the PRODUCT_SCOPED
 		// allowlist rather than by the handler defending itself; requireProduct closes
 		// both the account and the product-token hole in one call.
-		const product = requireProduct(c, deps, c.req.param('slug'));
-		return c.json({ ok: true, product_token: issueProductToken(deps, product, auditActor(c)) });
+		const product = await requireProduct(c, deps, c.req.param('slug'));
+		return c.json({
+			ok: true,
+			product_token: await issueProductToken(deps, product, auditActor(c)),
+		});
 	});
 
 	const connectBody = z.object({
@@ -131,7 +137,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		currency: z.string().optional(),
 	});
 	admin.post('/products/:slug/stripe/connect', async (c) => {
-		const product = requireProduct(c, deps, c.req.param('slug'));
+		const product = await requireProduct(c, deps, c.req.param('slug'));
 		const body = await readBody(c, connectBody);
 		const result = await connectStripe(deps, {
 			actor: auditActor(c),

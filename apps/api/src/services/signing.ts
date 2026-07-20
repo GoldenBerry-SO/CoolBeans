@@ -14,28 +14,31 @@ import { generateSigningKeyPair, signToken, type TokenPayload } from '../domain/
  * product has none — §11 allows an operator to run one keypair for every product.
  * Only mints a per-product key when neither exists.
  */
-export function getOrCreateActiveKey(deps: AppDeps, productId: number | null): SigningKey {
+export async function getOrCreateActiveKey(
+	deps: AppDeps,
+	productId: number | null,
+): Promise<SigningKey> {
 	const { db } = deps;
 	const scope =
 		productId === null ? isNull(signingKeys.productId) : eq(signingKeys.productId, productId);
-	const existing = db
+	const [existing] = await db
 		.select()
 		.from(signingKeys)
 		.where(and(scope, eq(signingKeys.active, true)))
-		.get();
+		.limit(1);
 	if (existing) return existing;
 
 	if (productId !== null) {
-		const global = db
+		const [global] = await db
 			.select()
 			.from(signingKeys)
 			.where(and(isNull(signingKeys.productId), eq(signingKeys.active, true)))
-			.get();
+			.limit(1);
 		if (global) return global;
 	}
 
 	const pair = generateSigningKeyPair();
-	const inserted = db
+	const [inserted] = await db
 		.insert(signingKeys)
 		.values({
 			productId,
@@ -43,8 +46,7 @@ export function getOrCreateActiveKey(deps: AppDeps, productId: number | null): S
 			privateKey: encryptSecret(pair.privateKey, deps.config.signingKeySecret),
 			active: true,
 		})
-		.returning()
-		.get();
+		.returning();
 	return inserted;
 }
 
@@ -53,16 +55,18 @@ export function getOrCreateActiveKey(deps: AppDeps, productId: number | null): S
  * the product's own keys (active + retired) plus the global keys, since a token may
  * have been signed by either. Retired keys stay so rotation never breaks verification.
  */
-export function publicKeysFor(deps: AppDeps, productId: number | null): Record<string, string> {
+export async function publicKeysFor(
+	deps: AppDeps,
+	productId: number | null,
+): Promise<Record<string, string>> {
 	const { db } = deps;
 	const rows =
 		productId === null
-			? db.select().from(signingKeys).where(isNull(signingKeys.productId)).all()
-			: db
+			? await db.select().from(signingKeys).where(isNull(signingKeys.productId))
+			: await db
 					.select()
 					.from(signingKeys)
-					.where(or(eq(signingKeys.productId, productId), isNull(signingKeys.productId)))
-					.all();
+					.where(or(eq(signingKeys.productId, productId), isNull(signingKeys.productId)));
 	const out: Record<string, string> = {};
 	for (const row of rows) out[String(row.id)] = row.publicKey;
 	return out;
@@ -73,11 +77,11 @@ export function publicKeysFor(deps: AppDeps, productId: number | null): Record<s
  * a wrong or rotated secret is only discovered when a client asks for a token, which
  * looks like a licensing outage rather than a misconfiguration.
  */
-export function assertSigningKeysUsable(deps: {
+export async function assertSigningKeysUsable(deps: {
 	db: AppDeps['db'];
 	config: { signingKeySecret: string };
-}): void {
-	const rows = deps.db.select().from(signingKeys).where(eq(signingKeys.active, true)).all();
+}): Promise<void> {
+	const rows = await deps.db.select().from(signingKeys).where(eq(signingKeys.active, true));
 	for (const row of rows) {
 		try {
 			decryptSecret(row.privateKey, deps.config.signingKeySecret);
@@ -90,16 +94,16 @@ export function assertSigningKeysUsable(deps: {
 }
 
 /** Rotate: retire the current active key and create a fresh active one. Returns the new key. */
-export function rotateKey(deps: AppDeps, productId: number | null): SigningKey {
+export async function rotateKey(deps: AppDeps, productId: number | null): Promise<SigningKey> {
 	const { db } = deps;
 	const scope =
 		productId === null ? isNull(signingKeys.productId) : eq(signingKeys.productId, productId);
-	db.update(signingKeys)
+	await db
+		.update(signingKeys)
 		.set({ active: false })
-		.where(and(scope, eq(signingKeys.active, true)))
-		.run();
+		.where(and(scope, eq(signingKeys.active, true)));
 	const pair = generateSigningKeyPair();
-	return db
+	const [created] = await db
 		.insert(signingKeys)
 		.values({
 			productId,
@@ -107,8 +111,8 @@ export function rotateKey(deps: AppDeps, productId: number | null): SigningKey {
 			privateKey: encryptSecret(pair.privateKey, deps.config.signingKeySecret),
 			active: true,
 		})
-		.returning()
-		.get();
+		.returning();
+	return created;
 }
 
 /**
@@ -141,7 +145,7 @@ function bufferedExpiry(deps: AppDeps, license: License): string | null {
  * and the licence's own expiry is not the same value — a lifetime licence has none, and
  * its token still dies at the TTL.
  */
-export function mintToken(
+export async function mintToken(
 	deps: AppDeps,
 	args: {
 		license: License;
@@ -159,8 +163,8 @@ export function mintToken(
 		 */
 		offline?: { fingerprint: string; ttlDays: number };
 	},
-): { token: string; payload: TokenPayload } {
-	const key = getOrCreateActiveKey(deps, args.product.id);
+): Promise<{ token: string; payload: TokenPayload }> {
+	const key = await getOrCreateActiveKey(deps, args.product.id);
 	const privateKey = decryptSecret(key.privateKey, deps.config.signingKeySecret);
 	const iat = Math.floor(nowDate(deps).getTime() / 1000);
 	let exp = iat + (args.offline?.ttlDays ?? deps.config.tokenTtlDays) * 86_400;

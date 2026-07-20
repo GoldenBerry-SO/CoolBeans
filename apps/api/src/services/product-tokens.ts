@@ -13,14 +13,17 @@ export function hashProductToken(token: string): string {
 }
 
 /** Generate and store a fresh token for a product, returning the plaintext ONCE. */
-export function issueProductToken(deps: AppDeps, product: Product, actor = 'admin'): string {
+export async function issueProductToken(
+	deps: AppDeps,
+	product: Product,
+	actor = 'admin',
+): Promise<string> {
 	const token = `cbp_${randomBytes(24).toString('hex')}`;
-	deps.db
+	await deps.db
 		.update(products)
 		.set({ productTokenHash: hashProductToken(token) })
-		.where(eq(products.id, product.id))
-		.run();
-	writeAudit(deps.db, {
+		.where(eq(products.id, product.id));
+	await writeAudit(deps.db, {
 		action: 'product.token_rotated',
 		actor,
 		productId: product.id,
@@ -32,11 +35,15 @@ export function issueProductToken(deps: AppDeps, product: Product, actor = 'admi
  * Resolve a presented bearer token to its product, or null. The lookup hashes the
  * presented value first, so timing reveals nothing about any stored hash.
  */
-export function productForToken(deps: AppDeps, presented: string): Product | undefined {
+export async function productForToken(
+	deps: AppDeps,
+	presented: string,
+): Promise<Product | undefined> {
 	if (!presented.startsWith('cbp_')) return undefined;
-	return deps.db
+	const [row] = await deps.db
 		.select()
 		.from(products)
 		.where(eq(products.productTokenHash, hashProductToken(presented)))
-		.get();
+		.limit(1);
+	return row;
 }

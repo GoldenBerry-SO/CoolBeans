@@ -1,7 +1,6 @@
 // ABOUTME: Test harness — builds AppDeps over an in-memory migrated DB with a controllable clock.
 // ABOUTME: Used by handler and service tests; no HTTP server, no real email or payment providers.
 
-import { createDb, migrate, openSqlite } from '@coolbeans/db';
 import type { EmailSender, OutgoingEmail } from '@coolbeans/email';
 import { createApp } from '../app.js';
 import type { Config } from '../config.js';
@@ -9,6 +8,7 @@ import type { AppDeps } from '../deps.js';
 import type { BillingSubscription, CheckoutArgs } from '../services/billing-gateway.js';
 import { resetKeyThrottle } from '../services/key-throttle.js';
 import type { SessionLineItem } from '../services/stripe-gateway.js';
+import { testDatabase } from './pg.js';
 
 export interface FakeClock {
 	now(): Date;
@@ -53,7 +53,9 @@ export const TEST_ADMIN_TOKEN = 'test-admin-token-0123456789';
 
 export function testConfig(overrides: Partial<Config> = {}): Config {
 	return {
-		databaseUrl: ':memory:',
+		// Not used to open anything: the harness gets its database from testDatabase() in
+		// pg.ts. Kept truthful so nobody hunts for a SQLite file that no longer exists.
+		databaseUrl: 'postgres://unused-tests-run-on-pglite',
 		port: 0,
 		adminToken: TEST_ADMIN_TOKEN,
 		signingKeySecret: 'test-signing-secret-0123456789',
@@ -207,17 +209,16 @@ export function capturingLogger() {
 	return logger;
 }
 
-export function makeHarness(
+export async function makeHarness(
 	overrides: {
 		config?: Partial<Config>;
 		rateLimit?: AppDeps['rateLimit'];
 		authRateLimit?: AppDeps['authRateLimit'];
 	} = {},
-): TestHarness {
+): Promise<TestHarness> {
 	// Throttle state is module-level, so each harness starts from a clean slate.
 	resetKeyThrottle();
-	const db = createDb(openSqlite(':memory:'));
-	migrate(db);
+	const db = await testDatabase();
 	const clock = fakeClock();
 	const email = capturingEmail();
 	const logger = capturingLogger();

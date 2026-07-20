@@ -9,29 +9,29 @@ import { toDisplayKey } from '../../domain/keygen.js';
 import { accountScope, isInstanceToken, productScope } from './util.js';
 
 export function registerAdminSurfaceRoutes(admin: OpenAPIHono, deps: AppDeps): void {
-	admin.get('/usage', (c) => {
+	admin.get('/usage', async (c) => {
 		const accountId = accountScope(c).id;
 		const scope = productScope(c);
-		const rows = deps.db
-			.select({
-				licenseKey: licenses.key,
-				keyPrefix: products.keyPrefix,
-				productSlug: products.slug,
-				productId: products.id,
-				metric: metrics.key,
-				displayName: metrics.displayName,
-				current: usageCounters.current,
-				limitOverride: usageCounters.limitOverride,
-				defaultLimit: metrics.defaultLimit,
-				resetsAt: usageCounters.resetsAt,
-			})
-			.from(usageCounters)
-			.innerJoin(metrics, eq(metrics.id, usageCounters.metricId))
-			.innerJoin(licenses, eq(licenses.id, usageCounters.licenseId))
-			.innerJoin(products, eq(products.id, licenses.productId))
-			.where(eq(products.accountId, accountId))
-			.all()
-			.filter((r) => !scope || r.productId === scope.id);
+		const rows = (
+			await deps.db
+				.select({
+					licenseKey: licenses.key,
+					keyPrefix: products.keyPrefix,
+					productSlug: products.slug,
+					productId: products.id,
+					metric: metrics.key,
+					displayName: metrics.displayName,
+					current: usageCounters.current,
+					limitOverride: usageCounters.limitOverride,
+					defaultLimit: metrics.defaultLimit,
+					resetsAt: usageCounters.resetsAt,
+				})
+				.from(usageCounters)
+				.innerJoin(metrics, eq(metrics.id, usageCounters.metricId))
+				.innerJoin(licenses, eq(licenses.id, usageCounters.licenseId))
+				.innerJoin(products, eq(products.id, licenses.productId))
+				.where(eq(products.accountId, accountId))
+		).filter((r) => !scope || r.productId === scope.id);
 
 		return c.json({
 			ok: true,
@@ -47,13 +47,13 @@ export function registerAdminSurfaceRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		});
 	});
 
-	admin.get('/events', (c) => {
+	admin.get('/events', async (c) => {
 		const account = accountScope(c);
 		// Rows with no account are deliveries that failed before any product was resolved.
 		// They are instance-level operational noise, so only an instance-wide credential
 		// (self-host's ADMIN_TOKEN, which has no adminEmail) sees them.
 		const instanceWide = isInstanceToken(c);
-		const rows = deps.db
+		const rows = await deps.db
 			.select()
 			.from(providerEvents)
 			.where(
@@ -62,8 +62,7 @@ export function registerAdminSurfaceRoutes(admin: OpenAPIHono, deps: AppDeps): v
 					: eq(providerEvents.accountId, account.id),
 			)
 			.orderBy(desc(providerEvents.receivedAt), desc(providerEvents.id))
-			.limit(200)
-			.all();
+			.limit(200);
 		return c.json({
 			ok: true,
 			events: rows.map((e) => ({

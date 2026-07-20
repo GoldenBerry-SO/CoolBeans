@@ -56,7 +56,7 @@ export function registerBillingWebhook(app: OpenAPIHono, deps: AppDeps): void {
 		// Same two-layer idempotency the product webhook uses. provider_events.id is the
 		// primary key and Stripe event ids are globally unique, so both integrations share
 		// the table without colliding while the provider column keeps them apart.
-		const claim = claimEventStatus(deps, {
+		const claim = await claimEventStatus(deps, {
 			id: event.id,
 			provider: BILLING_PROVIDER,
 			type: event.type,
@@ -73,12 +73,12 @@ export function registerBillingWebhook(app: OpenAPIHono, deps: AppDeps): void {
 			// rather than at claim time. Without this the console's Webhooks page shows a
 			// cloud account nothing at all.
 			if (result.accountId !== undefined) {
-				attributeEvent(deps, event.id, result.accountId);
+				await attributeEvent(deps, event.id, result.accountId);
 			}
 		} catch (err) {
 			// Hand the claim back so Stripe's retry re-enters rather than being deduped away
 			// with the work half done.
-			releaseEvent(deps, event.id, claim.token);
+			await releaseEvent(deps, event.id, claim.token);
 			deps.logger.error('Platform billing webhook failed', {
 				event: event.id,
 				type: event.type,
@@ -86,7 +86,7 @@ export function registerBillingWebhook(app: OpenAPIHono, deps: AppDeps): void {
 			});
 			throw err;
 		}
-		completeEvent(deps, event.id, claim.token);
+		await completeEvent(deps, event.id, claim.token);
 		return c.json({ ok: true, received: true });
 	});
 }

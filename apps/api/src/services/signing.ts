@@ -136,23 +136,37 @@ function bufferedExpiry(deps: AppDeps, license: License): string | null {
 /** Mint a signed offline token for a validated license+instance (PRD §11). */
 export function mintToken(
 	deps: AppDeps,
-	args: { license: License; product: Product; instanceId: string; displayKey: string },
+	args: {
+		license: License;
+		product: Product;
+		instanceId: string;
+		displayKey: string;
+		/** Override the TTL. Used by offline activation, which cannot ever refresh. */
+		ttlDays?: number;
+	},
 ): string {
 	const key = getOrCreateActiveKey(deps, args.product.id);
 	const privateKey = decryptSecret(key.privateKey, deps.config.signingKeySecret);
 	const iat = Math.floor(nowDate(deps).getTime() / 1000);
-	let exp = iat + deps.config.tokenTtlDays * 86_400;
+	let exp = iat + (args.ttlDays ?? deps.config.tokenTtlDays) * 86_400;
 	// Trial expiry is enforced (§9): the offline token must not outlive the trial itself,
 	// or verifyOffline would keep unlocking after the trial ends.
 	if (args.license.tier === 'trial' && args.license.expiresAt) {
 		exp = Math.min(exp, Math.floor(new Date(args.license.expiresAt).getTime() / 1000));
+	}
+	// A token must never outlive the expiry it carries. Harmless for a normal 7-day token,
+	// load-bearing for a year-long offline activation on a licence that ends sooner —
+	// there is no way to reach that machine and correct it later.
+	const claimedExpiry = bufferedExpiry(deps, args.license);
+	if (claimedExpiry) {
+		exp = Math.min(exp, Math.floor(new Date(claimedExpiry).getTime() / 1000));
 	}
 	const payload: TokenPayload = {
 		key: args.displayKey,
 		status: 'active',
 		tier: args.license.tier,
 		product: args.product.slug,
-		expires_at: bufferedExpiry(deps, args.license),
+		expires_at: claimedExpiry,
 		instance_id: args.instanceId,
 		iat,
 		exp,

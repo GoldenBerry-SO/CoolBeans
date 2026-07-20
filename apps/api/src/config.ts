@@ -23,6 +23,13 @@ export interface Config {
 	 * changed without shipping an app update. Never applied to trials.
 	 */
 	offlineTokenBufferDays: number;
+	/**
+	 * TTL for a vendor-issued offline activation, in days. Much longer than the normal
+	 * token TTL because an air-gapped machine can never refresh — it gets one token and
+	 * lives on it. Always clamped to the licence's own expiry, so a long TTL cannot
+	 * outlive what the customer paid for.
+	 */
+	offlineActivationTtlDays: number;
 	stripe?: {
 		secretKey: string;
 		webhookSecret?: string;
@@ -118,6 +125,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		);
 	}
 
+	const offlineActivationTtlDays = Number(env.OFFLINE_ACTIVATION_TTL_DAYS ?? 365);
+	if (!Number.isFinite(offlineActivationTtlDays) || offlineActivationTtlDays <= 0) {
+		throw new ConfigError(
+			`OFFLINE_ACTIVATION_TTL_DAYS must be a positive number, got "${env.OFFLINE_ACTIVATION_TTL_DAYS}"`,
+		);
+	}
+
 	const logMagicCodes = env.LOG_MAGIC_CODES === 'true';
 	if (logMagicCodes && env.NODE_ENV === 'production') {
 		throw new ConfigError(
@@ -133,6 +147,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		signingKeySecret,
 		tokenTtlDays,
 		offlineTokenBufferDays,
+		offlineActivationTtlDays,
 		publicUrl: env.PUBLIC_URL ?? `http://localhost:${env.PORT ?? 3000}`,
 		redisUrl: env.REDIS_URL,
 	};

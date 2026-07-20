@@ -227,6 +227,52 @@ export class CoolBeans {
 		};
 	}
 
+	/**
+	 * Accept a vendor-issued offline activation blob, for a machine that will never reach
+	 * the server. Entirely local: no request is made, and none ever will be.
+	 *
+	 * The blob is only trusted if its signature verifies against a key this app already
+	 * carries, so a forged or edited one is refused — it is handed around as text, which
+	 * makes tampering the obvious attack. It must also name this product and still be
+	 * within its lifetime, since importing an already-dead activation would leave the app
+	 * silently locked.
+	 *
+	 * On success the device is bound to the instance the vendor took the seat for, and
+	 * `offlineState()` behaves exactly as it would after a normal online activation.
+	 */
+	async importActivation(token: string): Promise<void> {
+		const keys = this.trustedKeys();
+		if (!keys) {
+			throw new CoolBeansError(0, {
+				error: 'no_trusted_keys',
+				message: 'No public keys are available to verify this activation.',
+			});
+		}
+		const payload = await verifyTokenSignature(token, keys);
+		if (!payload) {
+			throw new CoolBeansError(0, {
+				error: 'invalid_activation',
+				message: 'That activation could not be verified. Check it was pasted in full.',
+			});
+		}
+		if (payload.product !== this.product) {
+			throw new CoolBeansError(0, {
+				error: 'product_mismatch',
+				message: 'That activation is for a different product.',
+			});
+		}
+		if (payload.exp * 1000 <= Date.now()) {
+			throw new CoolBeansError(0, {
+				error: 'activation_expired',
+				message: 'That activation has expired. Ask for a fresh one.',
+			});
+		}
+		// Bind the device before storing the token, so offlineState's instance check has
+		// something to compare against rather than silently passing.
+		this.storage.setItem(INSTANCE_KEY, payload.instance_id);
+		this.storage.setItem(TOKEN_KEY, token);
+	}
+
 	/** Local, no-network check of the cached token. True to unlock (valid or grace). */
 	async verifyOffline(): Promise<boolean> {
 		return (await this.offlineState()) !== 'expired';
@@ -438,12 +484,23 @@ export class CoolBeans {
 	}
 }
 
+/**
+ * Prefer the server's own sentence, which is written for a human and names the real
+ * problem. Falling back to "request failed" everywhere hid the reason — and for the local
+ * checks in importActivation it was actively wrong, since no request was made at all.
+ */
+function errorMessage(status: number, body: unknown): string {
+	const message = (body as { message?: unknown } | null | undefined)?.message;
+	if (typeof message === 'string' && message.length > 0) return message;
+	return status > 0 ? `Cool Beans request failed (${status})` : 'Cool Beans check failed';
+}
+
 export class CoolBeansError extends Error {
 	constructor(
 		readonly status: number,
 		readonly body: unknown,
 	) {
-		super(`Cool Beans request failed (${status})`);
+		super(errorMessage(status, body));
 		this.name = 'CoolBeansError';
 	}
 }

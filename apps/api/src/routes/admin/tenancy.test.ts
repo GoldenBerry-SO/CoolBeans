@@ -330,6 +330,9 @@ const COVERED = new Set([
 	'GET /admin/keys/:key',
 	'POST /admin/keys/:key/disable',
 	'POST /admin/keys/:key/enable',
+	// Cross-account case lives in offline-activation.test.ts alongside the rest of its
+	// behaviour: another account's key is 404 and takes no seat.
+	'POST /admin/keys/:key/offline-activation',
 	'GET /admin/purchases',
 	'GET /admin/team',
 	'POST /admin/team',

@@ -59,6 +59,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
 		signingKeySecret: 'test-signing-secret-0123456789',
 		tokenTtlDays: 7,
 		offlineTokenBufferDays: 14,
+		offlineActivationTtlDays: 365,
 		publicUrl: 'http://localhost:3000',
 		logMagicCodes: false,
 		...overrides,

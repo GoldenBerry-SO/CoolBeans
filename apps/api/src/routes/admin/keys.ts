@@ -20,6 +20,7 @@ import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, trialExpiry, yearlyExpiry } from '../../services/issuance.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
+import { issueOfflineActivation } from '../../services/offline-activation.js';
 import { enqueue } from '../../services/outbox.js';
 import { planUsage, withinLimit } from '../../services/plan-limits.js';
 import { accountProductIds, getProductById, listPrefixes } from '../../store/products.js';
@@ -31,6 +32,11 @@ import {
 	readBody,
 	requireProduct,
 } from './util.js';
+
+const offlineActivationBody = z.object({
+	/** Whatever the offline machine shows the user. Opaque to us; we only bind to it. */
+	fingerprint: z.string().min(1).max(200),
+});
 
 const issueBody = z.object({
 	product: z.string().min(1),
@@ -148,6 +154,28 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			ok: true,
 			license: serializeLicense(license, product),
 			key: toDisplayKey(license.key, product.keyPrefix),
+		});
+	});
+
+	// Air-gapped activation (issue #57). The machine never calls us: an operator pastes its
+	// fingerprint here and carries the signed token back by hand.
+	admin.post('/keys/:key/offline-activation', async (c) => {
+		// Resolve within the account first, so a key from another tenant is 404 and not a
+		// seat quietly taken on somebody else's licence.
+		const { license } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
+		const body = await readBody(c, offlineActivationBody);
+		const issued = issueOfflineActivation(deps, {
+			keyInput: license.key,
+			fingerprint: body.fingerprint,
+			actor: auditActor(c),
+		});
+		return c.json({
+			ok: true,
+			token: issued.token,
+			instance_id: issued.instanceId,
+			// Surfaced so the console can tell the operator how long it is good for; the
+			// machine cannot be reached to renew it.
+			expires_at: issued.license.expiresAt,
 		});
 	});
 

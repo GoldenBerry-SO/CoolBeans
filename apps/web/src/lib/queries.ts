@@ -352,3 +352,32 @@ export function useOpenPortal() {
 		onError: (err) => toast.error(message(err)),
 	});
 }
+
+export interface OfflineActivationResult {
+	token: string;
+	instance_id: string;
+	expires_at: string | null;
+}
+
+/**
+ * Mint an activation for a machine that cannot reach us. The operator pastes the device's
+ * fingerprint; the resulting blob is carried back to that machine by hand.
+ */
+export function useOfflineActivation() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ key, fingerprint }: { key: string; fingerprint: string }) =>
+			api<OfflineActivationResult>(
+				'POST',
+				`/admin/keys/${encodeURIComponent(key)}/offline-activation`,
+				{ fingerprint },
+			),
+		onSuccess: (_data, variables) => {
+			// It consumed a real seat, so the seat count on this page is now stale.
+			qc.invalidateQueries({ queryKey: ['license', variables.key] });
+			qc.invalidateQueries({ queryKey: ['licenses'] });
+		},
+		onError: (err) =>
+			toast.error('Could not create that activation', { description: message(err) }),
+	});
+}

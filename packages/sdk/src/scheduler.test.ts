@@ -46,6 +46,40 @@ function countingFetch(behaviour: { failVerify?: boolean } = {}) {
 	return { calls, fetchImpl, count: (p: string) => calls.filter((c) => c === p).length };
 }
 
+function base64url(bytes: Uint8Array): string {
+	let bin = '';
+	for (const b of bytes) bin += String.fromCharCode(b);
+	return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Sign an offline-activation blob the way the server would, with a throwaway key. */
+async function signOffline(overrides: Record<string, unknown> = {}) {
+	const now = Math.floor(Date.now() / 1000);
+	const payload = {
+		key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
+		status: 'active',
+		tier: 'lifetime',
+		product: 'clementine',
+		expires_at: null,
+		instance_id: 'machine-1',
+		iat: now,
+		exp: now + 365 * 86_400,
+		...overrides,
+	};
+	const kp = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+		'sign',
+		'verify',
+	])) as CryptoKeyPair;
+	const rawPub = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+	const header = base64url(
+		new TextEncoder().encode(JSON.stringify({ alg: 'EdDSA', typ: 'CBT', kid: 'off' })),
+	);
+	const body = base64url(new TextEncoder().encode(JSON.stringify(payload)));
+	const input = new TextEncoder().encode(`${header}.${body}`);
+	const sig = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, kp.privateKey, input));
+	return { token: `${header}.${body}.${base64url(sig)}`, publicKeys: { off: base64url(rawPub) } };
+}
+
 function client(fetchImpl: typeof fetch) {
 	return new CoolBeans({ product: 'clementine', storage: memStorage(), fetch: fetchImpl });
 }
@@ -223,5 +257,70 @@ describe('heartbeat()', () => {
 			})) as typeof fetch;
 		const lease = await client(fetchImpl).heartbeat('K', { instanceId: 'i' });
 		expect(lease).toBeNull();
+	});
+});
+
+describe('importActivation()', () => {
+	it('unlocks from a pasted blob with no network at all', async () => {
+		// The whole point: this machine has never made a request and never will.
+		const { token, publicKeys } = await signOffline({ instance_id: 'machine-1' });
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			publicKeys,
+			fetch: (() => {
+				throw new Error('no network should be touched');
+			}) as unknown as typeof fetch,
+		});
+		await cb.importActivation(token);
+		expect(await cb.offlineState()).toBe('valid');
+		expect(cb.instanceId()).toBe('machine-1');
+	});
+
+	it('rejects a blob for a different product', async () => {
+		const { token, publicKeys } = await signOffline({ product: 'somebody-else' });
+		const cb = new CoolBeans({ product: 'clementine', storage: memStorage(), publicKeys });
+		await expect(cb.importActivation(token)).rejects.toThrow();
+		expect(await cb.verifyOffline()).toBe(false);
+	});
+
+	it('rejects a blob whose signature does not verify', async () => {
+		// A forged or edited blob is the obvious attack when the token is handed around
+		// as text.
+		const { token } = await signOffline({});
+		const other = await signOffline({});
+		const tampered = `${token.split('.').slice(0, 2).join('.')}.${other.token.split('.')[2]}`;
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			publicKeys: (await signOffline({})).publicKeys,
+		});
+		await expect(cb.importActivation(tampered)).rejects.toThrow();
+	});
+
+	it('rejects a blob that is already expired', async () => {
+		const now = Math.floor(Date.now() / 1000);
+		const { token, publicKeys } = await signOffline({ iat: now - 7200, exp: now - 3600 });
+		const cb = new CoolBeans({ product: 'clementine', storage: memStorage(), publicKeys });
+		await expect(cb.importActivation(token)).rejects.toThrow();
+	});
+});
+
+describe('error messages', () => {
+	it('surfaces the reason rather than a generic request failure', async () => {
+		// importActivation makes no request at all, so "request failed" was both unhelpful
+		// and untrue. Callers show these to people.
+		const { token, publicKeys } = await signOffline({ product: 'somebody-else' });
+		const cb = new CoolBeans({ product: 'clementine', storage: memStorage(), publicKeys });
+		await expect(cb.importActivation(token)).rejects.toThrow(/different product/);
+	});
+
+	it('keeps a status-shaped message when the server sent no sentence', async () => {
+		const fetchImpl = (async () =>
+			new Response(JSON.stringify({ ok: false }), {
+				status: 500,
+				headers: { 'Content-Type': 'application/json' },
+			})) as typeof fetch;
+		await expect(client(fetchImpl).deactivate('K', { instanceId: 'i' })).rejects.toThrow(/500/);
 	});
 });

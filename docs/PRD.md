@@ -333,6 +333,27 @@ bundled in the app. Behaviour:
 Signing keys are per-product (or global), stored server-side with the private half encrypted at rest;
 the public half is what apps embed. Key rotation is supported (multiple active public keys).
 
+### Offline activation (air-gapped machines)
+
+A machine that has never had internet cannot activate at all through §9, because activation is a
+round trip. For labs, defence and similar buyers, the vendor mediates instead:
+
+1. The offline machine shows its device fingerprint.
+2. The customer sends that to the vendor by any means.
+3. The vendor pastes it into the console against a licence and gets back a signed activation blob.
+4. The customer carries the blob to the machine and pastes it in.
+
+The device never makes a request. The seat is consumed through the same guarded statement as an
+online activation, so this cannot be used to exceed the activation limit, and the operator who issued
+it is recorded in the audit log along with the fingerprint.
+
+The token gets a much longer TTL than a normal one (`OFFLINE_ACTIVATION_TTL_DAYS`, default a year)
+because the machine can never refresh, clamped to the licence's own expiry so it cannot outlive what
+was paid for.
+
+**Be plain about the tradeoff:** an air-gapped machine cannot be revoked before its token expires.
+That is inherent to licensing something we cannot reach, not a defect, and the TTL is the dial.
+
 ### The SDK — `@coolbeans/sdk`
 
 Runs in the Electron main process, Tauri, plain Node, and the browser (WebCrypto). No service secret in

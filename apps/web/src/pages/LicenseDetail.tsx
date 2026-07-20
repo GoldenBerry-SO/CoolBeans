@@ -3,6 +3,8 @@
 
 import { Link, useParams } from '@tanstack/react-router';
 import { clsx } from 'clsx';
+import { useState } from 'react';
+import { OfflineActivationDialog } from '../components/OfflineActivationDialog.js';
 import { Card, CardHeader, EmptyState, SecondaryButton, StatusPill } from '../components/ui.js';
 import { useLicenseDetail, useSetLicenseStatus } from '../lib/queries.js';
 
@@ -26,6 +28,7 @@ export function LicenseDetailPage() {
 	const { key } = useParams({ strict: false }) as { key: string };
 	const detail = useLicenseDetail(key ?? '');
 	const setStatus = useSetLicenseStatus();
+	const [offline, setOffline] = useState(false);
 
 	if (detail.isLoading) return <EmptyState>Loading…</EmptyState>;
 	if (!detail.data) return <EmptyState>No license with that key.</EmptyState>;
@@ -41,6 +44,9 @@ export function LicenseDetailPage() {
 
 	return (
 		<div className="cbin max-w-[1020px]">
+			{offline ? (
+				<OfflineActivationDialog licenseKey={license.key} onClose={() => setOffline(false)} />
+			) : null}
 			<Link
 				to="/licenses"
 				className="mb-4 inline-flex items-center gap-1.5 text-[12.5px] text-ink-muted hover:text-ink"
@@ -67,6 +73,9 @@ export function LicenseDetailPage() {
 					</div>
 				</div>
 				<div className="flex w-full gap-2.5 sm:w-auto">
+					{license.status === 'active' ? (
+						<SecondaryButton onClick={() => setOffline(true)}>Offline activation</SecondaryButton>
+					) : null}
 					{license.status === 'active' ? (
 						<SecondaryButton
 							destructive

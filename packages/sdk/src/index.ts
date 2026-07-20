@@ -267,6 +267,22 @@ export class CoolBeans {
 				message: 'That activation has expired. Ask for a fresh one.',
 			});
 		}
+		// The binding check, and the whole reason a blob can be handed around as text.
+		// Comparing against the token's own instance_id would be circular — we are about to
+		// store that value ourselves — so the signed fingerprint is the only claim that says
+		// anything about *this* machine.
+		if (!payload.fingerprint) {
+			throw new CoolBeansError(0, {
+				error: 'unbound_activation',
+				message: 'That activation is not bound to a machine. Ask for one issued for this device.',
+			});
+		}
+		if (payload.fingerprint !== this.fingerprint()) {
+			throw new CoolBeansError(0, {
+				error: 'wrong_device',
+				message: 'That activation was issued for a different machine.',
+			});
+		}
 		// Bind the device before storing the token, so offlineState's instance check has
 		// something to compare against rather than silently passing.
 		this.storage.setItem(INSTANCE_KEY, payload.instance_id);

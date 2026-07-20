@@ -7,6 +7,12 @@ export interface TokenPayload {
 	tier: 'lifetime' | 'yearly' | 'trial';
 	product: string;
 	expires_at: string | null;
+	/**
+	 * The device an offline activation was minted for. Present only on that path, and the
+	 * only thing tying a hand-carried blob to one machine — without it a client can merely
+	 * compare the token to the instance id the token itself supplied.
+	 */
+	fingerprint?: string;
 	instance_id: string;
 	iat: number;
 	exp: number;

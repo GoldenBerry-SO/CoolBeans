@@ -263,10 +263,15 @@ describe('heartbeat()', () => {
 describe('importActivation()', () => {
 	it('unlocks from a pasted blob with no network at all', async () => {
 		// The whole point: this machine has never made a request and never will.
-		const { token, publicKeys } = await signOffline({ instance_id: 'machine-1' });
+		const storage = memStorage();
+		storage.setItem('coolbeans.device_id', 'MACHINE-A');
+		const { token, publicKeys } = await signOffline({
+			instance_id: 'machine-1',
+			fingerprint: 'MACHINE-A',
+		});
 		const cb = new CoolBeans({
 			product: 'clementine',
-			storage: memStorage(),
+			storage,
 			publicKeys,
 			fetch: (() => {
 				throw new Error('no network should be touched');
@@ -275,6 +280,29 @@ describe('importActivation()', () => {
 		await cb.importActivation(token);
 		expect(await cb.offlineState()).toBe('valid');
 		expect(cb.instanceId()).toBe('machine-1');
+	});
+
+	it('refuses a blob minted for a different machine', async () => {
+		// Without the signed fingerprint the only device-specific value is the instance id
+		// the token itself supplies, so the check is circular and one blob unlocks every
+		// machine it is pasted into. This is the whole reason the claim exists.
+		const storage = memStorage();
+		storage.setItem('coolbeans.device_id', 'MACHINE-B');
+		const { token, publicKeys } = await signOffline({ fingerprint: 'MACHINE-A' });
+		const cb = new CoolBeans({ product: 'clementine', storage, publicKeys });
+		await expect(cb.importActivation(token)).rejects.toThrow(/different machine/);
+		expect(await cb.verifyOffline()).toBe(false);
+	});
+
+	it('refuses a blob carrying no fingerprint at all', async () => {
+		// An unbound blob is exactly what the check exists to stop, so it must not read as
+		// "nothing to verify, therefore fine".
+		const storage = memStorage();
+		storage.setItem('coolbeans.device_id', 'MACHINE-A');
+		const { token, publicKeys } = await signOffline({});
+		const cb = new CoolBeans({ product: 'clementine', storage, publicKeys });
+		await expect(cb.importActivation(token)).rejects.toThrow(/not bound to a machine/);
+		expect(await cb.verifyOffline()).toBe(false);
 	});
 
 	it('rejects a blob for a different product', async () => {

@@ -143,6 +143,8 @@ export function mintToken(
 		displayKey: string;
 		/** Override the TTL. Used by offline activation, which cannot ever refresh. */
 		ttlDays?: number;
+		/** Binds an offline activation to one machine. Omitted on the normal path. */
+		fingerprint?: string;
 	},
 ): string {
 	const key = getOrCreateActiveKey(deps, args.product.id);
@@ -157,7 +159,13 @@ export function mintToken(
 	// A token must never outlive the expiry it carries. Harmless for a normal 7-day token,
 	// load-bearing for a year-long offline activation on a licence that ends sooner —
 	// there is no way to reach that machine and correct it later.
-	const claimedExpiry = bufferedExpiry(deps, args.license);
+	// The renewal buffer exists so a client that CAN reconnect has room to. An offline
+	// activation never will, so buffering it only lets an unreachable machine outlive the
+	// licence it was paid for. A TTL override marks that path.
+	const claimedExpiry =
+		args.ttlDays === undefined
+			? bufferedExpiry(deps, args.license)
+			: (args.license.expiresAt ?? null);
 	if (claimedExpiry) {
 		exp = Math.min(exp, Math.floor(new Date(claimedExpiry).getTime() / 1000));
 	}
@@ -167,6 +175,7 @@ export function mintToken(
 		tier: args.license.tier,
 		product: args.product.slug,
 		expires_at: claimedExpiry,
+		...(args.fingerprint ? { fingerprint: args.fingerprint } : {}),
 		instance_id: args.instanceId,
 		iat,
 		exp,

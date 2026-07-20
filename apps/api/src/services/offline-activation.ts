@@ -3,8 +3,9 @@
 
 import type { License, Product } from '@coolbeans/db';
 import type { AppDeps } from '../deps.js';
+import { conflict } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
-import { activate } from './licensing.js';
+import { activate, resolveLicense } from './licensing.js';
 import { mintToken } from './signing.js';
 
 export interface OfflineActivation {
@@ -35,6 +36,19 @@ export function issueOfflineActivation(
 ): OfflineActivation {
 	// Naming the seat after the fingerprint is what makes it recognisable in the console:
 	// an operator looking at the activation list can tell which machine it belongs to.
+	// Floating is refused outright, not adapted. A floating seat is held by a lease the
+	// machine renews; an air-gapped machine can never heartbeat, so its lease lapses, the
+	// server frees the seat, and an operator can mint unlimited air-gapped tokens while
+	// every earlier machine stays unlocked for a year. Offline activation is inherently
+	// node-locked, and pretending otherwise would quietly void the activation limit.
+	const target = resolveLicense(deps, args.keyInput);
+	if (target.product.activationModel === 'floating') {
+		throw conflict(
+			'floating_not_supported',
+			'Offline activation needs a node-locked product. A floating seat is held by a lease the machine has to renew, which an offline machine can never do.',
+		);
+	}
+
 	const { license, product, activation, displayKey } = activate(
 		deps,
 		args.keyInput,
@@ -47,6 +61,9 @@ export function issueOfflineActivation(
 		instanceId: activation.instanceId,
 		displayKey,
 		ttlDays: deps.config.offlineActivationTtlDays,
+		// The only thing tying this blob to one machine. Without it a client can merely
+		// compare the token to the instance id the token itself supplied.
+		fingerprint: args.fingerprint,
 	});
 
 	// The one activation a customer never performs themselves, so the operator who did it

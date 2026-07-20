@@ -162,7 +162,11 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 	admin.post('/keys/:key/offline-activation', async (c) => {
 		// Resolve within the account first, so a key from another tenant is 404 and not a
 		// seat quietly taken on somebody else's licence.
-		const { license } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
+		const { license, product } = resolveKey(deps, accountScope(c).id, c.req.param('key'));
+		// PRODUCT_SCOPED is default-deny and does not list this route, so a cbp_ token
+		// never reaches here. Assert anyway: a route that mints year-long credentials
+		// should not depend on an allowlist elsewhere staying correct.
+		assertScope(c, product);
 		const body = await readBody(c, offlineActivationBody);
 		const issued = issueOfflineActivation(deps, {
 			keyInput: license.key,

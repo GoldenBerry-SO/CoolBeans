@@ -44,6 +44,7 @@ function payloadOf(token: string) {
 		expires_at: string | null;
 		exp: number;
 		status: string;
+		fingerprint?: string;
 	};
 }
 
@@ -217,5 +218,97 @@ describe('the frozen public surface', () => {
 			body: JSON.stringify({ license_key: key, instance_name: 'a normal device' }),
 		});
 		expect(res.status).toBe(200);
+	});
+});
+
+describe('findings from the Codex review', () => {
+	it('refuses a floating product outright', async () => {
+		// A floating seat is held by a lease the machine renews. An air-gapped machine can
+		// never heartbeat, so its lease lapses, the server frees the seat, and an operator
+		// can mint unlimited air-gapped tokens while every earlier machine stays unlocked.
+		// Offline activation is inherently node-locked.
+		const h = makeHarness();
+		await createProduct(h.app, {
+			slug: 'floaty',
+			name: 'Floaty',
+			key_prefix: 'FLOAT',
+			email_from: 'r@c.io',
+			activation_model: 'floating',
+			activation_limit: 2,
+		});
+		const key = await issueKey(h.app, {
+			product: 'floaty',
+			email: 'buyer@example.com',
+			tier: 'lifetime',
+		});
+		const res = await h.app.request(`/admin/keys/${encodeURIComponent(key)}/offline-activation`, {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({ fingerprint: FINGERPRINT }),
+		});
+		expect(res.status).toBe(409);
+		expect((await res.json()) as { error: string }).toMatchObject({
+			error: 'floating_not_supported',
+		});
+		expect(h.deps.db.select().from(activations).all()).toHaveLength(0);
+	});
+
+	it('does not extend an air-gapped token by the renewal buffer', async () => {
+		// The buffer exists so a client that CAN reconnect has room to. An air-gapped
+		// machine never will, so the buffer only lets it outlive the paid licence.
+		const h = makeHarness();
+		await createProduct(h.app, {
+			slug: 'clementine',
+			name: 'Clementine',
+			key_prefix: 'CLEM',
+			email_from: 'r@c.io',
+		});
+		const expiresAt = new Date(h.clock.now().getTime() + 30 * 86_400_000).toISOString();
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'buyer@example.com',
+			tier: 'yearly',
+			expires_at: expiresAt,
+		});
+		const body = (await (await mint(h, key)).json()) as { token: string };
+		const payload = payloadOf(body.token);
+		expect(payload.exp * 1000).toBeLessThanOrEqual(new Date(expiresAt).getTime());
+		expect(new Date(payload.expires_at ?? '').getTime()).toBe(new Date(expiresAt).getTime());
+	});
+
+	it('binds the token to the fingerprint, so a copied blob cannot unlock another machine', async () => {
+		// Without a fingerprint claim the SDK has nothing device-specific to check: it
+		// stores the token's own instance id and then compares the token against it.
+		const { h, key } = await seeded();
+		const body = (await (await mint(h, key)).json()) as { token: string };
+		expect(payloadOf(body.token).fingerprint).toBe(FINGERPRINT);
+	});
+
+	it('is unreachable with a product-scoped token', async () => {
+		// Default-deny in PRODUCT_SCOPED already blocks this; pinning it so the allowlist
+		// cannot quietly grow to include a route that mints year-long credentials.
+		const { h } = await seeded();
+		const created = await h.app.request('/admin/products', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				slug: 'second',
+				name: 'Second',
+				key_prefix: 'SECOND',
+				email_from: 'r@c.io',
+			}),
+		});
+		const { product_token } = (await created.json()) as { product_token: string };
+		const key2 = await issueKey(h.app, {
+			product: 'second',
+			email: 'b@c.io',
+			tier: 'lifetime',
+		});
+		const res = await h.app.request(`/admin/keys/${encodeURIComponent(key2)}/offline-activation`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${product_token}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ fingerprint: FINGERPRINT }),
+		});
+		expect(res.status).toBe(403);
 	});
 });

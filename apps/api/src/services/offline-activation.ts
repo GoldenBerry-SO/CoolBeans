@@ -11,6 +11,12 @@ import { mintToken } from './signing.js';
 export interface OfflineActivation {
 	token: string;
 	instanceId: string;
+	/**
+	 * When this activation stops working, which is the TTL clamped by the licence expiry.
+	 * Not the licence's own expiry: a lifetime licence has none, and its blob still dies at
+	 * the TTL, so reporting the licence would tell an operator the machine is good forever.
+	 */
+	expiresAt: string;
 	license: License;
 	product: Product;
 }
@@ -55,15 +61,17 @@ export function issueOfflineActivation(
 		`offline:${args.fingerprint}`,
 	);
 
-	const token = mintToken(deps, {
+	const { token, payload } = mintToken(deps, {
 		license,
 		product,
 		instanceId: activation.instanceId,
 		displayKey,
-		ttlDays: deps.config.offlineActivationTtlDays,
-		// The only thing tying this blob to one machine. Without it a client can merely
-		// compare the token to the instance id the token itself supplied.
-		fingerprint: args.fingerprint,
+		offline: {
+			ttlDays: deps.config.offlineActivationTtlDays,
+			// The only thing tying this blob to one machine. Without it a client can merely
+			// compare the token to the instance id the token itself supplied.
+			fingerprint: args.fingerprint,
+		},
 	});
 
 	// The one activation a customer never performs themselves, so the operator who did it
@@ -77,5 +85,11 @@ export function issueOfflineActivation(
 		detail: { fingerprint: args.fingerprint, instance_id: activation.instanceId },
 	});
 
-	return { token, instanceId: activation.instanceId, license, product };
+	return {
+		token,
+		instanceId: activation.instanceId,
+		expiresAt: new Date(payload.exp * 1000).toISOString(),
+		license,
+		product,
+	};
 }

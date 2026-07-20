@@ -63,6 +63,18 @@ describe('minting an offline activation', () => {
 		expect(payload.instance_id).toBe(body.instance_id);
 	});
 
+	it('reports when the activation itself dies, not when the licence does', async () => {
+		// The seeded licence is lifetime, so the licence expiry is null. Returning that as
+		// the activation's expires_at tells an operator the blob never expires, while the
+		// machine actually locks at the TTL — and it is air-gapped, so nobody finds out
+		// until it does.
+		const { h, key } = await seeded();
+		const res = await mint(h, key);
+		const body = (await res.json()) as { token: string; expires_at: string | null };
+		expect(body.expires_at).not.toBeNull();
+		expect(new Date(body.expires_at ?? '').getTime()).toBe(payloadOf(body.token).exp * 1000);
+	});
+
 	it('consumes a real seat, visible to the console like any other activation', async () => {
 		const { h, key } = await seeded();
 		await mint(h, key);

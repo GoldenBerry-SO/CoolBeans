@@ -43,7 +43,7 @@ function payloadOf(token: string): TokenPayload {
 
 function claimOf(h: TestHarness, tier: 'lifetime' | 'yearly' | 'trial', expiresAt: string | null) {
 	const { product, license } = seed(h, tier, expiresAt);
-	const token = mintToken(h.deps, {
+	const { token } = mintToken(h.deps, {
 		license,
 		product,
 		instanceId: 'inst-1',

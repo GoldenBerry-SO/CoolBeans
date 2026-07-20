@@ -356,7 +356,8 @@ export function useOpenPortal() {
 export interface OfflineActivationResult {
 	token: string;
 	instance_id: string;
-	expires_at: string | null;
+	/** When the blob stops working. Always set, even on a lifetime licence: see the route. */
+	expires_at: string;
 }
 
 /**

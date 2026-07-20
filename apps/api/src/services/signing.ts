@@ -133,7 +133,14 @@ function bufferedExpiry(deps: AppDeps, license: License): string | null {
 	return new Date(buffered).toISOString();
 }
 
-/** Mint a signed offline token for a validated license+instance (PRD §11). */
+/**
+ * Mint a signed offline token for a validated license+instance (PRD §11).
+ *
+ * Returns the payload alongside the token because the caller cannot otherwise tell when
+ * the thing it just handed out stops working: `exp` is the TTL clamped by the licence,
+ * and the licence's own expiry is not the same value — a lifetime licence has none, and
+ * its token still dies at the TTL.
+ */
 export function mintToken(
 	deps: AppDeps,
 	args: {
@@ -141,31 +148,36 @@ export function mintToken(
 		product: Product;
 		instanceId: string;
 		displayKey: string;
-		/** Override the TTL. Used by offline activation, which cannot ever refresh. */
-		ttlDays?: number;
-		/** Binds an offline activation to one machine. Omitted on the normal path. */
-		fingerprint?: string;
+		/**
+		 * Set only for a vendor-mediated activation of a machine that will never reach us.
+		 *
+		 * One object rather than two optional fields, because the long TTL, the missing
+		 * buffer and the device binding are a single decision and are only ever safe
+		 * together. Split apart, a caller could ask for the year-long TTL and forget the
+		 * fingerprint, which is an unbound token good for a year on any machine it is
+		 * pasted into — the exact hole this binding was added to close.
+		 */
+		offline?: { fingerprint: string; ttlDays: number };
 	},
-): string {
+): { token: string; payload: TokenPayload } {
 	const key = getOrCreateActiveKey(deps, args.product.id);
 	const privateKey = decryptSecret(key.privateKey, deps.config.signingKeySecret);
 	const iat = Math.floor(nowDate(deps).getTime() / 1000);
-	let exp = iat + (args.ttlDays ?? deps.config.tokenTtlDays) * 86_400;
+	let exp = iat + (args.offline?.ttlDays ?? deps.config.tokenTtlDays) * 86_400;
 	// Trial expiry is enforced (§9): the offline token must not outlive the trial itself,
 	// or verifyOffline would keep unlocking after the trial ends.
 	if (args.license.tier === 'trial' && args.license.expiresAt) {
 		exp = Math.min(exp, Math.floor(new Date(args.license.expiresAt).getTime() / 1000));
 	}
+	// The renewal buffer exists so a client that CAN reconnect has room to. An air-gapped
+	// machine never will, so buffering it only lets an unreachable machine outlive the
+	// licence it was paid for.
+	const claimedExpiry = args.offline
+		? (args.license.expiresAt ?? null)
+		: bufferedExpiry(deps, args.license);
 	// A token must never outlive the expiry it carries. Harmless for a normal 7-day token,
 	// load-bearing for a year-long offline activation on a licence that ends sooner —
 	// there is no way to reach that machine and correct it later.
-	// The renewal buffer exists so a client that CAN reconnect has room to. An offline
-	// activation never will, so buffering it only lets an unreachable machine outlive the
-	// licence it was paid for. A TTL override marks that path.
-	const claimedExpiry =
-		args.ttlDays === undefined
-			? bufferedExpiry(deps, args.license)
-			: (args.license.expiresAt ?? null);
 	if (claimedExpiry) {
 		exp = Math.min(exp, Math.floor(new Date(claimedExpiry).getTime() / 1000));
 	}
@@ -175,10 +187,13 @@ export function mintToken(
 		tier: args.license.tier,
 		product: args.product.slug,
 		expires_at: claimedExpiry,
-		...(args.fingerprint ? { fingerprint: args.fingerprint } : {}),
+		...(args.offline ? { fingerprint: args.offline.fingerprint } : {}),
 		instance_id: args.instanceId,
 		iat,
 		exp,
 	};
-	return signToken(payload, { publicKey: key.publicKey, privateKey }, String(key.id));
+	return {
+		token: signToken(payload, { publicKey: key.publicKey, privateKey }, String(key.id)),
+		payload,
+	};
 }

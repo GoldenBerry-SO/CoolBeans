@@ -235,7 +235,7 @@ export function validate(deps: AppDeps, keyInput: string, instanceId: string): V
 		.where(eq(activations.id, activation.id))
 		.run();
 
-	const token = mintToken(deps, {
+	const { token } = mintToken(deps, {
 		license,
 		product,
 		instanceId,

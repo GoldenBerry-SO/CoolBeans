@@ -177,9 +177,11 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			ok: true,
 			token: issued.token,
 			instance_id: issued.instanceId,
-			// Surfaced so the console can tell the operator how long it is good for; the
-			// machine cannot be reached to renew it.
-			expires_at: issued.license.expiresAt,
+			// When the blob stops working, so the operator can tell the customer. Deliberately
+			// the token's expiry rather than the licence's: the machine cannot be reached to
+			// renew it, and on a lifetime licence the licence expiry is null while the token
+			// still dies at the TTL.
+			expires_at: issued.expiresAt,
 		});
 	});
 

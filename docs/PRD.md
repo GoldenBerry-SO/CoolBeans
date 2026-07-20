@@ -65,9 +65,8 @@ licensed, and lightweight.
 
 ### Non-goals (v1)
 
-- Merchant-of-record / tax handling for *our customers'* sales (that stays with Stripe/PayPal — see
-  the separate line below; our own subscription billing is in §7).
-- Merchant-of-record / tax handling (that stays with Stripe/PayPal).
+- Merchant-of-record / tax handling (that stays with Stripe/PayPal). This is about our customers'
+  sales of their own software; our own subscription billing is §7.
 - Licensing models beyond the four above (no feature-flag entitlement graphs, no per-API-key rate
   plans as a product).
 - Payment providers beyond Stripe and PayPal in v1 (the issuance core is provider-pluggable so a
@@ -325,9 +324,11 @@ bundled in the app. Behaviour:
   subscription revocation reach a machine that has gone offline. Lifetime licences carry no
   `expires_at` and are unaffected; trials additionally get no TTL grace, or a blocked endpoint would
   be an unlimited trial.
-- The date in the token is the server's choice, not necessarily the licence's raw expiry. Issuing it
-  with a buffer past the true expiry gives a renewing subscriber room to reconnect without the client
-  needing a second grace concept.
+- The date in the token is the server's choice, not the licence's raw expiry. It carries a buffer
+  (`OFFLINE_TOKEN_BUFFER_DAYS`, default 14) so a subscriber who renews while offline — and is still
+  holding a token stamped with the old date — has room to reconnect rather than being locked out of
+  something they paid for. The policy lives on the server so it can change without an app update.
+  Never applied to trials, and never to a lifetime licence, which has no expiry to buffer.
 
 Signing keys are per-product (or global), stored server-side with the private half encrypted at rest;
 the public half is what apps embed. Key rotation is supported (multiple active public keys).

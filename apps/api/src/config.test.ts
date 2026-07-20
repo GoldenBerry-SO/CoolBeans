@@ -156,6 +156,28 @@ describe('no email sender at all', () => {
 	});
 });
 
+describe('offline token buffer', () => {
+	it('defaults to 14 days', () => {
+		expect(loadConfig(base).offlineTokenBufferDays).toBe(14);
+	});
+
+	it('accepts an explicit value, including zero for no buffer at all', () => {
+		expect(loadConfig({ ...base, OFFLINE_TOKEN_BUFFER_DAYS: '30' }).offlineTokenBufferDays).toBe(
+			30,
+		);
+		expect(loadConfig({ ...base, OFFLINE_TOKEN_BUFFER_DAYS: '0' }).offlineTokenBufferDays).toBe(0);
+	});
+
+	it.each(['-1', 'not-a-number', 'Infinity'])(
+		'rejects OFFLINE_TOKEN_BUFFER_DAYS=%s',
+		(OFFLINE_TOKEN_BUFFER_DAYS) => {
+			expect(() => loadConfig({ ...base, OFFLINE_TOKEN_BUFFER_DAYS })).toThrow(
+				/OFFLINE_TOKEN_BUFFER_DAYS/,
+			);
+		},
+	);
+});
+
 describe('platform billing configuration', () => {
 	const billing = {
 		...base,

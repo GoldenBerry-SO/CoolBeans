@@ -14,6 +14,15 @@ export interface Config {
 	/** Hex secret that encrypts signing private keys at rest. */
 	signingKeySecret: string;
 	tokenTtlDays: number;
+	/**
+	 * Days added to a licence's expiry when it goes into a signed offline token.
+	 *
+	 * The SDK treats a past `expires_at` as definitive, so the raw expiry would lock out a
+	 * subscriber who renewed while offline and is still holding a stale token. Buffering the
+	 * claim gives them room to reconnect, and keeps that policy on the server where it can be
+	 * changed without shipping an app update. Never applied to trials.
+	 */
+	offlineTokenBufferDays: number;
 	stripe?: {
 		secretKey: string;
 		webhookSecret?: string;
@@ -102,6 +111,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		);
 	}
 
+	const offlineTokenBufferDays = Number(env.OFFLINE_TOKEN_BUFFER_DAYS ?? 14);
+	if (!Number.isFinite(offlineTokenBufferDays) || offlineTokenBufferDays < 0) {
+		throw new ConfigError(
+			`OFFLINE_TOKEN_BUFFER_DAYS must be zero or a positive number, got "${env.OFFLINE_TOKEN_BUFFER_DAYS}"`,
+		);
+	}
+
 	const logMagicCodes = env.LOG_MAGIC_CODES === 'true';
 	if (logMagicCodes && env.NODE_ENV === 'production') {
 		throw new ConfigError(
@@ -116,6 +132,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		adminToken,
 		signingKeySecret,
 		tokenTtlDays,
+		offlineTokenBufferDays,
 		publicUrl: env.PUBLIC_URL ?? `http://localhost:${env.PORT ?? 3000}`,
 		redisUrl: env.REDIS_URL,
 	};

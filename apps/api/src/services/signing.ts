@@ -111,6 +111,28 @@ export function rotateKey(deps: AppDeps, productId: number | null): SigningKey {
 		.get();
 }
 
+/**
+ * The `expires_at` claim to put in a token: the licence expiry plus a buffer.
+ *
+ * The SDK treats a past `expires_at` as definitive and ends access offline, which is what
+ * makes subscription revocation reach a machine that has gone dark. The cost is that a
+ * subscriber who renews while offline still holds a token carrying the OLD expiry, and
+ * would be locked out on a licence they have paid for. The buffer is the room they need to
+ * reconnect, and it lives here rather than in the client so it can be tuned without
+ * shipping an app update.
+ *
+ * Never applied to a trial — a buffered trial is simply a longer trial, and §9 says the
+ * token must not outlive it. Never applied to a null expiry, which would invent an end
+ * date for a lifetime licence that has none.
+ */
+function bufferedExpiry(deps: AppDeps, license: License): string | null {
+	if (!license.expiresAt) return null;
+	if (license.tier === 'trial') return license.expiresAt;
+	const buffered =
+		new Date(license.expiresAt).getTime() + deps.config.offlineTokenBufferDays * 86_400_000;
+	return new Date(buffered).toISOString();
+}
+
 /** Mint a signed offline token for a validated license+instance (PRD §11). */
 export function mintToken(
 	deps: AppDeps,
@@ -130,7 +152,7 @@ export function mintToken(
 		status: 'active',
 		tier: args.license.tier,
 		product: args.product.slug,
-		expires_at: args.license.expiresAt ?? null,
+		expires_at: bufferedExpiry(deps, args.license),
 		instance_id: args.instanceId,
 		iat,
 		exp,

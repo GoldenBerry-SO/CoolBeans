@@ -42,46 +42,64 @@ Where we deliberately diverge from pleasehold.dev:
   against the infra repo). No Cloudflare Workers target; we don't optimize for edge runtimes.
   Self-hosters get the same images via docker compose. Redis backs rate limiting
   (hono-rate-limiter) and queues (BullMQ in `apps/worker`), as in pleasehold.
-- **SQLite is the shipped database adapter.** The data layer uses synchronous better-sqlite3
-  (`.get()`/`.run()`/`.all()`), which keeps the service code and guarded-statement behavior simple.
-  There is currently no libSQL/Turso or Postgres runtime adapter: both require an async data-access
-  refactor, and Postgres additionally needs dialect-specific schema/migrations and locking. The
-  Postgres work is a deliberate follow-up, not a configuration-only switch.
+- **PostgreSQL is the database, everywhere.** One dialect for cloud and self-host: the schema is
+  `drizzle-orm/pg-core`, production runs postgres-js against the shared cluster, self-host gets a
+  `postgres:16-alpine` service in compose, and the test suite runs PGlite — real Postgres compiled
+  to WASM — through the same `Database` type with no casts. SQLite was the original adapter; the
+  port was a rewrite of the atomic-enforcement paths, not a configuration switch, and the traps it
+  had to clear are recorded here because every one of them fails *silently* if reintroduced.
 
-  The async refactor is the visible cost; the quieter one is that **our atomic statements are not
-  all portable**. `scripts/postgres/atomicity.sh` proves it against a real Postgres: the seat cap
-  (`INSERT … SELECT … WHERE (SELECT COUNT(*)…) < limit`) is safe on SQLite only because SQLite
-  serialises writers. On Postgres every concurrent contender evaluates that subquery against its
-  own snapshot, so a limit of 3 sold 12 seats. It needs `SELECT … FROM licenses WHERE id = ? FOR
-  UPDATE` first, which queues contenders per licence. The floating-lease renewal has the same
-  shape and needs the same lock. The usage quota is a single guarded `UPDATE` on one row, so
-  Postgres takes the row lock itself and that one ports unchanged. The hosted product cap is the
-  newest member of this family and has the same shape and the same fix (lock the `accounts` row
-  first). Any Postgres work starts by running that script.
+  **Atomicity needs locks, not just guarded statements.** Under MVCC every concurrent contender
+  evaluates a `WHERE (SELECT COUNT(*)…) < limit` guard against its own snapshot: the race suite
+  measured a 3-seat cap admitting all 12 contenders and a 1-product plan accepting 8. The seat
+  cap and lease revival serialise on the licence row (`SELECT … FOR UPDATE`), the product cap on
+  the accounts row. Two paths deliberately take no lock: extending a still-live lease cannot
+  change the live count, so the heartbeat hot path stays lock-free; and unlimited plans skip the
+  product-cap transaction, so a self-hoster never takes an account lock. The usage quota is a
+  single-row guarded `UPDATE` and needs no lock — Postgres re-evaluates its WHERE under the row
+  lock it takes itself. `pnpm test:race` is the oracle: real server, real pools, contention
+  through the real HTTP surface, and each locking test was seen red against the unlocked form.
+  PGlite is one connection and cannot interleave, so **a capped path covered only by the default
+  suite is not covered**.
 
-  Note what the vitest suite can and cannot show here. better-sqlite3 is synchronous, so a
-  "concurrent" test through `app.request()` cannot actually interleave inside a guarded statement:
-  a read-then-write implementation passes those tests too, which was verified by mutation for the
-  product cap. Treat the SQLite race tests as pinning the refusal behaviour, and
-  `scripts/postgres/atomicity.mjs` — which carries a negative control proving the unlocked form
-  over-allocates — as the thing that actually tests atomicity.
+  **Never read a driver rowcount.** `result.changes` was better-sqlite3's spelling; postgres-js
+  has no such field, and `undefined === 0` is `false`, so a missed conversion makes a cap
+  silently stop being enforced with nothing in any log. Every guarded statement now carries
+  `RETURNING` and decides via `applied()`/`affected()` from `@coolbeans/db`, which read rows in
+  both drivers' result shapes (postgres-js returns arrays, PGlite `{rows}`) and throw on anything
+  else; `rowsOf()` is the read-side twin. The `no-driver-rowcounts` source-scan test bans every
+  count-field spelling outright — load-bearing, because the shared `Database` type widens the
+  driver result and the compiler cannot catch this class.
 
-  **The sharpest trap is not SQL at all.** Every guarded statement decides whether it applied by
-  reading `result.changes`, which is a better-sqlite3 field. libSQL calls it `rowsAffected` and
-  Postgres reports differently again. Read the wrong one and you get `undefined`, and
-  `undefined === 0` is `false` — so `if (result.changes === 0) throw activationLimitReached(...)`
-  simply stops throwing and **the seat cap silently stops being enforced**. Nothing fails loudly;
-  licences just quietly become unlimited. Eleven call sites depend on this field across
-  `licensing.ts`, `payments.ts`, `sweep.ts` and `prune.ts`. Any driver change has to sweep all of
-  them and then prove the caps still hold with the race tests, not with a green unit suite.
+  **Transactions bind through `withTx`.** Helpers take a deps bundle and reach `deps.db`, so the
+  only way to run one inside a transaction is `withTx(deps, tx)`, which rebinds the bundle. A
+  helper handed the outer deps writes on another pool connection outside the transaction — a
+  rolled-back issuance then leaves a purchase whose `provider_checkout_id` UNIQUE blocks every
+  provider retry forever. On the single-connection test driver the same mistake deadlocks, so the
+  suite catches it structurally.
 
-  The second trap is transactions. Our `db.transaction(cb)` callbacks call helpers that take
-  `deps` and reach for `deps.db` — the outer client — rather than the transaction handle. On
-  better-sqlite3 that is harmless, because it is synchronous and everything shares one
-  connection. Every async driver runs an interactive transaction on its own connection, so
-  those writes land *outside* the transaction and the atomicity we think we have is not there.
-  Issuance (`payments.ts` → `createPurchase`/`issueLicense`) is the case that matters: the
-  helpers have to take the `tx` handle before this moves to libSQL or Postgres.
+  **Constraint violations abort the whole transaction** (SQLite left it usable). The issuance
+  key-collision retry runs each attempt in a savepoint, or attempt two dies with 25P02 and a paid
+  customer gets no key; the usage-counter create is an upsert whose no-op DO UPDATE hands the
+  loser the winner's row; the product-slug conflict catch sits outside the transaction callback.
+
+  **Exactly-once machinery:** the webhook claim fence is a random token minted by the claim
+  statement itself (`RETURNING claim_token`) — never re-read after the fact, which is the gap
+  that hands an elder claimant its successor's fence — and the outbox drain claims with
+  `FOR UPDATE SKIP LOCKED` so two workers never both send the same email.
+
+  **Dates are ISO-8601 strings compared lexicographically**, so every database-side default goes
+  through the shared `isoNow` fragment in `packages/db/src/schema/columns.ts`. `now()::text`
+  yields a space instead of `T` — and `' ' < 'T'` sorts every defaulted row before every
+  app-written one, which alone would make the event-retention prune delete finished events
+  immediately.
+
+  **Migrations run in exactly one place.** Boot does not migrate — N replicas plus a worker plus
+  a deploy Job would race DDL — it runs `assertSchemaCurrent` and refuses to serve a schema the
+  build was not made for. `migrate-cli` (advisory-locked) is the single migrator: the k8s Sync
+  hook in cloud, the one-shot `migrate` service in compose, `MIGRATE_ON_BOOT=true` for a genuine
+  single-process self-host. The foreign keys SQLite could not take are real now (RESTRICT on
+  customer data), and `assertAccountsResolve` stays for one release as the proof they took.
 - **Zod v4 everywhere** (pleasehold is stuck on a v3/v4 dual-version override; greenfield means we
   skip that).
 - **No Better Auth at all.** pleasehold uses it; we do not. The license key itself is the public

@@ -18,7 +18,7 @@ describe('outbox claim under contention', () => {
 		for (let i = 0; i < 20; i++) {
 			await h.deps.db.execute(sql`
 				INSERT INTO outbox (kind, payload, status, run_after)
-				VALUES ('send_key_email', ${'{"licenseId":' + i + '}'}, 'pending', ${new Date(0).toISOString()})
+				VALUES ('send_key_email', ${`{"licenseId":${i}}`}, 'pending', ${new Date(0).toISOString()})
 			`);
 		}
 

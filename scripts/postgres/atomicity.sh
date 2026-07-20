@@ -16,7 +16,7 @@ cleanup
 printf '\n\033[1mPostgres on :%s\033[0m\n' "$PORT"
 docker run -d --rm --name "$NAME" \
   -e POSTGRES_PASSWORD=beans -e POSTGRES_DB=coolbeans \
-  -p "${PORT}:5432" postgres:17-alpine >/dev/null
+  -p "${PORT}:5432" postgres:16-alpine >/dev/null
 
 # pg_isready reports the socket before the TCP listener is actually serving, which
 # produced a "server closed the connection unexpectedly" on the first connect.

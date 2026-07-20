@@ -1,7 +1,21 @@
-# ABOUTME: Self-host stack (PRD §18) — the API, the background worker, Redis, and a SQLite volume.
-# ABOUTME: `docker compose up` and you have a running Cool Beans; migrations apply on boot.
+# ABOUTME: Self-host stack (PRD §18) — the API, the background worker, PostgreSQL, and Redis.
+# ABOUTME: `docker compose up` and you have a running Cool Beans; the migrate service runs first.
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: coolbeans
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: coolbeans
+    volumes:
+      - coolbeans-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U coolbeans -d coolbeans']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     healthcheck:
@@ -10,13 +24,28 @@ services:
       timeout: 3s
       retries: 5
 
+  # One-shot: applies migrations and exits. The API and worker wait for it, so the schema
+  # is always current before anything serves — the same shape as the k8s migration Job,
+  # which keeps self-host and cloud on one code path instead of a compose-only variant.
+  migrate:
+    build:
+      context: .
+      target: runtime
+    command: ['node', 'packages/db/dist/migrate-cli.js']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://coolbeans:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/coolbeans
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build:
       context: .
       target: runtime
     command: ['node', 'apps/api/dist/node.js']
     environment:
-      DATABASE_URL: /app/data/coolbeans.sqlite
+      DATABASE_URL: postgres://coolbeans:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/coolbeans
       REDIS_URL: redis://redis:6379
       ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN}
       SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET:?set SIGNING_KEY_SECRET}
@@ -34,11 +63,13 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
     ports:
       - '${API_PORT:-3000}:3000'
-    volumes:
-      - coolbeans-data:/app/data
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/health']
       interval: 10s
@@ -51,7 +82,7 @@ services:
       target: runtime
     command: ['node', 'apps/worker/dist/index.js']
     environment:
-      DATABASE_URL: /app/data/coolbeans.sqlite
+      DATABASE_URL: postgres://coolbeans:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/coolbeans
       REDIS_URL: redis://redis:6379
       ADMIN_TOKEN: ${ADMIN_TOKEN:?set ADMIN_TOKEN}
       SIGNING_KEY_SECRET: ${SIGNING_KEY_SECRET:?set SIGNING_KEY_SECRET}
@@ -62,11 +93,13 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-    volumes:
-      - coolbeans-data:/app/data
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
-  coolbeans-data:
+  coolbeans-pgdata:

@@ -31,16 +31,18 @@ describe('usage quota under contention', () => {
 		const [productRow] = rowsOf<Record<string, unknown>>(
 			await h.deps.db.execute(sql`SELECT * FROM products WHERE id = ${productId}`),
 		);
+		// Raw row into the narrow shape issuance actually reads; the cast is confined here.
+		const product = {
+			id: productRow.id,
+			accountId: productRow.account_id,
+			slug: productRow.slug,
+			keyPrefix: productRow.key_prefix,
+			emailFrom: productRow.email_from,
+			archivedAt: null,
+			// biome-ignore lint/suspicious/noExplicitAny: five fields stand in for a full Product row.
+		} as any;
 		const license = await issueManual(h.deps, {
-			// biome-ignore lint/suspicious/noExplicitAny: raw row into the shape issuance reads.
-			product: {
-				id: productRow.id,
-				accountId: productRow.account_id,
-				slug: productRow.slug,
-				keyPrefix: productRow.key_prefix,
-				emailFrom: productRow.email_from,
-				archivedAt: null,
-			} as any,
+			product,
 			email: 'race@example.com',
 			tier: 'lifetime',
 			actor: 'race-test',

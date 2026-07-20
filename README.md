@@ -9,7 +9,7 @@ machines, and Cool Beans is the source of truth for whether that key is still go
 
 One codebase, two homes:
 
-- **Self-host** on Node with SQLite — free forever, `docker compose up`.
+- **Self-host** on Node with PostgreSQL — free forever, `docker compose up`.
 - **Cloud direction:** the same service on k8s with Postgres + Redis once the tracked async database
   port is complete.
 
@@ -17,8 +17,8 @@ It's a drop-in for the Lemon Squeezy License API, so existing clients migrate wi
 
 **Status: v1 built.** Full license lifecycle, Stripe + PayPal payments, offline-token SDK, usage
 metering, LS-parity routes, admin console, customer portal, worker, and Docker/k8s packaging are
-implemented and tested (automated suites plus a Docker Compose smoke test). PostgreSQL remains a
-documented follow-up; the shipped database adapter is SQLite-only. Full product spec:
+implemented and tested (automated suites plus a Docker Compose smoke test). The database is
+PostgreSQL 16 everywhere — cloud, compose self-host, and the test suite (PGlite). Full product spec:
 [`docs/PRD.md`](docs/PRD.md). Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Design
 system: [`docs/DESIGN.md`](docs/DESIGN.md). PRD coverage: [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
@@ -32,7 +32,7 @@ apps/
 packages/
   auth/         Better Auth factory — admin sessions for the dashboard only
   cli/          beans — the admin CLI
-  db/           Drizzle schema + current SQLite storage adapter (Postgres port planned)
+  db/           Drizzle pg schema, postgres-js adapter, and the migrate CLI
   email/        React Email templates + Resend/SMTP sender seam
   logger/       Structured logger — zero deps
   sdk/          @coolbeans/sdk — drop-in client for Node, Electron, Tauri, and the browser

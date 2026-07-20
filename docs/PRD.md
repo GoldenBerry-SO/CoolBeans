@@ -649,10 +649,12 @@ per §9.
 
 ### Self-host
 
-`docker compose up`: the service plus SQLite (or point `DATABASE_URL` at Postgres). Migrations run on
-boot. Env:
+`docker compose up`: the API, the worker, PostgreSQL 16 and Redis. A one-shot `migrate` service
+applies migrations before anything serves — the same entrypoint the cloud migration Job runs, so
+self-host and cloud share one code path. (`MIGRATE_ON_BOOT=true` exists for a genuinely
+single-process install.) Env:
 
-- `DATABASE_URL` (or a SQLite file path)
+- `DATABASE_URL` (a `postgres://` URL; compose composes it from `POSTGRES_PASSWORD`)
 - `STRIPE_SECRET_KEY` (restricted: Checkout Sessions read, Subscriptions read), `STRIPE_WEBHOOK_SECRET`
 - `PAYPAL_CLIENT_ID` / `PAYPAL_SECRET` / `PAYPAL_WEBHOOK_ID` (if using PayPal)
 - `EMAIL_PROVIDER` + its key (`RESEND_API_KEY`, or SMTP host/user/pass)

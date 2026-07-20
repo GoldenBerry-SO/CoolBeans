@@ -6,6 +6,7 @@ set -euo pipefail
 
 export ADMIN_TOKEN="${ADMIN_TOKEN:-smoke-admin-token-0123456789}"
 export SIGNING_KEY_SECRET="${SIGNING_KEY_SECRET:-smoke-signing-secret-0123456789}"
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-smoke-postgres-password}"
 export API_PORT="${API_PORT:-3000}"
 # The production image deliberately refuses to start without a delivery provider. This
 # journey issues a key manually and never sends mail, so a non-routable SMTP host is enough

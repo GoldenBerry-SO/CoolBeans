@@ -1,7 +1,7 @@
 // ABOUTME: Admin API mount (PRD §16) — bearer-token authed product/key management + audit + signing keys.
 // ABOUTME: All admin routes live under /admin behind constant-time token auth.
 
-import { auditLog } from '@coolbeans/db';
+import { auditLog, rowsOf } from '@coolbeans/db';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { desc, eq, type SQL, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -40,8 +40,10 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const accountId = accountScope(c).id;
 		// COUNT(*) is bigint, which the driver hands back as a string to avoid losing
 		// precision. Number() here keeps the JSON shape these counts have always had.
+		// rowsOf, not destructuring: a raw execute is an array on postgres-js and an
+		// object on PGlite, and destructuring the wrong one is a 500 only one side sees.
 		const count = async (statement: SQL) => {
-			const [row] = await deps.db.execute<{ n: number | string }>(statement);
+			const [row] = rowsOf<{ n: number | string }>(await deps.db.execute(statement));
 			return Number(row.n);
 		};
 		return c.json({

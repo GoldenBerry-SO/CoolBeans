@@ -127,17 +127,27 @@ describe('manual issuance durability', () => {
 			BEFORE INSERT ON licenses
 			FOR EACH ROW EXECUTE FUNCTION reject_license_insert();
 		`);
-		const res = await h.app.request('/admin/keys', {
-			method: 'POST',
-			headers: h.adminHeaders,
-			body: JSON.stringify({
-				product: 'clementine',
-				email: 'buyer@example.com',
-				tier: 'lifetime',
-			}),
-		});
-		expect(res.status).toBe(500);
-		expect(await h.deps.db.select().from(purchases)).toHaveLength(0);
+		try {
+			const res = await h.app.request('/admin/keys', {
+				method: 'POST',
+				headers: h.adminHeaders,
+				body: JSON.stringify({
+					product: 'clementine',
+					email: 'buyer@example.com',
+					tier: 'lifetime',
+				}),
+			});
+			expect(res.status).toBe(500);
+			expect(await h.deps.db.select().from(purchases)).toHaveLength(0);
+		} finally {
+			// The harness reset truncates data between tests but leaves DDL alone, so this
+			// trigger would otherwise keep failing every licence insert in the file. Under
+			// SQLite each harness was a whole new database and leaked DDL was invisible.
+			await rawExec(`
+				DROP TRIGGER reject_license_insert ON licenses;
+				DROP FUNCTION reject_license_insert();
+			`);
+		}
 	});
 
 	it('does not deliver a queued key after the license is disabled', async () => {

@@ -2,7 +2,7 @@
 // ABOUTME: Config is passed as a value rather than mutated onto process.env, matching loadConfig.
 
 import type { Account } from '@coolbeans/db';
-import { licenses, products, purchases } from '@coolbeans/db';
+import { accounts, licenses, products, purchases } from '@coolbeans/db';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { Config } from '../config.js';
@@ -149,15 +149,18 @@ describe('usage counting', () => {
 
 	it('does not count another account rows', async () => {
 		const { deps } = await makeHarness();
+		// The account has to exist now: SQLite accepted this row with a dangling
+		// account_id, but the FK the port added refuses fabricated tenants.
+		const [other] = await deps.db.insert(accounts).values({ name: 'theirs.example' }).returning();
 		await deps.db.insert(products).values({
 			slug: 'theirs',
 			name: 'Theirs',
 			keyPrefix: 'THRS',
 			emailFrom: 'r@c.io',
-			accountId: 2,
+			accountId: other.id,
 		});
 		expect(await countLiveProducts(deps.db, 1)).toBe(0);
-		expect(await countLiveProducts(deps.db, 2)).toBe(1);
+		expect(await countLiveProducts(deps.db, other.id)).toBe(1);
 	});
 
 	it('reports usage against the limits in force', async () => {

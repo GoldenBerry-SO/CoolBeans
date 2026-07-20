@@ -14,27 +14,27 @@ beforeEach(async () => {
 
 describe('provider event claims', () => {
 	it('only the first claimant may process an event', async () => {
-		expect(claimEvent(h.deps, EVENT)).toBe(true);
+		expect(await claimEvent(h.deps, EVENT)).toBe(true);
 		// A concurrent redelivery arrives before the first finished.
-		expect(claimEvent(h.deps, EVENT)).toBe(false);
+		expect(await claimEvent(h.deps, EVENT)).toBe(false);
 	});
 
 	it('a completed event is never processed again', async () => {
-		claimEvent(h.deps, EVENT);
-		completeEvent(h.deps, EVENT.id);
-		expect(claimEvent(h.deps, EVENT)).toBe(false);
+		await claimEvent(h.deps, EVENT);
+		await completeEvent(h.deps, EVENT.id);
+		expect(await claimEvent(h.deps, EVENT)).toBe(false);
 	});
 
 	it('a released claim lets the provider retry re-enter', async () => {
-		claimEvent(h.deps, EVENT);
-		releaseEvent(h.deps, EVENT.id); // handler threw; email never sent
-		expect(claimEvent(h.deps, EVENT)).toBe(true);
+		await claimEvent(h.deps, EVENT);
+		await releaseEvent(h.deps, EVENT.id); // handler threw; email never sent
+		expect(await claimEvent(h.deps, EVENT)).toBe(true);
 	});
 
 	it('reclaims an abandoned in-flight event so a crash cannot wedge it forever', async () => {
-		claimEvent(h.deps, EVENT);
+		await claimEvent(h.deps, EVENT);
 		h.clock.advance(10 * 60_000);
-		expect(claimEvent(h.deps, EVENT)).toBe(true);
+		expect(await claimEvent(h.deps, EVENT)).toBe(true);
 	});
 });
 

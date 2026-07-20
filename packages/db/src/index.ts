@@ -100,6 +100,23 @@ function returningRows(result: unknown): unknown[] | null {
 }
 
 /**
+ * The rows behind a raw `db.execute()` SELECT, whichever driver produced them.
+ *
+ * The write-side twins of this are applied()/affected(). Reads need it for the same
+ * reason: `const [row] = await db.execute(...)` destructures an array on postgres-js and
+ * an object on PGlite, so it returns a row in production and `undefined` in every test —
+ * or the reverse, depending on which driver the author ran first. Throws on an
+ * unrecognised shape rather than quietly yielding nothing.
+ */
+export function rowsOf<T = Record<string, unknown>>(result: unknown): T[] {
+	const rows = returningRows(result);
+	if (rows === null) {
+		throw new TypeError('rowsOf() got a result with no rows in either driver shape.');
+	}
+	return rows as T[];
+}
+
+/**
  * Refuse to serve a schema this build was not made for.
  *
  * Boot no longer migrates: with N replicas plus a worker plus the migration Job, boot-time

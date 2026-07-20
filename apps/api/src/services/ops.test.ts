@@ -28,7 +28,7 @@ describe('sweeps', () => {
 			trial_days: 1,
 		});
 		h.clock.advance(2 * 86_400_000);
-		expect(sweepExpiredTrials(h.deps)).toBe(1);
+		expect(await sweepExpiredTrials(h.deps)).toBe(1);
 		const res = await h.app.request(`/admin/keys/${trialKey}`, { headers: h.adminHeaders });
 		const body = (await res.json()) as { license: { status: string; disabled_reason: string } };
 		expect(body.license.status).toBe('disabled');
@@ -44,7 +44,7 @@ describe('sweeps', () => {
 			expires_at: expiresAt.toISOString(),
 		});
 		h.clock.set(expiresAt);
-		expect(sweepExpiredTrials(h.deps)).toBe(1);
+		expect(await sweepExpiredTrials(h.deps)).toBe(1);
 	});
 
 	it('reaps expired floating leases', async () => {
@@ -59,7 +59,7 @@ describe('sweeps', () => {
 		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', tier: 'yearly' });
 		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'a' });
 		h.clock.advance(31 * 60_000);
-		expect(reapFloatingLeases(h.deps)).toBe(1);
+		expect(await reapFloatingLeases(h.deps)).toBe(1);
 	});
 
 	it('reaps a floating lease at the exact expiry boundary', async () => {
@@ -81,7 +81,7 @@ describe('sweeps', () => {
 			instance_name: 'boundary',
 		});
 		h.clock.advance(30 * 60_000);
-		expect(reapFloatingLeases(h.deps)).toBe(1);
+		expect(await reapFloatingLeases(h.deps)).toBe(1);
 	});
 });
 

@@ -1,5 +1,5 @@
-# ABOUTME: Cloud deploy (PRD §18) — build images to GHCR and roll out via GitOps to k8s.
-# ABOUTME: Mirrors pleasehold's pipeline: build+push by sha, then bump the infra repo's image tag.
+# ABOUTME: Cloud deploy (PRD §18) — build one image to GHCR and roll out via GitOps to k8s.
+# ABOUTME: The api, worker, and migrate Job all run this image with different commands.
 
 name: Deploy
 
@@ -30,20 +30,27 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push API image
-        uses: docker/build-push-action@v6
+      # metadata-action is NOT cosmetic: its labels output carries the OCI source
+      # annotation that auto-links the GHCR package to this repo. Without the link the
+      # org's inherit-access default never applies, the package stays private, and the
+      # k3s node's pull fails with a 404 that looks like a missing tag. Packages are
+      # sticky — pushing once without labels means deleting the package to recover.
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/goldenberry-so/coolbeans
+          tags: |
+            type=sha,format=long
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
         with:
           context: .
           target: runtime
           push: true
-          tags: ghcr.io/goldenberry-so/coolbeans-api:${{ github.sha }}
-      - name: Build and push worker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: runtime
-          push: true
-          tags: ghcr.io/goldenberry-so/coolbeans-worker:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   rollout:
     needs: build-and-push
@@ -53,14 +60,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: GoldenBerry-SO/infra
-          token: ${{ secrets.INFRA_REPO_TOKEN }}
-      - name: Bump image tags (GitOps)
+          token: ${{ secrets.INFRA_DEPLOY_TOKEN }}
+      - uses: imranismail/setup-kustomize@v2
+      - name: Bump image tag (GitOps)
         run: |
-          cd apps/coolbeans
+          cd k8s/apps/coolbeans
           kustomize edit set image \
-            coolbeans-api=ghcr.io/goldenberry-so/coolbeans-api:${{ github.sha }} \
-            coolbeans-worker=ghcr.io/goldenberry-so/coolbeans-worker:${{ github.sha }}
+            coolbeans=ghcr.io/goldenberry-so/coolbeans:${{ github.sha }}
           git config user.name "coolbeans-ci"
           git config user.email "ci@coolbeans.tools"
-          git commit -am "coolbeans: deploy ${{ github.sha }}"
+          git add kustomization.yaml
+          git diff --cached --quiet && echo "No image change" && exit 0
+          git commit -m "coolbeans: deploy ${{ github.sha }}"
           git push

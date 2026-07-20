@@ -27,7 +27,8 @@ if (!config.databaseUrl.startsWith('postgres')) {
 	);
 	process.exit(1);
 }
-const db = createDb(createPool(config.databaseUrl));
+const pool = createPool(config.databaseUrl);
+const db = createDb(pool);
 
 // The worker never migrates, not even with MIGRATE_ON_BOOT: it always runs beside an API
 // process, so "single-process self-host" can never describe it. It only refuses to start
@@ -73,3 +74,22 @@ worker.on('failed', (job, err) => {
 });
 
 logger.info('Cool Beans worker started', { queue: QUEUE });
+
+// A worker killed mid-job leaves it STALLED in BullMQ — not failed, not retried until
+// the stall check fires — and a stalled drain-outbox is licence-key emails silently
+// delayed. worker.close() waits for the active job before resolving, which is what
+// terminationGracePeriodSeconds in the manifest buys time for.
+async function shutdown(signal: string) {
+	logger.info('Shutting down', { signal });
+	setTimeout(() => process.exit(1), 25_000).unref();
+	try {
+		await worker.close();
+		await queue.close();
+		await connection.quit();
+		await pool.end({ timeout: 5 });
+	} finally {
+		process.exit(0);
+	}
+}
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));

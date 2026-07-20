@@ -37,7 +37,8 @@ if (!config.databaseUrl.startsWith('postgres')) {
 	);
 	process.exit(1);
 }
-const db = createDb(createPool(config.databaseUrl));
+const pool = createPool(config.databaseUrl);
+const db = createDb(pool);
 
 // Migrations do NOT run at boot. With replicas, a worker and the migration Job all
 // starting inside one deploy, boot-time DDL is a race with a half-applied schema as its
@@ -111,6 +112,27 @@ const app = createApp(deps);
 const webRoot = process.env.WEB_ROOT ?? 'apps/web/dist';
 mountConsole(app, deps, webRoot);
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
+const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
 	logger.info('Cool Beans listening', { port: info.port });
 });
+
+// Kubernetes stops a pod with SIGTERM and waits terminationGracePeriodSeconds. Without
+// this handler Node dies immediately: in-flight requests are severed mid-response —
+// including Stripe webhook deliveries, which then read as failures on their side — and
+// the grace period in the manifest is decorative. Close the listener first so no new
+// work arrives, then the pools behind it. The fallback timer covers a request that will
+// not finish; unref'd so it never keeps a clean exit alive.
+function shutdown(signal: string) {
+	logger.info('Shutting down', { signal });
+	setTimeout(() => process.exit(1), 10_000).unref();
+	server.close(async () => {
+		try {
+			await pool.end({ timeout: 5 });
+			if (redis) await redis.quit();
+		} finally {
+			process.exit(0);
+		}
+	});
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

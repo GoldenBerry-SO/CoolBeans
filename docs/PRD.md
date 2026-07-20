@@ -172,8 +172,8 @@ enforce a limit that nobody has a way to pay to lift.
 - **Boring and small.** Node/TypeScript with [Hono](https://hono.dev); one codebase serves the
   self-host story and our hosted cloud (k8s). Storage behind a thin adapter: SQLite for dev and
   lightweight self-host, Postgres for production. A migration tool applies the schema on boot.
-- **Multi-product from day one**, but NOT an outside-tenant SaaS in v1. Onboarding a product is an
-  admin action.
+- **Multi-product and multi-tenant.** An account owns its products and admin users; the hosted service
+  takes public signups. Self-host stays single-account and unlimited. See §7 for the tenancy model.
 - **Provider-pluggable payments.** The payment webhook and the issuance core are separated so a new
   provider is an adapter, not a rewrite.
 - **The key is the credential.** Public endpoints authenticate by the key itself; the client carries no
@@ -319,6 +319,15 @@ bundled in the app. Behaviour:
   treat as valid. Past TTL → keep trying online but **stay in a grace state**, never hard-lock on a
   network failure (offline-tolerant contract, §8).
 - Only an explicit `disabled` result (or a signed "disabled" token) revokes access.
+- **A signed `expires_at` in the past ends access, offline included, for every tier.** This is not a
+  lockout on an inconclusive answer: the token we issued states the licence ended, so honouring it is
+  reading our own credential rather than guessing from a network failure. It is what makes
+  subscription revocation reach a machine that has gone offline. Lifetime licences carry no
+  `expires_at` and are unaffected; trials additionally get no TTL grace, or a blocked endpoint would
+  be an unlimited trial.
+- The date in the token is the server's choice, not necessarily the licence's raw expiry. Issuing it
+  with a buffer past the true expiry gives a renewing subscriber room to reconnect without the client
+  needing a second grace concept.
 
 Signing keys are per-product (or global), stored server-side with the private half encrypted at rest;
 the public half is what apps embed. Key rotation is supported (multiple active public keys).

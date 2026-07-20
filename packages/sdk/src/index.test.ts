@@ -204,6 +204,73 @@ describe('CoolBeans SDK', () => {
 		expect(await cb2.offlineState()).toBe('grace');
 	});
 
+	it('a paid licence past its own signed expiry is expired offline, not in grace', async () => {
+		// The token itself says the licence ended. That is a definitive statement we signed,
+		// not an inconclusive network answer, so honouring it leaves §8 intact — and it is
+		// what makes subscription revocation work for someone who has gone offline.
+		const now = Math.floor(Date.now() / 1000);
+		const lapsed = await signToken(
+			payloadOf({ tier: 'yearly', expires_at: new Date((now - 86_400) * 1000).toISOString() }),
+			'exp1',
+		);
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			publicKeys: lapsed.publicKeys,
+		});
+		(cb as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
+			'coolbeans.token',
+			lapsed.token,
+		);
+		// TTL is still live, so the old rule would have said 'valid'.
+		expect(await cb.offlineState()).toBe('expired');
+		expect(await cb.verifyOffline()).toBe(false);
+	});
+
+	it('a paid licence with a future expiry still gets grace past the token TTL', async () => {
+		// Grace on TTL is the §8 promise and must survive: a network failure alone never
+		// locks anyone out.
+		const now = Math.floor(Date.now() / 1000);
+		const stale = await signToken(
+			payloadOf({
+				tier: 'yearly',
+				expires_at: new Date((now + 86_400 * 30) * 1000).toISOString(),
+				iat: now - 7200,
+				exp: now - 3600,
+			}),
+			'exp2',
+		);
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			publicKeys: stale.publicKeys,
+		});
+		(cb as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
+			'coolbeans.token',
+			stale.token,
+		);
+		expect(await cb.offlineState()).toBe('grace');
+		expect(await cb.verifyOffline()).toBe(true);
+	});
+
+	it('a lifetime licence carries no expiry and keeps its unbounded grace', async () => {
+		const now = Math.floor(Date.now() / 1000);
+		const lifetime = await signToken(
+			payloadOf({ tier: 'lifetime', expires_at: null, iat: now - 7200, exp: now - 3600 }),
+			'exp3',
+		);
+		const cb = new CoolBeans({
+			product: 'clementine',
+			storage: memStorage(),
+			publicKeys: lifetime.publicKeys,
+		});
+		(cb as unknown as { storage: ReturnType<typeof memStorage> }).storage.setItem(
+			'coolbeans.token',
+			lifetime.token,
+		);
+		expect(await cb.offlineState()).toBe('grace');
+	});
+
 	it('offline treats a disabled-status token as expired', async () => {
 		const disabled = await signToken(payloadOf({ status: 'disabled' }), '3');
 		const cb = new CoolBeans({

@@ -1,6 +1,7 @@
 // ABOUTME: Shared payment issuance + lookup helpers (PRD §13) — provider-agnostic core.
 // ABOUTME: ensureLicense is idempotent on provider_checkout_id; email failures leave email_sent_at NULL.
 
+import { randomUUID } from 'node:crypto';
 import type { License, Product } from '@coolbeans/db';
 import { applied, licenses, providerEvents, purchases } from '@coolbeans/db';
 import { and, eq, isNull, sql } from 'drizzle-orm';
@@ -225,14 +226,28 @@ export interface ClaimableEvent {
 }
 
 export async function claimEventStatus(deps: AppDeps, event: ClaimableEvent): Promise<Claim> {
-	if (await claimEvent(deps, event)) {
-		const [row] = await deps.db
-			.select()
-			.from(providerEvents)
-			.where(eq(providerEvents.id, event.id))
-			.limit(1);
-		return { result: 'claimed', token: row?.claimedAt ?? undefined };
-	}
+	const nowIso = nowDate(deps).toISOString();
+	const staleBefore = new Date(nowDate(deps).getTime() - CLAIM_STALE_MS).toISOString();
+	const accountId = event.accountId ?? null;
+	// The fence comes back from the claim statement itself. The old shape claimed and then
+	// re-SELECTed the stamp, and a stale takeover in that gap handed the elder claimant
+	// the successor's fence — its late completion would then mark the successor's work
+	// done while the provider stopped retrying (the exact failure issue #34 fixed).
+	const token = randomUUID();
+	const claimed = await deps.db.execute(sql`
+		INSERT INTO provider_events (id, account_id, provider, type, status, claimed_at, claim_token, received_at)
+		VALUES (${event.id}, ${accountId}, ${event.provider}, ${event.type}, 'processing', ${nowIso}, ${token}, ${nowIso})
+		ON CONFLICT(id) DO UPDATE SET
+			claimed_at = ${nowIso},
+			claim_token = ${token},
+			-- Never blank an attribution we already have: a stale-claim takeover of a row
+			-- first seen on the per-product URL must keep its account.
+			account_id = COALESCE(provider_events.account_id, ${accountId})
+		WHERE provider_events.status = 'processing'
+			AND (provider_events.claimed_at IS NULL OR provider_events.claimed_at < ${staleBefore})
+		RETURNING claim_token
+	`);
+	if (applied(claimed)) return { result: 'claimed', token };
 	const [row] = await deps.db
 		.select()
 		.from(providerEvents)
@@ -241,23 +256,9 @@ export async function claimEventStatus(deps: AppDeps, event: ClaimableEvent): Pr
 	return { result: claimOutcomeForRow(row) };
 }
 
+/** Boolean shorthand over claimEventStatus, for callers that only gate on "may I run". */
 export async function claimEvent(deps: AppDeps, event: ClaimableEvent): Promise<boolean> {
-	const nowIso = nowDate(deps).toISOString();
-	const staleBefore = new Date(nowDate(deps).getTime() - CLAIM_STALE_MS).toISOString();
-	const accountId = event.accountId ?? null;
-	const claimed = await deps.db.execute(sql`
-		INSERT INTO provider_events (id, account_id, provider, type, status, claimed_at, received_at)
-		VALUES (${event.id}, ${accountId}, ${event.provider}, ${event.type}, 'processing', ${nowIso}, ${nowIso})
-		ON CONFLICT(id) DO UPDATE SET
-			claimed_at = ${nowIso},
-			-- Never blank an attribution we already have: a stale-claim takeover of a row
-			-- first seen on the per-product URL must keep its account.
-			account_id = COALESCE(provider_events.account_id, ${accountId})
-		WHERE provider_events.status = 'processing'
-			AND (provider_events.claimed_at IS NULL OR provider_events.claimed_at < ${staleBefore})
-		RETURNING id
-	`);
-	return applied(claimed);
+	return (await claimEventStatus(deps, event)).result === 'claimed';
 }
 
 /**
@@ -285,9 +286,12 @@ export async function completeEvent(
 	// Fenced by the claim stamp: if a stale takeover happened, the original worker's
 	// late completion must not mark the successor's work done.
 	const where = claimToken
-		? and(eq(providerEvents.id, eventId), eq(providerEvents.claimedAt, claimToken))
+		? and(eq(providerEvents.id, eventId), eq(providerEvents.claimToken, claimToken))
 		: eq(providerEvents.id, eventId);
-	await deps.db.update(providerEvents).set({ status: 'done', claimedAt: null }).where(where);
+	await deps.db
+		.update(providerEvents)
+		.set({ status: 'done', claimedAt: null, claimToken: null })
+		.where(where);
 }
 
 /**
@@ -301,7 +305,7 @@ export async function releaseEvent(
 ): Promise<void> {
 	// Same fence: only the current claimant may hand the event back.
 	const conditions = [eq(providerEvents.id, eventId), eq(providerEvents.status, 'processing')];
-	if (claimToken) conditions.push(eq(providerEvents.claimedAt, claimToken));
+	if (claimToken) conditions.push(eq(providerEvents.claimToken, claimToken));
 	await deps.db.delete(providerEvents).where(and(...conditions));
 }
 

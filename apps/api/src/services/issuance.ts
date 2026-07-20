@@ -31,18 +31,26 @@ export async function issueLicense(
 		const normalized = parsed?.normalized ?? normalizedKey(args.product.keyPrefix, display);
 		let license: License;
 		try {
-			const [inserted] = await db
-				.insert(licenses)
-				.values({
-					productId: args.product.id,
-					purchaseId: args.purchaseId,
-					key: normalized,
-					tier: args.tier,
-					status: 'active',
-					expiresAt: args.tier === 'lifetime' ? null : (args.expiresAt ?? null),
-				})
-				.returning();
-			license = inserted;
+			// Each attempt runs in its own nested transaction — a SAVEPOINT when an outer
+			// transaction encloses this (webhook issuance, issueManual), a plain transaction
+			// otherwise. On Postgres a unique violation aborts the WHOLE transaction it ran
+			// in; without the savepoint, attempt two of the collision retry would hit
+			// 25P02 "current transaction is aborted", the throw would escape, and a customer
+			// whose payment already cleared would get no key.
+			license = await db.transaction(async (sp) => {
+				const [inserted] = await sp
+					.insert(licenses)
+					.values({
+						productId: args.product.id,
+						purchaseId: args.purchaseId,
+						key: normalized,
+						tier: args.tier,
+						status: 'active',
+						expiresAt: args.tier === 'lifetime' ? null : (args.expiresAt ?? null),
+					})
+					.returning();
+				return inserted;
+			});
 		} catch (err) {
 			// §10: regenerate on the rare collision — including one that races us to the
 			// UNIQUE constraint between generate and insert.

@@ -1,0 +1,1 @@
+ALTER TABLE "provider_events" ADD COLUMN "claim_token" text;

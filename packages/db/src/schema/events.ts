@@ -21,6 +21,11 @@ export const providerEvents = pgTable('provider_events', {
 		.notNull()
 		.default('done'),
 	claimedAt: text('claimed_at'),
+	// The fence a worker must present to complete or release this claim. A random token,
+	// not the claim timestamp: two stale takeovers in the same millisecond would carry
+	// identical timestamps, and the elder's late completion would acknowledge the
+	// younger's work (ABA). Cleared on completion.
+	claimToken: text('claim_token'),
 	receivedAt: text('received_at').notNull().default(isoNow),
 });
 

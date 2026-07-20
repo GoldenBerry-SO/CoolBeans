@@ -62,7 +62,34 @@ export interface VerifyResult {
 	inconclusive: boolean;
 }
 
+export interface StartOptions {
+	licenseKey: string;
+	/** Defaults to the instance id stored by the last successful activate. */
+	instanceId?: string;
+	/** Defaults to a third of the cached token's lifetime, or 24h if there is none. */
+	intervalMs?: number;
+	/**
+	 * Heartbeat cadence. Provide this ONLY for floating products, at roughly a third of the
+	 * lease window, so one dropped request does not cost the user their seat. Node-locked
+	 * products should leave it unset.
+	 */
+	heartbeatMs?: number;
+	/** Fraction of the interval to spread randomly, 0 to 1. Defaults to 0.2. */
+	jitter?: number;
+	onResult?: (result: VerifyResult) => void;
+	onError?: (error: unknown) => void;
+	/** Injectable randomness for deterministic tests. */
+	random?: () => number;
+}
+
+export interface LicenseWatcher {
+	/** Cancel all scheduled work. Safe to call more than once. */
+	stop(): void;
+}
+
 const DEFAULT_BASE = 'https://app.coolbeans.tools';
+const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_JITTER = 0.2;
 const DEVICE_KEY = 'coolbeans.device_id';
 const TOKEN_KEY = 'coolbeans.token';
 const KEYS_KEY = 'coolbeans.pubkeys';
@@ -244,6 +271,119 @@ export class CoolBeans {
 		}
 		// Past the token TTL with a licence that has not expired: grace, never a lockout.
 		return payload.exp * 1000 > now ? 'valid' : 'grace';
+	}
+
+	/**
+	 * Renew a floating lease, keeping this device's seat held.
+	 *
+	 * Returns the new lease expiry, or null when nothing was renewed — an unknown or
+	 * deactivated instance, a lapsed lease with no free seat to reclaim, or a node-locked
+	 * product where leases do not apply. The caller needs that difference to tell "seat
+	 * held" from "re-activate before continuing", so it is not flattened into a boolean.
+	 */
+	async heartbeat(licenseKey: string, opts: { instanceId: string }): Promise<string | null> {
+		const res = await this.post('/v1/heartbeat', {
+			license_key: licenseKey,
+			instance_id: opts.instanceId,
+		});
+		if (!res.ok) throw new CoolBeansError(res.status, await res.json().catch(() => null));
+		const data = (await res.json()) as { ok: boolean; lease_expires_at: string | null };
+		return data.lease_expires_at ?? null;
+	}
+
+	/**
+	 * Run the recommended check cadence for you: verify once now, then refresh on a
+	 * jittered interval, heartbeating too when the product is floating.
+	 *
+	 * Entirely optional — an app that never calls this behaves exactly as before. It exists
+	 * because the cadence is the most consequential runtime decision an integrator makes,
+	 * and leaving it undefined means everyone invents their own, usually badly.
+	 *
+	 * Nothing here throws into your app. A failed refresh is the inconclusive case from §8:
+	 * it is reported through `onResult` and the cached token is left alone, so the app keeps
+	 * working. `onError` only fires for genuinely unexpected failures.
+	 */
+	start(opts: StartOptions): LicenseWatcher {
+		const random = opts.random ?? Math.random;
+		const jitter = opts.jitter ?? DEFAULT_JITTER;
+		const instanceId = opts.instanceId ?? this.instanceId();
+		let stopped = false;
+		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+		let beatTimer: ReturnType<typeof setInterval> | undefined;
+
+		// Spread the delay so many installs of the same app do not all wake together and
+		// hammer one server on the same tick.
+		const nextDelay = (): number => {
+			const base = opts.intervalMs ?? this.defaultInterval();
+			const spread = base * jitter;
+			return Math.max(0, base - spread + random() * spread * 2);
+		};
+
+		const runCheck = async (): Promise<void> => {
+			if (stopped || !instanceId) return;
+			try {
+				const result = await this.verify(opts.licenseKey, { instanceId });
+				opts.onResult?.(result);
+			} catch (err) {
+				// verify() already resolves network problems into an inconclusive result, so
+				// reaching here means something genuinely unexpected. Still never rethrow.
+				opts.onError?.(err);
+			}
+		};
+
+		const scheduleNext = (): void => {
+			if (stopped) return;
+			refreshTimer = setTimeout(() => {
+				void runCheck().finally(scheduleNext);
+			}, nextDelay());
+		};
+
+		// Kick off immediately but asynchronously: an app must not block startup on the
+		// network, and it should not sit on a stale answer for a whole interval either.
+		void runCheck().finally(scheduleNext);
+
+		if (opts.heartbeatMs && instanceId) {
+			beatTimer = setInterval(() => {
+				if (stopped) return;
+				// A missed heartbeat costs a seat, not correctness, so failures are ignored
+				// here and the next tick simply tries again.
+				void this.heartbeat(opts.licenseKey, { instanceId }).catch(() => undefined);
+			}, opts.heartbeatMs);
+		}
+
+		return {
+			stop: () => {
+				stopped = true;
+				if (refreshTimer) clearTimeout(refreshTimer);
+				if (beatTimer) clearInterval(beatTimer);
+				refreshTimer = undefined;
+				beatTimer = undefined;
+			},
+		};
+	}
+
+	/**
+	 * Refresh at a third of the token's own lifetime, so there are two or three chances to
+	 * reconnect before a user drifts into grace. Falls back to a day when no token has been
+	 * cached yet.
+	 */
+	private defaultInterval(): number {
+		const token = this.storage.getItem(TOKEN_KEY);
+		if (token) {
+			try {
+				const body = token.split('.')[1] ?? '';
+				const payload = JSON.parse(atob(body.replace(/-/g, '+').replace(/_/g, '/'))) as {
+					iat?: number;
+					exp?: number;
+				};
+				if (payload.exp && payload.iat && payload.exp > payload.iat) {
+					return ((payload.exp - payload.iat) * 1000) / 3;
+				}
+			} catch {
+				// Unreadable token: fall through to the default rather than guessing.
+			}
+		}
+		return DEFAULT_INTERVAL_MS;
 	}
 
 	/** Free a seat. Idempotent server-side. */

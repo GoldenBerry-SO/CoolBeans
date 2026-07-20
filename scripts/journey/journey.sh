@@ -32,6 +32,7 @@ free_ports() {
 cleanup() {
 	if [ -n "${API_PID:-}" ]; then kill "$API_PID" 2>/dev/null || true; fi
 	if [ -n "${MOCK_PID:-}" ]; then kill "$MOCK_PID" 2>/dev/null || true; fi
+	docker rm -f "${PG_NAME:-coolbeans-journey-pg}" >/dev/null 2>&1 || true
 	free_ports
 	rm -rf "$WORK"
 }
@@ -39,6 +40,20 @@ trap cleanup EXIT
 
 # Start from a clean slate: anything left behind would serve stale data.
 free_ports
+sleep 1
+
+PG_PORT=${PG_PORT:-55442}
+PG_NAME=coolbeans-journey-pg
+PG_URL="postgres://postgres:beans@localhost:${PG_PORT}/coolbeans"
+say "Postgres on :$PG_PORT"
+docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
+docker run -d --rm --name "$PG_NAME" \
+  -e POSTGRES_PASSWORD=beans -e POSTGRES_DB=coolbeans \
+  -p "${PG_PORT}:5432" postgres:16-alpine >/dev/null
+for _ in $(seq 1 60); do
+  docker exec "$PG_NAME" pg_isready -q >/dev/null 2>&1 && break
+  sleep 1
+done
 sleep 1
 
 say "Stripe stand-in on :$MOCK_PORT"
@@ -54,7 +69,8 @@ LOG_MAGIC_CODES=true \
 PORT=$API_PORT \
 ADMIN_TOKEN=journey-admin-token-0123456789 \
 SIGNING_KEY_SECRET=journey-signing-secret-0123 \
-DATABASE_URL="$WORK/journey.sqlite" \
+DATABASE_URL="$PG_URL" \
+MIGRATE_ON_BOOT=true \
 STRIPE_SECRET_KEY=sk_test_journey \
 STRIPE_API_BASE="http://localhost:$MOCK_PORT" \
 STRIPE_WEBHOOK_SECRET=whsec_journey \
@@ -77,7 +93,7 @@ if JOURNEY_API="http://localhost:$API_PORT" \
    node "$ROOT/scripts/journey/run.mjs"; then
   # The journeys prove the API answers correctly. This proves it wrote the right
   # rows underneath — a handler can return 200 and still corrupt what it stored.
-  node "$ROOT/scripts/journey/validate-data.mjs" "$WORK/journey.sqlite"
+  node "$ROOT/scripts/journey/validate-data.mjs" "$PG_URL"
   say "All journeys passed."
 else
   echo

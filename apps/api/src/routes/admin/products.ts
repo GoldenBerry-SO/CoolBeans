@@ -65,10 +65,13 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		}
 		assertNotBillingPrice(deps, body.stripe_price_lifetime, body.stripe_price_yearly);
 		try {
-			// Guarded insert: the cap is evaluated inside the statement, so concurrent
-			// creates cannot all read "0 of 1" and all succeed. Same shape as the seat cap
-			// in services/licensing.ts. Archived products are excluded from the count, so
-			// archiving genuinely frees a slot.
+			// The cap is enforced under a lock on the accounts row, because on Postgres the
+			// guarded INSERT alone is not enough: concurrent creates each count products
+			// against their own MVCC snapshot, all read "0 of 1", and all insert (the race
+			// suite pins this at 8 created on a 1-product plan). Unlimited plans skip the
+			// transaction entirely — a self-hoster never takes an account lock to create a
+			// product. Archived products are excluded from the count, so archiving genuinely
+			// frees a slot.
 			const limit = limitsFor(deps, account).products;
 			const guard =
 				limit === null
@@ -77,7 +80,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 							SELECT COUNT(*) FROM products
 							WHERE account_id = ${account.id} AND archived_at IS NULL
 						) < ${limit}`;
-			const result = await deps.db.execute(sql`
+			const insertStatement = sql`
 				INSERT INTO products (
 					account_id, slug, name, key_prefix, activation_limit, activation_model,
 					floating_lease_minutes, email_from, download_url, stripe_price_lifetime,
@@ -92,12 +95,20 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 					${body.paypal_plan_yearly ?? null}, ${body.paypal_sku_lifetime ?? null}
 				WHERE ${guard}
 				RETURNING id
-			`);
-			if (!applied(result)) {
-				throw planLimitReached(
+			`;
+			const capMiss = () =>
+				planLimitReached(
 					'product_limit_reached',
 					`Your plan includes ${limit} product${limit === 1 ? '' : 's'}. Archive one, or upgrade to Pro for unlimited products.`,
 				);
+			if (limit === null) {
+				await deps.db.execute(insertStatement);
+			} else {
+				await deps.db.transaction(async (tx) => {
+					await tx.execute(sql`SELECT id FROM accounts WHERE id = ${account.id} FOR UPDATE`);
+					const result = await tx.execute(insertStatement);
+					if (!applied(result)) throw capMiss();
+				});
 			}
 			const product = await getAccountProductBySlug(deps.db, account.id, body.slug);
 			if (!product) throw new Error('Product insert reported success but the row is missing.');

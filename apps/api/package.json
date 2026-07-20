@@ -10,7 +10,8 @@
 		"format": "biome format --write src/",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
-		"clean": "rm -rf dist"
+		"clean": "rm -rf dist",
+		"test:race": "vitest run --config vitest.race.config.ts"
 	},
 	"dependencies": {
 		"@coolbeans/auth": "workspace:*",

@@ -135,6 +135,13 @@ export async function activate(
 			: null;
 
 	const activation = await db.transaction(async (tx): Promise<Activation> => {
+		// Serialise every contender for THIS licence before anything reads seat state.
+		// Under MVCC each concurrent transaction otherwise counts seats against its own
+		// snapshot, all see "under the limit", and all insert — atomicity.mjs measured a
+		// 3-seat cap admitting 12. The lock is per-licence, so contention is confined to
+		// the one licence being hammered; and it must precede the reuse-by-name SELECT
+		// below, because that read participates in the same decision.
+		await tx.execute(sql`SELECT id FROM licenses WHERE id = ${license.id} FOR UPDATE`);
 		// Reuse an existing live seat for the same device name rather than burning a seat.
 		if (instanceName) {
 			const [existing] = await tx
@@ -317,25 +324,39 @@ export async function heartbeat(
 	const leaseExpiresAt = new Date(
 		now.getTime() + product.floatingLeaseMinutes * 60_000,
 	).toISOString();
-	// Renew a live lease freely; an expired lease may only be revived if a seat is free
-	// (other live leases stay under the limit). A crashed client whose seat was taken
-	// must re-activate rather than silently exceeding the pool.
-	const renewed = await db.execute(sql`
+	// Two statements on purpose. Extending a lease that is still live cannot change the
+	// live count, so the hot path — every healthy client, every few minutes — takes no
+	// lock at all. Only reviving a LAPSED lease takes a seat, and only that path queues
+	// on the licence row; wrapping the whole thing in one locked statement would put a
+	// row lock on the highest-frequency write in the system for nothing.
+	const extended = await db.execute(sql`
 		UPDATE activations SET lease_expires_at = ${leaseExpiresAt}
 		WHERE instance_id = ${instanceId} AND license_id = ${license.id}
-			AND deactivated_at IS NULL
-			AND (
-				lease_expires_at > ${nowIso}
-				OR (
+			AND deactivated_at IS NULL AND lease_expires_at > ${nowIso}
+		RETURNING id
+	`);
+	if (applied(extended)) return { leaseExpiresAt };
+
+	// Revival: a crashed client whose seat lapsed may come back only if a seat is free,
+	// under the same licence lock the seat cap takes — otherwise N lapsed clients racing
+	// one free seat all count the others as expired and all revive (the unlocked form
+	// admits every contender; the race suite pins this).
+	return await db.transaction(async (tx) => {
+		await tx.execute(sql`SELECT id FROM licenses WHERE id = ${license.id} FOR UPDATE`);
+		const revived = await tx.execute(sql`
+			UPDATE activations SET lease_expires_at = ${leaseExpiresAt}
+			WHERE instance_id = ${instanceId} AND license_id = ${license.id}
+				AND deactivated_at IS NULL
+				AND (
 					SELECT COUNT(*) FROM activations AS others
 					WHERE others.license_id = ${license.id}
 						AND others.instance_id != ${instanceId}
 						AND others.deactivated_at IS NULL
 						AND others.lease_expires_at > ${nowIso}
 				) < ${product.activationLimit}
-			)
-		RETURNING id
-	`);
-	// No row renewed: unknown/deactivated instance, or a lapsed lease with no free seat.
-	return { leaseExpiresAt: applied(renewed) ? leaseExpiresAt : null };
+			RETURNING id
+		`);
+		// No row: unknown/deactivated instance, or a lapsed lease with no free seat.
+		return { leaseExpiresAt: applied(revived) ? leaseExpiresAt : null };
+	});
 }

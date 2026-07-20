@@ -65,6 +65,11 @@ async function getOrCreateCounter(
 	if (existing) return existing;
 	const now = nowDate(deps);
 	const resetsAt = metric.resetPeriod ? nextReset(now, metric.resetPeriod).toISOString() : null;
+	// Upsert, not insert. Two first-ever increments for the same (licence, metric) race
+	// this create; on Postgres the loser's unique violation aborts the WHOLE enclosing
+	// transaction, so the increment that should have counted 500s instead. The no-op
+	// DO UPDATE (rather than DO NOTHING) is what makes RETURNING yield the winner's row
+	// to the loser, so both callers proceed against the same counter.
 	const [created] = await deps.db
 		.insert(usageCounters)
 		.values({
@@ -73,6 +78,10 @@ async function getOrCreateCounter(
 			current: 0,
 			periodStart: now.toISOString(),
 			resetsAt,
+		})
+		.onConflictDoUpdate({
+			target: [usageCounters.licenseId, usageCounters.metricId],
+			set: { licenseId: sql`excluded.license_id` },
 		})
 		.returning();
 	return created;

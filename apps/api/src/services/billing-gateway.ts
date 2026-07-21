@@ -65,6 +65,17 @@ function protocolOf(base: string): 'http' | 'https' {
 /** The account id we stamp on Stripe objects, matching the coolbeans_slug convention. */
 export const ACCOUNT_METADATA_KEY = 'coolbeans_account_id';
 
+/**
+ * The Goldenberry-wide app stamp. One Stripe account carries billing for several
+ * products, and Stripe fans every subscribed event out to every webhook endpoint on the
+ * account — so every consumer needs a cheap way to say "not mine" before touching its
+ * own tables. Every app stamps `gb_app: <its slug>` on the customers, sessions and
+ * subscriptions it creates; every webhook bounces events stamped for someone else.
+ * Namespaced `gb_` so it can never collide with a project's own metadata keys.
+ */
+export const APP_METADATA_KEY = 'gb_app';
+export const APP_METADATA_VALUE = 'coolbeans';
+
 export function createBillingGateway(secretKey: string, apiBase?: string): BillingGateway {
 	// apiBase points the SDK at scripts/journey/stripe-mock.mjs; unset in production.
 	const stripe = new Stripe(
@@ -78,7 +89,10 @@ export function createBillingGateway(secretKey: string, apiBase?: string): Billi
 			const customer = await stripe.customers.create({
 				email,
 				...(name ? { name } : {}),
-				metadata: { [ACCOUNT_METADATA_KEY]: String(accountId) },
+				metadata: {
+					[APP_METADATA_KEY]: APP_METADATA_VALUE,
+					[ACCOUNT_METADATA_KEY]: String(accountId),
+				},
 			});
 			return customer.id;
 		},
@@ -89,10 +103,18 @@ export function createBillingGateway(secretKey: string, apiBase?: string): Billi
 				line_items: [{ price: priceId, quantity: 1 }],
 				success_url: successUrl,
 				cancel_url: cancelUrl,
-				metadata: { [ACCOUNT_METADATA_KEY]: String(accountId) },
+				metadata: {
+					[APP_METADATA_KEY]: APP_METADATA_VALUE,
+					[ACCOUNT_METADATA_KEY]: String(accountId),
+				},
 				// On the subscription too, so customer.subscription.* events identify their
 				// account without us having to have recorded the id first.
-				subscription_data: { metadata: { [ACCOUNT_METADATA_KEY]: String(accountId) } },
+				subscription_data: {
+					metadata: {
+						[APP_METADATA_KEY]: APP_METADATA_VALUE,
+						[ACCOUNT_METADATA_KEY]: String(accountId),
+					},
+				},
 			});
 			if (!session.url) throw new Error('Stripe returned a checkout session with no URL');
 			return session.url;

@@ -3,7 +3,7 @@
 
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppDeps } from '../../deps.js';
-import { BILLING_PROVIDER, handleBillingEvent } from '../../services/billing.js';
+import { BILLING_PROVIDER, foreignAppOf, handleBillingEvent } from '../../services/billing.js';
 import {
 	attributeEvent,
 	claimEventStatus,
@@ -51,6 +51,22 @@ export function registerBillingWebhook(app: OpenAPIHono, deps: AppDeps): void {
 				},
 				400,
 			);
+		}
+
+		// One Stripe account carries several Goldenberry apps, and Stripe fans every event
+		// out to every endpoint. An event stamped for a sibling app bounces here, BEFORE
+		// the claim: it is not this endpoint's audience, and claiming it would write a
+		// provider_events row and a warn log for every sibling event forever. 200, so
+		// Stripe stops retrying it against us. Signature is already verified above, and
+		// events naming no app fall through to the price filter, which stays the
+		// authority on money.
+		const foreignApp = foreignAppOf(event);
+		if (foreignApp) {
+			deps.logger.debug('Platform billing event for a sibling app', {
+				event: event.id,
+				app: foreignApp,
+			});
+			return c.json({ ok: true, received: true, foreign: true });
 		}
 
 		// Same two-layer idempotency the product webhook uses. provider_events.id is the

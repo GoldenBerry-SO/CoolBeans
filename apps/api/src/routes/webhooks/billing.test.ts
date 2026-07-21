@@ -365,3 +365,170 @@ describe('upgrading clears the overage record', () => {
 		expect(rows.n).toBe(0);
 	});
 });
+
+describe('sharing the Stripe account with other Goldenberry apps', () => {
+	// The platform account will carry billing for several products. Stripe fans every
+	// subscribed event out to every endpoint, so this webhook will receive sibling apps'
+	// lifecycle events forever. An event that positively names another app must bounce
+	// BEFORE the claim: otherwise every busy sibling writes a provider_events row and a
+	// warn log here for the rest of time.
+	it('bounces an event stamped for another app without touching the tables', async () => {
+		const h = await harness();
+		const res = await send(h, {
+			id: 'evt_foreign_app_1',
+			type: 'customer.subscription.updated',
+			created: 1_800_000_000,
+			data: {
+				object: {
+					id: 'sub_pace_1',
+					object: 'subscription',
+					customer: 'cus_pace',
+					status: 'active',
+					metadata: { gb_app: 'pace' },
+				},
+			},
+		});
+		// 200, so Stripe stops retrying: this endpoint is simply not that event's audience.
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({ ok: true, received: true, foreign: true });
+
+		// And nothing landed: no claim row, no subscription state, no audit noise.
+		expect(
+			await rawQuery("SELECT id FROM provider_events WHERE id = 'evt_foreign_app_1'"),
+		).toHaveLength(0);
+		expect(await rawQuery('SELECT id FROM account_subscriptions')).toHaveLength(0);
+	});
+
+	it('processes an event stamped as our own', async () => {
+		const h = await harness({ sub_1: proSubscription() });
+		const res = await send(h, {
+			id: 'evt_own_app_1',
+			type: 'customer.subscription.updated',
+			created: 1_800_000_000,
+			data: {
+				object: {
+					id: 'sub_1',
+					object: 'subscription',
+					customer: 'cus_1',
+					status: 'active',
+					items: { data: [{ price: { id: PRO_PRICE } }] },
+					metadata: { gb_app: 'coolbeans', coolbeans_account_id: '1' },
+				},
+			},
+		});
+		expect(res.status).toBe(200);
+		// Claimed and completed like any of ours.
+		expect(
+			await rawQuery("SELECT id FROM provider_events WHERE id = 'evt_own_app_1'"),
+		).toHaveLength(1);
+	});
+
+	it('still runs the price filter when no app is named', async () => {
+		// Absence must NOT bounce: dashboard-created subscriptions and apps that have not
+		// adopted the convention carry no gb_app, and the price filter is the authority on
+		// money either way. Metadata is routing, never security.
+		const h = await harness({
+			sub_unstamped: proSubscription({ id: 'sub_unstamped', priceId: OTHER_PRICE }),
+		});
+		const res = await send(h, {
+			id: 'evt_unstamped_1',
+			type: 'customer.subscription.updated',
+			created: 1_800_000_000,
+			data: {
+				object: {
+					id: 'sub_unstamped',
+					object: 'subscription',
+					customer: 'cus_x',
+					status: 'active',
+					metadata: {},
+				},
+			},
+		});
+		expect(res.status).toBe(200);
+		// Today's behaviour, pinned: claimed, then ignored on price, with the row kept.
+		expect(
+			await rawQuery("SELECT id FROM provider_events WHERE id = 'evt_unstamped_1'"),
+		).toHaveLength(1);
+		expect(await rawQuery('SELECT id FROM account_subscriptions')).toHaveLength(0);
+	});
+
+	it('bounces a foreign invoice in the current API shape (parent.subscription_details)', async () => {
+		// The shape the installed SDK types model: metadata under parent.subscription_details.
+		// The first version of this suite crafted subscription_details at the top level — the
+		// same wrong place the helper read — and passed while real invoices fell through the
+		// bounce. Codex caught it; both shapes are probed and covered now.
+		const h = await harness();
+		const res = await send(h, {
+			id: 'evt_foreign_invoice_basil',
+			type: 'invoice.payment_failed',
+			created: 1_800_000_000,
+			data: {
+				object: {
+					id: 'in_pace_basil',
+					object: 'invoice',
+					customer: 'cus_pace',
+					parent: {
+						type: 'subscription_details',
+						subscription_details: {
+							subscription: 'sub_pace_1',
+							metadata: { gb_app: 'pace' },
+						},
+					},
+				},
+			},
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({ foreign: true });
+		expect(
+			await rawQuery("SELECT id FROM provider_events WHERE id = 'evt_foreign_invoice_basil'"),
+		).toHaveLength(0);
+	});
+
+	it('bounces a foreign checkout session, the third stamped surface', async () => {
+		const h = await harness();
+		const res = await send(h, {
+			id: 'evt_foreign_checkout_1',
+			type: 'checkout.session.completed',
+			created: 1_800_000_000,
+			data: {
+				object: {
+					id: 'cs_pace_1',
+					object: 'checkout.session',
+					customer: 'cus_pace',
+					subscription: 'sub_pace_1',
+					metadata: { gb_app: 'pace', pace_account_id: '7' },
+				},
+			},
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({ foreign: true });
+		expect(
+			await rawQuery("SELECT id FROM provider_events WHERE id = 'evt_foreign_checkout_1'"),
+		).toHaveLength(0);
+		// And nothing was granted: no plan change, no subscription row.
+		expect(await rawQuery("SELECT id FROM accounts WHERE plan = 'pro'")).toHaveLength(0);
+	});
+
+	it('bounces a foreign invoice event via the subscription metadata Stripe copies onto it', async () => {
+		const h = await harness();
+		const res = await send(h, {
+			id: 'evt_foreign_invoice_1',
+			type: 'invoice.payment_failed',
+			created: 1_800_000_000,
+			data: {
+				object: {
+					id: 'in_pace_1',
+					object: 'invoice',
+					customer: 'cus_pace',
+					subscription: 'sub_pace_1',
+					subscription_details: { metadata: { gb_app: 'pace' } },
+				},
+			},
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toMatchObject({ foreign: true });
+		expect(
+			await rawQuery("SELECT id FROM provider_events WHERE id = 'evt_foreign_invoice_1'"),
+		).toHaveLength(0);
+	});
+});

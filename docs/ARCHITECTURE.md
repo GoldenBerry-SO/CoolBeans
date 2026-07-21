@@ -202,6 +202,16 @@ limits hang off it. Decisions worth knowing before changing any of it:
 They must be different Stripe accounts, and config refuses to start in production if the
 keys match.
 
+**The Goldenberry Stripe account is shared across products**, and Stripe fans every
+subscribed event out to every webhook endpoint on the account. The org-wide convention that
+makes this manageable: every app stamps `gb_app: <its slug>` on the customers, checkout
+sessions and subscriptions it creates (`APP_METADATA_KEY` in `billing-gateway.ts`), and
+every webhook bounces events stamped for a sibling app with a 200 *before* claiming them —
+otherwise each busy sibling writes a `provider_events` row and a warn log here forever.
+Absence of the stamp must never bounce (dashboard-created objects carry none), and the
+strict price-id filter stays the authority on money: the stamp is routing, not security.
+A future Goldenberry app on this account copies exactly this shape with its own slug.
+
 Four independent layers keep the two apart, and `billing-isolation.test.ts` exercises all
 of them: a distinct URL, a distinct signing secret (a product payload cannot pass
 verification at all), a distinct gateway built from a distinct key, and a strict price

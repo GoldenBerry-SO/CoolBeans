@@ -9,7 +9,7 @@ import { nowIso } from '../deps.js';
 import { conflict } from '../http/errors.js';
 import { getAccountById } from '../store/accounts.js';
 import { writeAudit } from '../store/audit.js';
-import { ACCOUNT_METADATA_KEY } from './billing-gateway.js';
+import { ACCOUNT_METADATA_KEY, APP_METADATA_KEY, APP_METADATA_VALUE } from './billing-gateway.js';
 import { shouldApplySubscriptionEvent } from './event-order.js';
 import type { StripeEvent } from './stripe-gateway.js';
 
@@ -33,6 +33,35 @@ const PAYING_STATUSES = new Set(['active', 'trialing', 'past_due']);
  * product, and issue somebody a licence key for it. The webhook side has four layers of
  * separation; this is the one that stops the confusion being configured in.
  */
+/**
+ * The app another Goldenberry product stamped on this event's object, if any.
+ *
+ * Read from wherever the object carries metadata: sessions and subscriptions have their
+ * own, invoices carry the subscription's copy under subscription_details. Returns null
+ * when the event is ours or when no app is named — absence must never bounce, because
+ * dashboard-created objects and apps that have not adopted the stamp carry nothing, and
+ * the price filter stays the authority on money either way. This is routing, not security.
+ */
+export function foreignAppOf(event: { data: { object: Record<string, unknown> } }): string | null {
+	const object = event.data.object;
+	const metadataOf = (holder: unknown): Record<string, unknown> | undefined =>
+		(holder as { metadata?: Record<string, unknown> } | undefined)?.metadata;
+	const own =
+		metadataOf(object)?.[APP_METADATA_KEY] ??
+		// Invoices carry the subscription's metadata copy. Where depends on the account's
+		// API version: current (Basil) nests it under parent.subscription_details, older
+		// versions put subscription_details at the top level. Probe both — the shape this
+		// SDK's types model is the parent one, and a test crafted against the wrong shape
+		// passed while real invoices sailed past the bounce, which is why this comment
+		// names the field paths explicitly.
+		metadataOf((object.parent as Record<string, unknown> | undefined)?.subscription_details)?.[
+			APP_METADATA_KEY
+		] ??
+		metadataOf(object.subscription_details)?.[APP_METADATA_KEY];
+	if (typeof own !== 'string' || own === '' || own === APP_METADATA_VALUE) return null;
+	return own;
+}
+
 export function assertNotBillingPrice(
 	deps: Pick<AppDeps, 'config'>,
 	...priceIds: Array<string | null | undefined>

@@ -18,6 +18,15 @@ export function mountConsole(app: OpenAPIHono, deps: AppDeps, webRoot: string): 
 	app.use('/assets/*', serveStatic({ root: webRoot }));
 	app.get('/favicon.ico', serveStatic({ root: webRoot, path: 'favicon.ico' }));
 	// SPA fallback for any non-API GET: serve index.html so client routing works on refresh.
-	app.get('*', serveStatic({ root: webRoot, path: 'index.html' }));
+	// API prefixes are excluded even though real routes are registered first, because an
+	// UNKNOWN path under them would otherwise fall through to this catch-all — and a
+	// client that typos an endpoint would get a 200 full of HTML instead of the JSON 404
+	// the surface promises. Found live on /v1/nonexistent.
+	const spaFallback = serveStatic({ root: webRoot, path: 'index.html' });
+	const apiPrefixes = ['/v1/', '/admin/', '/auth/', '/doc'];
+	app.get('*', (c, next) => {
+		if (apiPrefixes.some((p) => c.req.path.startsWith(p))) return next();
+		return spaFallback(c, next);
+	});
 	deps.logger.info('Console served from build', { webRoot });
 }

@@ -17,7 +17,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A deploy that outruns the tests ships whatever compiles. The suite runs on PGlite,
+  # so this needs no services and adds only minutes before an image can exist.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      - run: pnpm test
+
   build-and-push:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read

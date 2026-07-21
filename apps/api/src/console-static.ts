@@ -23,9 +23,13 @@ export function mountConsole(app: OpenAPIHono, deps: AppDeps, webRoot: string): 
 	// client that typos an endpoint would get a 200 full of HTML instead of the JSON 404
 	// the surface promises. Found live on /v1/nonexistent.
 	const spaFallback = serveStatic({ root: webRoot, path: 'index.html' });
-	const apiPrefixes = ['/v1/', '/admin/', '/auth/', '/doc'];
+	// Bare roots AND everything under them: startsWith('/v1/') alone misses a plain GET
+	// /v1, the single most plausible mistyped API URL there is. /docs is its own root
+	// because '/doc' with the slash rule would no longer cover it.
+	const apiRoots = ['/v1', '/admin', '/auth', '/doc', '/docs'];
 	app.get('*', (c, next) => {
-		if (apiPrefixes.some((p) => c.req.path.startsWith(p))) return next();
+		const path = c.req.path;
+		if (apiRoots.some((root) => path === root || path.startsWith(`${root}/`))) return next();
 		return spaFallback(c, next);
 	});
 	deps.logger.info('Console served from build', { webRoot });

@@ -37,6 +37,11 @@ describe('the SPA fallback and the API surface', () => {
 			'/v1/nonexistent': 404,
 			'/admin/nonexistent': 401,
 			'/auth/nonexistent': 404,
+			// The bare roots too — Codex caught that slash-terminated prefixes miss them,
+			// and a bare GET /v1 is the single most plausible mistyped API URL there is.
+			'/v1': 404,
+			'/admin': 401,
+			'/auth': 404,
 		};
 		for (const [path, status] of Object.entries(expected)) {
 			const res = await h.app.request(path);

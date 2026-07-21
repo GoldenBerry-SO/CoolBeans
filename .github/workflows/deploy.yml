@@ -40,7 +40,10 @@ jobs:
         with:
           images: ghcr.io/goldenberry-so/coolbeans
           tags: |
-            type=sha,format=long
+            # prefix= strips metadata-action's default sha- so the tag equals the bare
+            # github.sha the rollout job pins. Dropping this once shipped tags nothing
+            # else could name, and every pod sat in ImagePullBackOff on 'not found'.
+            type=sha,format=long,prefix=
             type=raw,value=latest
       - uses: docker/build-push-action@v6
         with:

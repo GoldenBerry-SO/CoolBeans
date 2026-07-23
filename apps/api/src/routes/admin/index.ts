@@ -138,11 +138,19 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	const priceId = z
 		.string()
 		.regex(/^price_[A-Za-z0-9]+$/, 'Must be a Stripe price id, like price_123');
-	const connectBody = z.object({
-		webhook_url: z.string().url(),
-		lifetime_price_id: priceId,
-		yearly_price_id: priceId,
-	});
+	const connectBody = z
+		.object({
+			webhook_url: z.string().url(),
+			lifetime_price_id: priceId,
+			yearly_price_id: priceId,
+		})
+		// The two tiers must map to different prices. Price resolution checks the lifetime
+		// column first, so if both held the same id every checkout for it — including a
+		// yearly subscription — would resolve as lifetime and issue a non-expiring licence.
+		.refine((b) => b.lifetime_price_id !== b.yearly_price_id, {
+			message: 'must be a different Stripe price from the lifetime one',
+			path: ['yearly_price_id'],
+		});
 	admin.post('/products/:slug/stripe/connect', async (c) => {
 		const product = await requireProduct(c, deps, c.req.param('slug'));
 		const body = await readBody(c, connectBody);

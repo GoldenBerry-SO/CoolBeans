@@ -65,6 +65,25 @@ describe('POST /admin/products/:slug/stripe/connect', () => {
 		const product = ((await check.json()) as { product: Record<string, unknown> }).product;
 		expect(product.stripePriceLifetime).toBeNull();
 	});
+
+	it('rejects the same price id for both tiers, which would issue every sale as lifetime', async () => {
+		// Price resolution checks the lifetime column first, so identical ids would make a
+		// yearly subscription resolve as a non-expiring lifetime licence.
+		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				webhook_url: 'https://clementine.email/webhook',
+				lifetime_price_id: 'price_sameCLEM',
+				yearly_price_id: 'price_sameCLEM',
+			}),
+		});
+		expect(res.status).toBe(422);
+
+		const check = await h.app.request('/admin/products/clementine', { headers: h.adminHeaders });
+		const product = ((await check.json()) as { product: Record<string, unknown> }).product;
+		expect(product.stripePriceLifetime).toBeNull();
+	});
 });
 
 describe('connect never degrades a working integration', () => {

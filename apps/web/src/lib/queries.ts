@@ -49,6 +49,15 @@ export function useLicenses(productSlug: string | null, status: string) {
 	});
 }
 
+/** The account's most recent licences across every product, for the Overview card (#60). */
+export function useRecentLicenses(limit = 5) {
+	return useQuery({
+		queryKey: ['recent-licenses', limit],
+		queryFn: () =>
+			api<{ keys: LicenseRow[] }>('GET', `/admin/licenses?limit=${limit}`).then((r) => r.keys),
+	});
+}
+
 /** Keys across many products at once — the licenses page's "All products" view. */
 export function useLicensesAcross(productSlugs: string[], status: string) {
 	const q = status !== 'all' ? `?status=${status}` : '';

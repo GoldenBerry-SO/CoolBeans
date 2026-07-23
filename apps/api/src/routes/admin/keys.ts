@@ -2,7 +2,7 @@
 // ABOUTME: Purchase lookup by email or provider id closes the loop between payments and keys.
 
 import type { License, Product } from '@coolbeans/db';
-import { activations, licenses, metrics, purchases, usageCounters } from '@coolbeans/db';
+import { activations, licenses, metrics, products, purchases, usageCounters } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -274,6 +274,28 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		return c.json({
 			ok: true,
 			keys: await Promise.all(rows.map((l) => adminLicenseView(deps, l, product))),
+		});
+	});
+
+	// The account's most recent licences across every product, for the Overview card (#60).
+	// Joined to products so it is account-scoped in one query and archived products still show.
+	admin.get('/licenses', async (c) => {
+		const accountId = accountScope(c).id;
+		const requestedLimit = Number(c.req.query('limit') ?? 5);
+		if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+			throw badRequest('limit must be a positive integer.');
+		}
+		const limit = Math.min(requestedLimit, 50);
+		const rows = await deps.db
+			.select()
+			.from(licenses)
+			.innerJoin(products, eq(products.id, licenses.productId))
+			.where(eq(products.accountId, accountId))
+			.orderBy(desc(licenses.createdAt))
+			.limit(limit);
+		return c.json({
+			ok: true,
+			keys: await Promise.all(rows.map((r) => adminLicenseView(deps, r.licenses, r.products))),
 		});
 	});
 

@@ -1,11 +1,17 @@
-// ABOUTME: Overview page (PRD §16) — stat columns, validation traffic, recent activity, audit preview.
-// ABOUTME: Stats from GET /admin/stats; the chart from GET /admin/validations; activity from /admin/audit.
+// ABOUTME: Overview page (PRD §16) — stat columns, validation traffic, recent activity, recent licences.
+// ABOUTME: Stats from GET /admin/stats; chart from /admin/validations; licences from /admin/licenses.
 
 import { Link } from '@tanstack/react-router';
-import { Card, EmptyState } from '../components/ui.js';
-import { actionVerb, detailHighlight, formatDetail } from '../lib/audit-format.js';
-import { useAudit, useStats, useValidations, type ValidationDay } from '../lib/queries.js';
-import type { AuditEntry } from '../lib/types.js';
+import { Card, EmptyState, TierText } from '../components/ui.js';
+import { actionVerb, detailHighlight } from '../lib/audit-format.js';
+import {
+	useAudit,
+	useProducts,
+	useRecentLicenses,
+	useStats,
+	useValidations,
+	type ValidationDay,
+} from '../lib/queries.js';
 
 /** Bars for the 16-day validation window. A day with no traffic still gets a slot. */
 function ValidationChart({ days }: { days: ValidationDay[] }) {
@@ -38,13 +44,6 @@ function ValidationChart({ days }: { days: ValidationDay[] }) {
 	);
 }
 
-function actionColor(action: string): string {
-	if (action.startsWith('license.issued') || action.startsWith('license.enabled'))
-		return 'var(--color-positive-deep)';
-	if (action.startsWith('license.disabled')) return 'var(--color-danger)';
-	return 'var(--color-ink-secondary)';
-}
-
 function activityDot(action: string): string {
 	if (action.startsWith('license.issued')) return 'var(--color-positive)';
 	if (action.startsWith('license.disabled')) return 'var(--color-danger)';
@@ -52,27 +51,15 @@ function activityDot(action: string): string {
 	return 'var(--color-ink-faint)';
 }
 
-function AuditRow({ entry }: { entry: AuditEntry }) {
-	return (
-		<div className="grid min-w-[620px] grid-cols-[170px_1fr_170px] items-center gap-3.5 border-ink/5 border-b px-5 py-3 last:border-b-0">
-			<span
-				className="font-medium font-mono text-[11.5px]"
-				style={{ color: actionColor(entry.action) }}
-			>
-				{entry.action}
-			</span>
-			<span className="truncate text-[12.5px] text-ink-secondary">{formatDetail(entry)}</span>
-			<span className="truncate text-right font-mono text-[11px] text-ink-faint">
-				{entry.actor}
-			</span>
-		</div>
-	);
-}
-
 export function OverviewPage() {
 	const stats = useStats();
 	const audit = useAudit();
 	const validations = useValidations();
+	const recent = useRecentLicenses(6);
+	const products = useProducts();
+	// Licences carry their product slug; resolve it to the display name, falling back to the
+	// slug for a product that is no longer in the list (for example archived).
+	const nameOf = (slug: string) => products.data?.find((p) => p.slug === slug)?.name ?? slug;
 	const tiles = [
 		{ label: 'Products', value: stats.data?.products, hint: 'onboarded' },
 		{ label: 'Active licenses', value: stats.data?.active_licenses, hint: 'across all products' },
@@ -148,16 +135,32 @@ export function OverviewPage() {
 			</div>
 
 			<Card className="overflow-x-auto">
-				<div className="flex min-w-[620px] items-center justify-between border-ink/8 border-b px-5 py-[15px]">
-					<div className="font-semibold text-[13px]">Audit log</div>
-					<Link to="/audit" className="text-[12px]">
+				<div className="flex min-w-[560px] items-center justify-between border-ink/8 border-b px-5 py-[15px]">
+					<div className="font-semibold text-[13px]">Recent licenses</div>
+					<Link to="/licenses" className="text-[12px]">
 						View all →
 					</Link>
 				</div>
-				{audit.data?.length ? (
-					audit.data.slice(0, 4).map((e) => <AuditRow key={e.id} entry={e} />)
+				{recent.data?.length ? (
+					recent.data.map((l) => (
+						<div
+							key={l.id}
+							className="grid min-w-[560px] grid-cols-[150px_1fr_84px_140px] items-center gap-3.5 border-ink/5 border-b px-5 py-3 last:border-b-0"
+						>
+							<span className="truncate font-medium text-[12.5px]">{nameOf(l.product)}</span>
+							<span className="truncate text-[12.5px] text-ink-secondary">
+								{l.customer_email ?? 'no buyer on record'}
+							</span>
+							<span className="text-[11.5px]">
+								<TierText tier={l.tier} />
+							</span>
+							<span className="truncate text-right font-mono text-[11px] text-ink-faint">
+								{l.created_at.slice(0, 16).replace('T', ' ')}
+							</span>
+						</div>
+					))
 				) : (
-					<EmptyState>Every state change lands here, with its actor.</EmptyState>
+					<EmptyState>Issued keys land here as customers buy.</EmptyState>
 				)}
 			</Card>
 		</div>

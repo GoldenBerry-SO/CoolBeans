@@ -335,6 +335,8 @@ const COVERED = new Set([
 	'POST /admin/products/:slug/stripe/connect',
 	'POST /admin/keys',
 	'GET /admin/keys/:key',
+	// Cross-account case lives in recent-licenses.test.ts: another account sees an empty list.
+	'GET /admin/licenses',
 	'POST /admin/keys/:key/disable',
 	'POST /admin/keys/:key/enable',
 	// Cross-account case lives in offline-activation.test.ts alongside the rest of its

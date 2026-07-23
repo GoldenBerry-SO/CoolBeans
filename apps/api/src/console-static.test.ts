@@ -12,6 +12,7 @@ async function harnessWithConsole() {
 	const h = await makeHarness();
 	const webRoot = mkdtempSync(join(tmpdir(), 'cb-web-'));
 	writeFileSync(join(webRoot, 'index.html'), '<!doctype html><title>console</title>');
+	writeFileSync(join(webRoot, 'logo.png'), 'PNG-BYTES-NOT-HTML');
 	mountConsole(h.app, h.deps, webRoot);
 	return h;
 }
@@ -48,6 +49,17 @@ describe('the SPA fallback and the API surface', () => {
 			expect(res.status, path).toBe(status);
 			expect(res.headers.get('content-type'), path).not.toContain('text/html');
 		}
+	});
+
+	it('serves a real root asset as itself, not the SPA', async () => {
+		// The email templates point at PUBLIC_URL/logo.png. If the static serve missed root
+		// files, that URL would return the console HTML and every email logo would break.
+		const h = await harnessWithConsole();
+		const res = await h.app.request('/logo.png');
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).toBe('PNG-BYTES-NOT-HTML');
+		expect(body).not.toContain('<!doctype html');
 	});
 
 	it('leaves real API routes exactly as they are', async () => {

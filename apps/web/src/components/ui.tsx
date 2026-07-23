@@ -232,39 +232,18 @@ export function PlusIcon() {
 }
 
 export function BeanMark({ size = 31 }: { size?: number }) {
+	// The brand mark, from apps/web/public/logo.png. The art carries its own lime tile and
+	// rounded (transparent) corners, so it needs no wrapper or background. alt="" because a
+	// "Cool Beans" wordmark always sits right beside it — the image is decorative to a
+	// screen reader, not a second announcement of the name.
 	return (
-		<span
-			className="inline-flex flex-none items-center justify-center rounded-[9px] bg-accent"
+		<img
+			src="/logo.png"
+			alt=""
+			width={size}
+			height={size}
+			className="flex-none"
 			style={{ width: size, height: size }}
-		>
-			<svg
-				width={Math.round(size * 0.61)}
-				height={Math.round(size * 0.61)}
-				viewBox="0 0 24 24"
-				fill="none"
-				aria-hidden="true"
-			>
-				<g transform="rotate(-28 7.8 14.8)">
-					<ellipse cx="7.8" cy="14.8" rx="4.8" ry="3.4" fill="#1a1a19" />
-					<path
-						d="M5.3 15.3C6.4 14.3 9.2 15.3 10.3 14.3"
-						stroke="#c8ff4d"
-						strokeWidth="1"
-						strokeLinecap="round"
-						fill="none"
-					/>
-				</g>
-				<g transform="rotate(-28 16.2 9.2)">
-					<ellipse cx="16.2" cy="9.2" rx="4.8" ry="3.4" fill="#1a1a19" />
-					<path
-						d="M13.7 9.7C14.8 8.7 17.6 9.7 18.7 8.7"
-						stroke="#c8ff4d"
-						strokeWidth="1"
-						strokeLinecap="round"
-						fill="none"
-					/>
-				</g>
-			</svg>
-		</span>
+		/>
 	);
 }

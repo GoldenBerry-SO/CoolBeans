@@ -15,8 +15,12 @@ export function mountConsole(app: OpenAPIHono, deps: AppDeps, webRoot: string): 
 		deps.logger.info('Console not served: build not found', { webRoot });
 		return;
 	}
-	app.use('/assets/*', serveStatic({ root: webRoot }));
-	app.get('/favicon.ico', serveStatic({ root: webRoot, path: 'favicon.ico' }));
+	// Serve any real file from the build first: hashed /assets/*, plus the root brand assets
+	// (favicon set, apple-touch, PWA icons, logo.png). serveStatic calls next() when the file
+	// does not exist, so anything that is not a real file drops through to the SPA fallback.
+	// This is what makes /logo.png resolve to the image instead of index.html — the emails
+	// point at it, so it has to be a real 200 image, not the console HTML.
+	app.use('*', serveStatic({ root: webRoot }));
 	// SPA fallback for any non-API GET: serve index.html so client routing works on refresh.
 	// API prefixes are excluded even though real routes are registered first, because an
 	// UNKNOWN path under them would otherwise fall through to this catch-all — and a

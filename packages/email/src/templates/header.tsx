@@ -1,5 +1,5 @@
-// ABOUTME: Shared branded header for every Cool Beans email — the logo, nothing else.
-// ABOUTME: logoUrl is absolute (PUBLIC_URL/logo.png); rendered only when supplied, so tests and
+// ABOUTME: Shared branded header for every Cool Beans email — just the logo.
+// ABOUTME: logoUrl is an absolute PUBLIC_URL/logo.png; renders nothing when it is absent.
 
 import { Img, Section } from '@react-email/components';
 

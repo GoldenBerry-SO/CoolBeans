@@ -1,0 +1,13 @@
+{
+	"name": "Cool Beans Console",
+	"short_name": "Cool Beans",
+	"description": "Issue a key, activate it, check it's still good.",
+	"start_url": "/",
+	"display": "standalone",
+	"background_color": "#ffffff",
+	"theme_color": "#c8ff4d",
+	"icons": [
+		{ "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+		{ "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+	]
+}

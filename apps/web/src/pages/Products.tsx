@@ -21,6 +21,7 @@ import {
 	useUpdateProduct,
 } from '../lib/queries.js';
 import { productColor } from '../lib/scope.js';
+import { SEAT_MODELS, seatModelHint, seatModelLabel } from '../lib/seat-model.js';
 import type { Product } from '../lib/types.js';
 
 function MiniStat({ value, label }: { value: number | string; label: string }) {
@@ -102,7 +103,7 @@ export function ProductsPage() {
 									<MiniStat value={p.activationLimit} label="seats/key" />
 								</div>
 								<div className="flex flex-wrap gap-2 text-[11.5px]">
-									<Chip>{p.activationModel === 'floating' ? 'Floating' : 'Node-locked'}</Chip>
+									<Chip>{seatModelLabel(p.activationModel)}</Chip>
 									<Chip>{p.activationLimit} seats/key</Chip>
 									<Chip mono>{p.emailFrom}</Chip>
 								</div>
@@ -154,7 +155,7 @@ export function ProductsPage() {
 	);
 }
 
-function ProductDialog({ product, onClose }: { product?: Product; onClose: () => void }) {
+export function ProductDialog({ product, onClose }: { product?: Product; onClose: () => void }) {
 	const [form, setForm] = useState({
 		slug: product?.slug ?? '',
 		name: product?.name ?? '',
@@ -204,7 +205,7 @@ function ProductDialog({ product, onClose }: { product?: Product; onClose: () =>
 				<input
 					value={form.name}
 					onChange={(e) => set('name', e.target.value)}
-					placeholder="Clementine"
+					placeholder="Acme App"
 					className={inputClass}
 				/>
 			</Field>
@@ -213,7 +214,7 @@ function ProductDialog({ product, onClose }: { product?: Product; onClose: () =>
 					<input
 						value={form.slug}
 						onChange={(e) => set('slug', e.target.value)}
-						placeholder="clementine"
+						placeholder="acme-app"
 						disabled={Boolean(product)}
 						className={`${inputClass} font-mono disabled:text-ink-faint`}
 					/>
@@ -222,21 +223,26 @@ function ProductDialog({ product, onClose }: { product?: Product; onClose: () =>
 					<input
 						value={form.key_prefix}
 						onChange={(e) => set('key_prefix', e.target.value.toUpperCase())}
-						placeholder="CLEM"
+						placeholder="ACME"
 						disabled={Boolean(product)}
 						className={`${inputClass} font-mono disabled:text-ink-faint`}
 					/>
 				</Field>
 			</div>
 			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-				<Field label="Seat model">
+				<Field label="Seat model" hint={seatModelHint(form.activation_model)}>
+					{/* Labels are plain language; the values stay node_locked/floating (the frozen
+					    §9 contract), so the API is unchanged. */}
 					<select
 						value={form.activation_model}
 						onChange={(e) => set('activation_model', e.target.value)}
 						className={inputClass}
 					>
-						<option value="node_locked">Node-locked</option>
-						<option value="floating">Floating</option>
+						{SEAT_MODELS.map((m) => (
+							<option key={m.value} value={m.value}>
+								{m.label}
+							</option>
+						))}
 					</select>
 				</Field>
 				<Field label="Activation limit">
@@ -252,7 +258,7 @@ function ProductDialog({ product, onClose }: { product?: Product; onClose: () =>
 				<input
 					value={form.email_from}
 					onChange={(e) => set('email_from', e.target.value)}
-					placeholder="receipts@clementine.email"
+					placeholder="keys@acme.com"
 					className={inputClass}
 				/>
 			</Field>

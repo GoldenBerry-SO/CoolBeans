@@ -85,11 +85,20 @@ export function Dialog({
 	);
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({
+	label,
+	hint,
+	children,
+}: {
+	label: string;
+	hint?: string;
+	children: ReactNode;
+}) {
 	return (
 		<div>
 			<span className="block font-medium text-[13px] text-ink-body">{label}</span>
 			<div className="mt-1.5">{children}</div>
+			{hint ? <p className="mt-1.5 m-0 text-[12px] text-ink-faint">{hint}</p> : null}
 		</div>
 	);
 }

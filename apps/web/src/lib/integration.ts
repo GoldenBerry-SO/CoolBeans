@@ -68,7 +68,9 @@ export function agentPrompt(product: Product, baseUrl: string): string {
 
 /** The plain config facts: base URL, slug, prefix, seat model. All public, all copyable. */
 export function configFacts(product: Product, baseUrl: string): ConfigFact[] {
-	const seat = isFloating(product) ? 'Concurrent (floating)' : 'Per device (node-locked)';
+	// Plain words, matching the rest of the console (issue #59). The wire term lives in the
+	// agent brief, where an agent needs it to map to the API's activation_model.
+	const seat = isFloating(product) ? 'Concurrent' : 'Per device';
 	return [
 		{ label: 'Base URL', value: baseUrl, mono: true },
 		{ label: 'Product slug', value: product.slug, mono: true },

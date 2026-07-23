@@ -74,7 +74,7 @@ import CoolBeans
 let cb = CoolBeans(configuration: .init(
   product: "<your-product-slug>",
   baseURL: URL(string: "<your-base-url>")!,
-  publicKeys: [ /* "<kid>": "<key>" */ ]
+  publicKeys: ["<kid>": "<key>"]
 ))
 \`\`\`
 

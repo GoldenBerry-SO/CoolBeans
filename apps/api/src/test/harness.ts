@@ -81,7 +81,7 @@ export function fakeStripeGateway(
 		/** Stripe returns no secret when an endpoint already exists; set '' to model that. */
 		connectSecret?: string;
 		/** Model referenced prices for connect verification; an absent id reads as not found. */
-		prices?: Record<string, { recurring: boolean }>;
+		prices?: Record<string, { recurring: boolean; interval?: string }>;
 	} = {},
 ) {
 	return {
@@ -109,11 +109,13 @@ export function fakeStripeGateway(
 		async billingPortalSession(customerId: string, returnUrl: string): Promise<string> {
 			return `https://billing.stripe.test/${customerId}?return=${encodeURIComponent(returnUrl)}`;
 		},
-		async getPrice(priceId: string): Promise<{ recurring: boolean } | null> {
-			// Explicit override wins. With none, assume the price exists and is recurring iff
-			// its id names a yearly tier, so happy-path connect tests pass without seeding.
+		async getPrice(priceId: string): Promise<{ recurring: boolean; interval?: string } | null> {
+			// Explicit override wins. With none, assume the price exists and is an annual
+			// subscription iff its id names a yearly tier, so happy-path connect tests pass
+			// without seeding.
 			if (extras.prices) return extras.prices[priceId] ?? null;
-			return { recurring: priceId.toLowerCase().includes('year') };
+			const yearly = priceId.toLowerCase().includes('year');
+			return { recurring: yearly, interval: yearly ? 'year' : undefined };
 		},
 		async connect(args: { productSlug: string; lifetimePriceId: string; yearlyPriceId: string }) {
 			// Connect no longer mints prices: it echoes back the vendor's own price ids,

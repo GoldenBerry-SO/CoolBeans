@@ -79,6 +79,13 @@ async function assertTierPriceModes(
 	if (!yearly.recurring) {
 		throw badRequest('The yearly tier needs a recurring price, but that Stripe price is one-time.');
 	}
+	// A monthly (or weekly/daily) price is recurring but renews sooner, so each "yearly"
+	// licence would expire at that shorter period. The tier means an annual subscription.
+	if (yearly.interval !== 'year') {
+		throw badRequest(
+			`The yearly tier needs a price that renews once a year, not every ${yearly.interval ?? 'billing period'}.`,
+		);
+	}
 }
 
 /** Wire a product to Stripe and persist the price ids + webhook secret. */

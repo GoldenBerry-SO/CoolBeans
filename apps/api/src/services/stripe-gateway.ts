@@ -21,6 +21,8 @@ export interface StripeConnectResult {
 export interface StripePriceInfo {
 	/** True for a subscription price, false for a one-time price. */
 	recurring: boolean;
+	/** The recurring cadence ('day' | 'week' | 'month' | 'year'); undefined for one-time. */
+	interval?: string;
 }
 
 export interface SessionLineItem {
@@ -154,8 +156,9 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 				// An archived price can never be bought, so a tier pointed at one would take no
 				// sales — the same silent failure as a missing price. Treat it as unusable.
 				if (!price.active) return null;
-				// Stripe returns a recurring object for subscriptions, null for one-time prices.
-				return { recurring: Boolean(price.recurring) };
+				// Stripe returns a recurring object (with an interval) for subscriptions, null
+				// for one-time prices.
+				return { recurring: Boolean(price.recurring), interval: price.recurring?.interval };
 			} catch {
 				// resource_missing (or any lookup failure): treat as "cannot confirm this price".
 				return null;

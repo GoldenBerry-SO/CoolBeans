@@ -92,6 +92,20 @@ describe('POST /admin/products/:slug/stripe/connect', () => {
 		expect(await storedLifetime()).toBeNull();
 	});
 
+	it('rejects a yearly tier pointed at a shorter-cadence recurring price', async () => {
+		// A monthly price is recurring but renews sooner, so the "yearly" licence would expire
+		// after a month. The tier means an annual subscription.
+		h.deps.stripe = fakeStripeGateway(undefined, undefined, {
+			prices: {
+				price_lifeCLEM: { recurring: false },
+				price_monthly: { recurring: true, interval: 'month' },
+			},
+		});
+		const res = await connect('price_lifeCLEM', 'price_monthly');
+		expect(res.status).toBe(400);
+		expect(await storedLifetime()).toBeNull();
+	});
+
 	it('rejects a price id Stripe does not have', async () => {
 		// Only the yearly price is seeded, so the lifetime id resolves to "not found".
 		h.deps.stripe = fakeStripeGateway(undefined, undefined, {

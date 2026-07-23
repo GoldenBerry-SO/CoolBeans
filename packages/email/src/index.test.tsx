@@ -14,6 +14,25 @@ describe('LicenseKeyEmail', () => {
 		expect(html).not.toContain('renews on');
 	});
 
+	it('shows the logo when a public URL is given, and nothing when it is not', async () => {
+		// The mark is fetched by the recipient's client from an absolute URL. When we have a
+		// public base we include it; without one the email stays valid and unbranded rather
+		// than shipping a broken image.
+		const withLogo = await render(
+			<LicenseKeyEmail
+				productName="Clementine"
+				licenseKey="CLEM-A2B3-C4D5-E6F7"
+				logoUrl="https://app.coolbeans.tools/logo.png"
+			/>,
+		);
+		expect(withLogo).toContain('https://app.coolbeans.tools/logo.png');
+
+		const without = await render(
+			<LicenseKeyEmail productName="Clementine" licenseKey="CLEM-A2B3-C4D5-E6F7" />,
+		);
+		expect(without).not.toContain('logo.png');
+	});
+
 	it('includes renewal date and portal link for yearly licenses', async () => {
 		const html = await render(
 			<LicenseKeyEmail

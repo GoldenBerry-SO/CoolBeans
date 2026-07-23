@@ -104,7 +104,13 @@ export async function requestCode(deps: AppDeps, emailInput: string): Promise<Re
 	}
 
 	if (deps.email) {
-		const html = await render(MagicCodeEmail({ code, expiresMinutes: CODE_TTL_MINUTES }));
+		const html = await render(
+			MagicCodeEmail({
+				code,
+				expiresMinutes: CODE_TTL_MINUTES,
+				logoUrl: `${deps.config.publicUrl}/logo.png`,
+			}),
+		);
 		await deps.email.send({
 			from: 'Cool Beans <console@coolbeans.tools>',
 			to: email,

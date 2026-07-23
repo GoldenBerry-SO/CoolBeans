@@ -2,18 +2,21 @@
 // ABOUTME: Codes expire quickly; the email says so in one breath, per the design voice.
 
 import { Body, Container, Head, Heading, Html, Text } from '@react-email/components';
+import { BrandHeader } from './header.js';
 
 export interface MagicCodeEmailProps {
 	code: string;
 	expiresMinutes: number;
+	logoUrl?: string;
 }
 
-export function MagicCodeEmail({ code, expiresMinutes }: MagicCodeEmailProps) {
+export function MagicCodeEmail({ code, expiresMinutes, logoUrl }: MagicCodeEmailProps) {
 	return (
 		<Html lang="en">
 			<Head />
 			<Body style={{ fontFamily: 'sans-serif' }}>
 				<Container>
+					<BrandHeader logoUrl={logoUrl} />
 					<Heading as="h2">Your Cool Beans sign-in code</Heading>
 					<Text
 						style={{

@@ -67,6 +67,7 @@ export async function sendKeyEmail(
 			renewalDate:
 				isYearly && args.license.expiresAt ? args.license.expiresAt.slice(0, 10) : undefined,
 			portalUrl: isYearly ? `${deps.config.publicUrl}/portal` : undefined,
+			logoUrl: `${deps.config.publicUrl}/logo.png`,
 		}),
 	);
 	await deps.email.send({

@@ -2,6 +2,7 @@
 // ABOUTME: Yearly licenses additionally show the renewal date and a customer-portal link.
 
 import { Body, Container, Head, Heading, Html, Link, Section, Text } from '@react-email/components';
+import { BrandHeader } from './header.js';
 
 export interface LicenseKeyEmailProps {
 	productName: string;
@@ -9,6 +10,7 @@ export interface LicenseKeyEmailProps {
 	downloadUrl?: string;
 	renewalDate?: string;
 	portalUrl?: string;
+	logoUrl?: string;
 }
 
 export function LicenseKeyEmail({
@@ -17,12 +19,14 @@ export function LicenseKeyEmail({
 	downloadUrl,
 	renewalDate,
 	portalUrl,
+	logoUrl,
 }: LicenseKeyEmailProps) {
 	return (
 		<Html lang="en">
 			<Head />
 			<Body style={{ fontFamily: 'sans-serif' }}>
 				<Container>
+					<BrandHeader logoUrl={logoUrl} />
 					<Heading as="h2">Your {productName} license key</Heading>
 					<Section>
 						<Text style={{ fontFamily: 'monospace', fontSize: '18px' }}>{licenseKey}</Text>

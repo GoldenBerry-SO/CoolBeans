@@ -42,6 +42,30 @@ export function isFloating(product: Pick<Product, 'activationModel'>): boolean {
 	return product.activationModel === 'floating';
 }
 
+/** The hosted machine-readable brief for a product (issue #64). Public, no secrets. */
+export function briefUrl(baseUrl: string, slug: string): string {
+	return `${baseUrl}/v1/integration/${slug}`;
+}
+
+/** The hosted, product-agnostic SDK guide for coding agents (issue #64). */
+export function guideUrl(baseUrl: string): string {
+	return `${baseUrl}/v1/llms.txt`;
+}
+
+/**
+ * The one-block prompt a developer pastes into their coding agent. It points the agent at
+ * the hosted brief and guide, so the agent fetches everything and wires Cool Beans in.
+ */
+export function agentPrompt(product: Product, baseUrl: string): string {
+	const seat = isFloating(product) ? 'concurrent (floating)' : 'per device (node-locked)';
+	return [
+		`Read ${briefUrl(baseUrl, product.slug)} and ${guideUrl(baseUrl)}, then integrate Cool Beans licensing into this app.`,
+		`Product: ${product.slug}`,
+		`Base URL: ${baseUrl}`,
+		`Seat model: ${seat}`,
+	].join('\n');
+}
+
 /** The plain config facts: base URL, slug, prefix, seat model. All public, all copyable. */
 export function configFacts(product: Product, baseUrl: string): ConfigFact[] {
 	const seat = isFloating(product) ? 'Concurrent (floating)' : 'Per device (node-locked)';

@@ -7,6 +7,7 @@ import type { AppDeps } from '../../deps.js';
 import { badRequest, notFound, unauthorized } from '../../http/errors.js';
 import { serializeInstance, serializeLicense } from '../../http/serializers.js';
 import { isAdminRequest } from '../../middleware/admin-auth.js';
+import { buildAgentGuide, buildProductBrief } from '../../services/integration-brief.js';
 import { activate, deactivate, heartbeat, validate } from '../../services/licensing.js';
 import { findByCheckoutId } from '../../services/payments.js';
 import { ensureLicenseForOrder } from '../../services/paypal.js';
@@ -87,6 +88,25 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		if (!product) throw notFound('No product with that slug.');
 		const keys = await publicKeysFor(deps, product.id);
 		return c.json({ ok: true, algorithm: 'ed25519', keys });
+	});
+
+	// Agent-shaped integration docs (PRD §11, issue #64). Public markdown, no secrets: a
+	// developer points their coding agent at these URLs and it wires Cool Beans in.
+	app.get('/v1/llms.txt', (c) =>
+		c.body(buildAgentGuide(), 200, { 'Content-Type': 'text/markdown; charset=utf-8' }),
+	);
+	app.get('/v1/integration/:slug', async (c) => {
+		const slug = c.req.param('slug');
+		const product = await getProductBySlugGlobal(deps.db, slug);
+		if (!product) throw notFound('No product with that slug.');
+		const keys = await publicKeysFor(deps, product.id);
+		const brief = buildProductBrief({
+			product,
+			baseUrl: deps.config.publicUrl,
+			publicKeys: keys,
+			guideUrl: `${deps.config.publicUrl}/v1/llms.txt`,
+		});
+		return c.body(brief, 200, { 'Content-Type': 'text/markdown; charset=utf-8' });
 	});
 
 	// Purchase lookup for a landing site's success page (PRD §13). Product-token authed

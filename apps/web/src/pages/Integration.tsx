@@ -6,8 +6,11 @@ import { clsx } from 'clsx';
 import { useState } from 'react';
 import { Card, CardHeader, EmptyState, SecondaryButton } from '../components/ui.js';
 import {
+	agentPrompt,
+	briefUrl,
 	buildSnippets,
 	configFacts,
+	guideUrl,
 	publicEndpoints,
 	type SnippetTarget,
 } from '../lib/integration.js';
@@ -92,6 +95,41 @@ export function IntegrationPage() {
 					key is the only credential, so there is nothing secret to hide here.
 				</p>
 			</div>
+
+			<Card className="mb-4 px-[18px] py-4">
+				<div className="mb-2 flex flex-wrap items-center gap-2">
+					<span className="font-semibold text-[13px]">Hand this to your coding agent</span>
+					<a
+						href={briefUrl(baseUrl, product.slug)}
+						target="_blank"
+						rel="noreferrer"
+						className="text-[11.5px] text-ink-muted underline hover:text-ink"
+					>
+						brief ↗
+					</a>
+					<a
+						href={guideUrl(baseUrl)}
+						target="_blank"
+						rel="noreferrer"
+						className="text-[11.5px] text-ink-muted underline hover:text-ink"
+					>
+						guide ↗
+					</a>
+				</div>
+				<p className="mt-0 mb-3 text-[12.5px] text-ink-muted leading-[1.55]">
+					Paste this into Claude Code, Cursor, or any coding agent. It fetches the hosted brief and
+					SDK guide and wires {product.name} in for you.
+				</p>
+				<div className="relative">
+					<CopyButton
+						text={agentPrompt(product, baseUrl)}
+						className="absolute top-2.5 right-2.5 z-10"
+					/>
+					<pre className="m-0 overflow-x-auto rounded-[9px] bg-track p-4 font-mono text-[12.5px] text-ink-body leading-[1.6]">
+						<code>{agentPrompt(product, baseUrl)}</code>
+					</pre>
+				</div>
+			</Card>
 
 			<div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_1fr]">
 				<Card className="overflow-hidden">

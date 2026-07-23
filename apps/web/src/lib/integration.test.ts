@@ -2,7 +2,7 @@
 // ABOUTME: Snippets/endpoints are the credential-free copy a developer pastes; this pins that contract.
 
 import { describe, expect, it } from 'vitest';
-import { buildSnippets, configFacts, publicEndpoints } from './integration.js';
+import { agentPrompt, buildSnippets, configFacts, publicEndpoints } from './integration.js';
 import type { Product } from './types.js';
 
 function product(overrides: Partial<Product> = {}): Product {
@@ -94,6 +94,20 @@ describe('buildSnippets', () => {
 		const snippets = buildSnippets(product(), BASE, KEYS);
 		expect(snippets.find((s) => s.target === 'node')?.install).toBe('npm i @coolbeans/sdk');
 		expect(snippets.find((s) => s.target === 'swift')?.install).toContain('coolbeans-swift');
+	});
+});
+
+describe('agentPrompt', () => {
+	it('points the agent at the hosted brief and guide with the real config', () => {
+		const prompt = agentPrompt(product(), BASE);
+		expect(prompt).toContain(`${BASE}/v1/integration/acme-app`);
+		expect(prompt).toContain(`${BASE}/v1/llms.txt`);
+		expect(prompt).toContain('acme-app');
+	});
+
+	it('names the seat model in plain words, not the wire value', () => {
+		expect(agentPrompt(product({ activationModel: 'floating' }), BASE)).toContain('concurrent');
+		expect(agentPrompt(product(), BASE)).not.toMatch(/node_locked/);
 	});
 });
 

@@ -62,6 +62,17 @@ describe('the SPA fallback and the API surface', () => {
 		expect(body).not.toContain('<!doctype html');
 	});
 
+	it('only serves assets for read methods, not POST/OPTIONS', async () => {
+		// The static catch-all is a read. Without gating it to GET/HEAD, POST /logo.png would
+		// stream the image with a 200 and turn an asset path into an accidental endpoint.
+		const h = await harnessWithConsole();
+		const post = await h.app.request('/logo.png', { method: 'POST' });
+		expect(post.status).toBe(404);
+		expect(await post.text()).not.toBe('PNG-BYTES-NOT-HTML');
+		const options = await h.app.request('/', { method: 'OPTIONS' });
+		expect(options.headers.get('content-type') ?? '').not.toContain('text/html');
+	});
+
 	it('leaves real API routes exactly as they are', async () => {
 		const h = await harnessWithConsole();
 		const res = await h.app.request('/health');

@@ -20,7 +20,15 @@ export function mountConsole(app: OpenAPIHono, deps: AppDeps, webRoot: string): 
 	// does not exist, so anything that is not a real file drops through to the SPA fallback.
 	// This is what makes /logo.png resolve to the image instead of index.html — the emails
 	// point at it, so it has to be a real 200 image, not the console HTML.
-	app.use('*', serveStatic({ root: webRoot }));
+	//
+	// GET/HEAD only. A static file is a read; without this gate the catch-all would answer
+	// POST /logo.png with a 200 image and OPTIONS / with index.html, turning asset paths into
+	// accidental non-read endpoints instead of the normal 404. Other methods fall through.
+	const serveFiles = serveStatic({ root: webRoot });
+	app.use('*', (c, next) => {
+		if (c.req.method !== 'GET' && c.req.method !== 'HEAD') return next();
+		return serveFiles(c, next);
+	});
 	// SPA fallback for any non-API GET: serve index.html so client routing works on refresh.
 	// API prefixes are excluded even though real routes are registered first, because an
 	// UNKNOWN path under them would otherwise fall through to this catch-all — and a

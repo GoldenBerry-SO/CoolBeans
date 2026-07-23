@@ -132,11 +132,16 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		});
 	});
 
+	// A Stripe price id, like price_1QabcXYZ. Guarding the shape here turns a fat-finger
+	// (a prod_ id, a checkout link) into a clean 400 instead of a value nothing matches at
+	// checkout time, which would silently issue no key to a paying buyer.
+	const priceId = z
+		.string()
+		.regex(/^price_[A-Za-z0-9]+$/, 'Must be a Stripe price id, like price_123');
 	const connectBody = z.object({
 		webhook_url: z.string().url(),
-		lifetime_amount: z.number().int().positive(),
-		yearly_amount: z.number().int().positive(),
-		currency: z.string().optional(),
+		lifetime_price_id: priceId,
+		yearly_price_id: priceId,
 	});
 	admin.post('/products/:slug/stripe/connect', async (c) => {
 		const product = await requireProduct(c, deps, c.req.param('slug'));
@@ -145,9 +150,8 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			actor: auditActor(c),
 			product,
 			webhookUrl: body.webhook_url,
-			lifetimeAmount: body.lifetime_amount,
-			yearlyAmount: body.yearly_amount,
-			currency: body.currency,
+			lifetimePriceId: body.lifetime_price_id,
+			yearlyPriceId: body.yearly_price_id,
 		});
 		return c.json({
 			ok: true,

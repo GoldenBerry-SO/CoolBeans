@@ -714,7 +714,7 @@ class Component extends DCLogic {
         edit:()=>this.openEditProduct(p.slug), connectStripe:()=>this.openStripe(p.slug), del:()=>this.askDelete(p.slug) };
     });
     const ssIdx=S.stripeStep;
-    const ssMeta=[{t:'Connect account',d:'Authorize Cool Beans to read Checkout Sessions and Subscriptions on your Stripe account.'},{t:'Create prices',d:'We create a one-time lifetime price and a recurring yearly price from this product.'},{t:'Register webhook',d:'Cool Beans registers the endpoint via the Stripe API and stores the signing secret — no dashboard wiring.'}];
+    const ssMeta=[{t:'Connect account',d:'Authorize Cool Beans to read Checkout Sessions and Subscriptions on your Stripe account.'},{t:'Reference prices',d:'You paste the price ids of your existing lifetime and yearly Stripe prices. Cool Beans never owns pricing.'},{t:'Register webhook',d:'Cool Beans registers the endpoint via the Stripe API and stores the signing secret — no dashboard wiring.'}];
     const stripeRows=ssMeta.map((m,i)=>({ title:m.t, desc:m.d, active:i===ssIdx,
       num: i<ssIdx?'✓':String(i+1),
       numStyle:{width:'26px',height:'26px',borderRadius:'50%',flex:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:600,background:i<ssIdx?'#eef7d3':(i===ssIdx?'#1a1a19':'#f0eee8'),color:i<ssIdx?'#3d6b16':(i===ssIdx?'#fff':'#9a9a92')},

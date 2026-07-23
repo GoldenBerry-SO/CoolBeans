@@ -168,12 +168,13 @@ const stripe = program.command('stripe').description('Stripe onboarding');
 
 stripe
 	.command('connect')
-	.description('Create prices + register the webhook for a product (the 5-minute job)')
+	.description(
+		'Reference your Stripe prices + register the webhook for a product (the 5-minute job)',
+	)
 	.requiredOption('--product <slug>')
 	.requiredOption('--webhook-url <url>')
-	.requiredOption('--lifetime <cents>', 'One-time lifetime price in the smallest currency unit')
-	.requiredOption('--yearly <cents>', 'Recurring yearly price in the smallest currency unit')
-	.option('--currency <currency>', 'ISO currency', 'usd')
+	.requiredOption('--lifetime-price <id>', 'Your existing Stripe price id for a lifetime licence')
+	.requiredOption('--yearly-price <id>', 'Your existing Stripe price id for a yearly subscription')
 	.action(async (opts, cmd) => {
 		const { client, json } = ctx(cmd);
 		try {
@@ -183,9 +184,8 @@ stripe
 				`/admin/products/${opts.product}/stripe/connect`,
 				{
 					webhook_url: opts.webhookUrl,
-					lifetime_amount: Number(opts.lifetime),
-					yearly_amount: Number(opts.yearly),
-					currency: opts.currency,
+					lifetime_price_id: opts.lifetimePrice,
+					yearly_price_id: opts.yearlyPrice,
 				},
 			)) as { prices: { lifetimePriceId: string; yearlyPriceId: string } };
 			out(

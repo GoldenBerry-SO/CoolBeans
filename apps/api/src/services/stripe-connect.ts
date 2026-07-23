@@ -1,4 +1,4 @@
-// ABOUTME: Stripe onboarding (PRD §13) — create prices + register the webhook, store on the product.
+// ABOUTME: Stripe onboarding (PRD §13) — reference the vendor's prices + register the webhook.
 // ABOUTME: The five-minute job: one call leaves a product fully wired, no manual dashboard steps.
 
 import type { Product } from '@coolbeans/db';
@@ -12,9 +12,10 @@ export interface ConnectArgs {
 	actor?: string;
 	product: Product;
 	webhookUrl: string;
-	lifetimeAmount: number;
-	yearlyAmount: number;
-	currency?: string;
+	/** The vendor's existing Stripe price id whose checkout issues a lifetime licence. */
+	lifetimePriceId: string;
+	/** The vendor's existing Stripe price id whose subscription issues a yearly licence. */
+	yearlyPriceId: string;
 }
 
 export interface ConnectResult {
@@ -50,17 +51,15 @@ export const DUNNING_REQUIREMENT: DunningRequirement = {
 export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<ConnectResult> {
 	if (!deps.stripe) throw new Error('Stripe is not configured on this server.');
 	const result = await deps.stripe.connect({
-		productName: args.product.name,
 		productSlug: args.product.slug,
 		webhookUrl: args.webhookUrl,
-		lifetimeAmount: args.lifetimeAmount,
-		yearlyAmount: args.yearlyAmount,
-		currency: args.currency ?? 'usd',
+		lifetimePriceId: args.lifetimePriceId,
+		yearlyPriceId: args.yearlyPriceId,
 	});
-	// Should never fire — these prices were just created under the customer's own Stripe
-	// key, so they cannot be our Pro price unless both integrations share an account
-	// (which config refuses in production). Cheap to assert, and the failure it prevents
-	// is a Pro payment issuing somebody a licence key.
+	// The vendor pastes their own price ids, so a shared Stripe account (which config
+	// refuses in production) is the only way one could be our platform Pro price. Assert
+	// it anyway: the failure it prevents is a Pro payment issuing somebody a licence key,
+	// and a paste makes that mistake easier than the old create-under-their-key flow did.
 	assertNotBillingPrice(deps, result.lifetimePriceId, result.yearlyPriceId);
 	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running
 	// connect against an existing one returns nothing, so writing it through would

@@ -1,11 +1,13 @@
-// ABOUTME: Stripe connect test (PRD §13) — one admin call wires prices + webhook onto the product.
-// ABOUTME: Uses the fake gateway; asserts the product ends up fully configured and re-running is safe.
+// ABOUTME: Stripe connect test (PRD §13) — one admin call references the vendor's prices + wires the webhook.
+// ABOUTME: Uses the fake gateway; asserts the pasted price ids land on the product and re-running is safe.
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
 import { createProduct } from '../../test/seed.js';
 
 let h: TestHarness;
+
+const PRICES = { lifetime_price_id: 'price_lifeCLEM', yearly_price_id: 'price_yearCLEM' };
 
 beforeEach(async () => {
 	h = await makeHarness();
@@ -20,27 +22,48 @@ beforeEach(async () => {
 });
 
 describe('POST /admin/products/:slug/stripe/connect', () => {
-	it('wires prices and the webhook secret onto the product', async () => {
+	it('stores the referenced prices and the webhook secret onto the product', async () => {
 		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
 			method: 'POST',
 			headers: h.adminHeaders,
 			body: JSON.stringify({
 				webhook_url: 'https://clementine.email/webhook',
-				lifetime_amount: 4900,
-				yearly_amount: 2900,
+				...PRICES,
 			}),
 		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as {
 			prices: { lifetimePriceId: string; yearlyPriceId: string };
 		};
-		expect(body.prices.lifetimePriceId).toBe('price_lifetime_clementine');
+		// The vendor's own price id is echoed back and stored, not one we minted.
+		expect(body.prices.lifetimePriceId).toBe('price_lifeCLEM');
 
 		const check = await h.app.request('/admin/products/clementine', { headers: h.adminHeaders });
 		const product = ((await check.json()) as { product: Record<string, unknown> }).product;
-		expect(product.stripePriceLifetime).toBe('price_lifetime_clementine');
-		expect(product.stripePriceYearly).toBe('price_yearly_clementine');
+		expect(product.stripePriceLifetime).toBe('price_lifeCLEM');
+		expect(product.stripePriceYearly).toBe('price_yearCLEM');
 		expect(product.stripeWebhookSecret).toBe('whsec_clementine');
+	});
+
+	it('rejects an id that is not a Stripe price id, before touching Stripe', async () => {
+		// A vendor pasting a product id (prod_) or a checkout link would otherwise store a
+		// value nothing matches at checkout time, silently issuing no key to a paid buyer.
+		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
+			method: 'POST',
+			headers: h.adminHeaders,
+			body: JSON.stringify({
+				webhook_url: 'https://clementine.email/webhook',
+				lifetime_price_id: 'prod_notaprice',
+				yearly_price_id: 'price_yearCLEM',
+			}),
+		});
+		// A well-formed body with an invalid field is 422 here, the repo's convention.
+		expect(res.status).toBe(422);
+
+		// Nothing was stored: the product's prices stay null so a later valid connect is clean.
+		const check = await h.app.request('/admin/products/clementine', { headers: h.adminHeaders });
+		const product = ((await check.json()) as { product: Record<string, unknown> }).product;
+		expect(product.stripePriceLifetime).toBeNull();
 	});
 });
 
@@ -50,11 +73,7 @@ describe('connect never degrades a working integration', () => {
 		await h.app.request('/admin/products/clementine/stripe/connect', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://clementine.email/webhook',
-				lifetime_amount: 4900,
-				yearly_amount: 2900,
-			}),
+			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
 		});
 		const first = await h.app.request('/admin/products/clementine', { headers: h.adminHeaders });
 		const storedSecret = ((await first.json()) as { product: { stripeWebhookSecret: string } })
@@ -67,11 +86,7 @@ describe('connect never degrades a working integration', () => {
 		const again = await h.app.request('/admin/products/clementine/stripe/connect', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://clementine.email/webhook',
-				lifetime_amount: 4900,
-				yearly_amount: 2900,
-			}),
+			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
 		});
 		expect(again.status).toBe(200);
 
@@ -85,11 +100,7 @@ describe('connect never degrades a working integration', () => {
 		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://clementine.email/webhook',
-				lifetime_amount: 4900,
-				yearly_amount: 2900,
-			}),
+			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
 		});
 		const body = (await res.json()) as { webhook_path: string };
 		// The secret is stored per product, so only the per-product route can verify it.
@@ -103,11 +114,7 @@ describe('connect never degrades a working integration', () => {
 		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://clementine.email/webhook',
-				lifetime_amount: 4900,
-				yearly_amount: 2900,
-			}),
+			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
 		});
 		const body = (await res.json()) as { dunning: { setting: string; note: string } };
 		expect(body.dunning.setting).toBe('cancel_subscription');

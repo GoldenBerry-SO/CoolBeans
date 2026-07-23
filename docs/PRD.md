@@ -415,17 +415,18 @@ the database level** so two concurrent requests can never both pass a limit chec
 
 ## 13. Payments
 
-Onboarding a product is: create prices, give Cool Beans the price ids, point one webhook at the
-service, paste the signing secret — and for Stripe we automate the webhook creation so it's genuinely a
-five-minute job.
+Onboarding a product is: reference your existing Stripe prices by their price ids, point one
+webhook at the service, paste the signing secret. For Stripe we automate the webhook creation so
+it's genuinely a five-minute job. Pricing stays in Stripe: Cool Beans stores the price ids and
+never the amount or currency.
 
 ### Stripe (primary)
 
 Signature-verified with the official `stripe` SDK
 (`stripe.webhooks.constructEvent(rawBody, sig, secret)` against the raw request body). "Easy
-onboarding" specifics: `beans stripe connect` (CLI) or an admin action creates the two
-prices (one-time lifetime, recurring yearly) and **auto-registers the webhook endpoint via the Stripe
-API**, then stores the signing secret — no manual dashboard wiring.
+onboarding" specifics: `beans stripe connect` (CLI) or an admin action takes your two Stripe
+price ids (one-time lifetime, recurring yearly) and **auto-registers the webhook endpoint via the
+Stripe API**, then stores the signing secret. No manual dashboard wiring.
 
 `POST /v1/stripe/webhook` handles the table below, plus
 `checkout.session.async_payment_succeeded` and `charge.dispute.created` per the integration notes

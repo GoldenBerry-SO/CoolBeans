@@ -287,8 +287,9 @@ export function useUpdateProduct() {
 export interface ConnectStripeInput {
 	slug: string;
 	webhook_url: string;
-	lifetime_amount: number;
-	yearly_amount: number;
+	/** The vendor's existing Stripe price ids. Pricing lives in Stripe, not here. */
+	lifetime_price_id: string;
+	yearly_price_id: string;
 }
 
 export interface ConnectStripeResult {

@@ -283,8 +283,8 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 	// that rejected every event.
 	const suggestedPath = `/v1/stripe/webhook/${product.slug}`;
 	const [webhookUrl, setWebhookUrl] = useState('');
-	const [lifetime, setLifetime] = useState('4900');
-	const [yearly, setYearly] = useState('2900');
+	const [lifetime, setLifetime] = useState('');
+	const [yearly, setYearly] = useState('');
 	const connect = useConnectStripe();
 
 	// Once it succeeds the operator still has one thing to do in Stripe, so show the
@@ -293,7 +293,7 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 		return (
 			<Dialog
 				title="Stripe connected"
-				lede={`${product.name} · prices and webhook are wired`}
+				lede={`${product.name} · prices linked, webhook wired`}
 				onClose={onClose}
 				footer={<SecondaryButton onClick={onClose}>Done</SecondaryButton>}
 			>
@@ -319,7 +319,7 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 	return (
 		<Dialog
 			title="Connect Stripe"
-			lede={`${product.name} · one call wires prices and the webhook, no dashboard wiring`}
+			lede={`${product.name} · point us at your Stripe prices and we wire the webhook`}
 			onClose={onClose}
 			footer={
 				<>
@@ -330,8 +330,8 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 							connect.mutate({
 								slug: product.slug,
 								webhook_url: webhookUrl,
-								lifetime_amount: Number(lifetime),
-								yearly_amount: Number(yearly),
+								lifetime_price_id: lifetime.trim(),
+								yearly_price_id: yearly.trim(),
 							})
 						}
 						className="cursor-pointer rounded-[9px] border border-stripe bg-stripe px-4 py-[9px] font-semibold text-[13px] text-white"
@@ -350,17 +350,25 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 				/>
 			</Field>
 			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-				<Field label="Price · lifetime (cents)">
+				<Field
+					label="Lifetime price ID"
+					hint="From your Stripe dashboard. A checkout for this price issues a lifetime license."
+				>
 					<input
 						value={lifetime}
-						onChange={(e) => setLifetime(e.target.value.replace(/\D/g, ''))}
+						onChange={(e) => setLifetime(e.target.value)}
+						placeholder="price_123"
 						className={`${inputClass} font-mono`}
 					/>
 				</Field>
-				<Field label="Price · yearly (cents)">
+				<Field
+					label="Yearly price ID"
+					hint="The recurring price whose subscription issues a yearly license."
+				>
 					<input
 						value={yearly}
-						onChange={(e) => setYearly(e.target.value.replace(/\D/g, ''))}
+						onChange={(e) => setYearly(e.target.value)}
+						placeholder="price_456"
 						className={`${inputClass} font-mono`}
 					/>
 				</Field>

@@ -107,10 +107,12 @@ export function fakeStripeGateway(
 		async billingPortalSession(customerId: string, returnUrl: string): Promise<string> {
 			return `https://billing.stripe.test/${customerId}?return=${encodeURIComponent(returnUrl)}`;
 		},
-		async connect(args: { productSlug: string }) {
+		async connect(args: { productSlug: string; lifetimePriceId: string; yearlyPriceId: string }) {
+			// Connect no longer mints prices: it echoes back the vendor's own price ids,
+			// which is what the caller then stores on the product.
 			return {
-				lifetimePriceId: `price_lifetime_${args.productSlug}`,
-				yearlyPriceId: `price_yearly_${args.productSlug}`,
+				lifetimePriceId: args.lifetimePriceId,
+				yearlyPriceId: args.yearlyPriceId,
 				webhookSecret: extras.connectSecret ?? `whsec_${args.productSlug}`,
 			};
 		},

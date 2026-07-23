@@ -42,17 +42,17 @@ export interface StripeGateway {
 	/** Retrieve a checkout session (success-page ensure path, PRD §13/§14). */
 	getCheckoutSession(sessionId: string): Promise<Record<string, unknown> | null>;
 	/**
-	 * Onboard a product: create the two prices (one-time lifetime + recurring yearly) and
-	 * register the webhook endpoint, returning the ids and signing secret. Idempotent:
-	 * re-running finds the existing Stripe product/webhook by the coolbeans_slug metadata.
+	 * Onboard a product: register the webhook endpoint and return its signing secret.
+	 * Pricing belongs to the vendor's Stripe account, so the two price ids are passed in
+	 * (their existing lifetime + yearly prices) and echoed back for the caller to store —
+	 * connect no longer creates prices. Idempotent: re-running finds the existing webhook
+	 * by url and returns no secret, since Stripe only reveals it at creation.
 	 */
 	connect(args: {
-		productName: string;
 		productSlug: string;
 		webhookUrl: string;
-		lifetimeAmount: number;
-		yearlyAmount: number;
-		currency: string;
+		lifetimePriceId: string;
+		yearlyPriceId: string;
 	}): Promise<StripeConnectResult>;
 }
 
@@ -137,32 +137,10 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 			return session.url;
 		},
 		async connect(args) {
-			// Idempotent by coolbeans_slug metadata: reuse the existing Stripe product,
-			// its prices, and the webhook endpoint if a previous run created them.
-			const existingProducts = await stripe.products.list({ limit: 100, active: true });
-			let product = existingProducts.data.find(
-				(p) => p.metadata?.coolbeans_slug === args.productSlug,
-			);
-			product ??= await stripe.products.create({
-				name: args.productName,
-				metadata: { coolbeans_slug: args.productSlug },
-			});
-
-			const prices = await stripe.prices.list({ product: product.id, active: true, limit: 100 });
-			let lifetime = prices.data.find((p) => !p.recurring);
-			lifetime ??= await stripe.prices.create({
-				product: product.id,
-				currency: args.currency,
-				unit_amount: args.lifetimeAmount,
-			});
-			let yearly = prices.data.find((p) => p.recurring?.interval === 'year');
-			yearly ??= await stripe.prices.create({
-				product: product.id,
-				currency: args.currency,
-				unit_amount: args.yearlyAmount,
-				recurring: { interval: 'year' },
-			});
-
+			// The vendor owns pricing, so connect does not create Stripe products or
+			// prices any more — the two price ids come in already belonging to their
+			// account. Its only side effect is registering the webhook so events reach
+			// us. Idempotent by url: a re-run finds the existing endpoint.
 			const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
 			let endpoint = endpoints.data.find((e) => e.url === args.webhookUrl);
 			endpoint ??= await stripe.webhookEndpoints.create({
@@ -180,8 +158,8 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 				metadata: { coolbeans_slug: args.productSlug },
 			});
 			return {
-				lifetimePriceId: lifetime.id,
-				yearlyPriceId: yearly.id,
+				lifetimePriceId: args.lifetimePriceId,
+				yearlyPriceId: args.yearlyPriceId,
 				// The secret is only returned at creation; a reused endpoint keeps its stored secret.
 				webhookSecret: endpoint.secret ?? '',
 			};

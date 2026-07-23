@@ -72,6 +72,13 @@ export interface Config {
 				provider: 'console';
 		  };
 	redisUrl?: string;
+	/**
+	 * The verified From address for platform-sent mail (EMAIL_SENDER). On cloud, key and
+	 * recovery emails must come from a domain we have verified, not a customer's arbitrary
+	 * one, so this is used as the sender and the product's own address becomes Reply-To.
+	 * Unset on self-host, where the per-product `email_from` is honoured directly.
+	 */
+	emailSender?: string;
 	/** Where the console/portal are served from, for building portal/billing links. */
 	publicUrl: string;
 	/**
@@ -150,6 +157,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		offlineActivationTtlDays,
 		publicUrl: env.PUBLIC_URL ?? `http://localhost:${env.PORT ?? 3000}`,
 		redisUrl: env.REDIS_URL,
+		emailSender: env.EMAIL_SENDER,
 	};
 
 	if (env.STRIPE_SECRET_KEY) {

@@ -18,6 +18,7 @@ export function createResendSender(apiKey: string, baseUrl?: string): EmailSende
 				to: email.to,
 				subject: email.subject,
 				html: email.html,
+				...(email.replyTo ? { replyTo: email.replyTo } : {}),
 			});
 			if (error) throw new Error(`Resend failed: ${error.message}`);
 		},
@@ -59,6 +60,7 @@ export function createSmtpSender(opts: SmtpOptions): EmailSender {
 				to: email.to,
 				subject: email.subject,
 				html: email.html,
+				...(email.replyTo ? { replyTo: email.replyTo } : {}),
 			});
 		},
 	};

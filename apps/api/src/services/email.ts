@@ -49,6 +49,34 @@ export function resolveEmailSender(config: Config, logger: Logger): EmailSender 
 }
 
 /**
+ * The verified fallback sender when a cloud instance sets no EMAIL_SENDER. Our cloud
+ * verifies the coolbeans.tools domain, so any address on it sends. Deploys should set
+ * EMAIL_SENDER explicitly; this only stops a missing value from silently using a
+ * customer's unverified domain.
+ */
+const CLOUD_FALLBACK_SENDER = 'Cool Beans <no-reply@coolbeans.tools>';
+
+/**
+ * Who a vendor-facing email (key delivery, key recovery) is from, and where replies go.
+ *
+ * On cloud we cannot send from a customer's own domain: Resend only sends from a domain
+ * verified in our account, so a product's `email_from` of `receipts@theirdomain.com` would
+ * be rejected and the buyer would never get their key. So on cloud we send from our
+ * verified sender and put the customer's address in Reply-To, which still reaches them.
+ * On self-host (no billing) the operator verifies their own domain, so the per-product
+ * `email_from` is honoured directly, as before.
+ */
+export function resolveEmailIdentity(
+	config: Pick<Config, 'billing' | 'emailSender'>,
+	productEmailFrom: string,
+): { from: string; replyTo?: string } {
+	if (config.billing) {
+		return { from: config.emailSender ?? CLOUD_FALLBACK_SENDER, replyTo: productEmailFrom };
+	}
+	return { from: productEmailFrom };
+}
+
+/**
  * Send the key-delivery email for a license and stamp email_sent_at on success.
  * Throws on failure so the caller can leave email_sent_at NULL for a retry (PRD §13).
  */
@@ -71,7 +99,7 @@ export async function sendKeyEmail(
 		}),
 	);
 	await deps.email.send({
-		from: args.product.emailFrom,
+		...resolveEmailIdentity(deps.config, args.product.emailFrom),
 		to: args.email,
 		subject: `Your ${args.product.name} license key`,
 		html,

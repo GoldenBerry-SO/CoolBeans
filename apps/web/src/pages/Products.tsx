@@ -166,6 +166,9 @@ export function ProductDialog({ product, onClose }: { product?: Product; onClose
 	});
 	const create = useCreateProduct();
 	const update = useUpdateProduct();
+	// On the hosted plan we cannot send from a customer's own domain (the sending domain
+	// has to be verified), so email_from becomes the reply-to and we send from our address.
+	const onCloud = useBilling().data?.enabled ?? false;
 	const pending = create.isPending || update.isPending;
 	const error = (create.error ?? update.error) as Error | null;
 	const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -254,7 +257,14 @@ export function ProductDialog({ product, onClose }: { product?: Product; onClose
 					/>
 				</Field>
 			</div>
-			<Field label="Email from">
+			<Field
+				label="Email from"
+				hint={
+					onCloud
+						? 'On the hosted plan we send from our verified address and use this as the reply-to.'
+						: undefined
+				}
+			>
 				<input
 					value={form.email_from}
 					onChange={(e) => set('email_from', e.target.value)}

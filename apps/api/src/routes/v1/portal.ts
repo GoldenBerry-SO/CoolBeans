@@ -11,6 +11,7 @@ import { nowDate } from '../../deps.js';
 import { toDisplayKey } from '../../domain/keygen.js';
 import { ApiError, badRequest } from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
+import { resolveEmailIdentity } from '../../services/email.js';
 import { resolveLicense } from '../../services/licensing.js';
 
 const lookupBody = z.object({ license_key: z.string() });
@@ -114,7 +115,7 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 					}),
 				);
 				await sender.send({
-					from: rows[0].product.emailFrom,
+					...resolveEmailIdentity(deps.config, rows[0].product.emailFrom),
 					to: body.email,
 					subject: 'Your Cool Beans license keys',
 					html,

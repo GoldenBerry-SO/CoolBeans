@@ -17,6 +17,8 @@ export interface OutgoingEmail {
 	to: string;
 	subject: string;
 	html: string;
+	/** Where replies go. On cloud this carries the vendor's address while `from` is ours. */
+	replyTo?: string;
 }
 
 // The Resend and SMTP adapters land with the email-delivery issue; both implement this.

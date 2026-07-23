@@ -10,5 +10,13 @@ export default defineConfig({
 		// vitest.race.config.ts (`pnpm test:race`), never here — PGlite is one connection
 		// and cannot stage the contention those tests exist to prove.
 		exclude: ['**/node_modules/**', 'src/test/race/**'],
+		// Each file spins up its own PGlite (real Postgres in WASM): a cold instance plus the
+		// migrations costs ~1s, and when many files boot at once that setup contends for CPU
+		// and can blow past vitest's 5s default, failing a test that is actually fine and
+		// passes on a rerun. A generous ceiling absorbs the contention spike without masking a
+		// genuine hang — a truly stuck test still fails, just later. The DB setup runs in
+		// beforeEach, so hookTimeout is the one that matters most.
+		testTimeout: 20_000,
+		hookTimeout: 30_000,
 	},
 });

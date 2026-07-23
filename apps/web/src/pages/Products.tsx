@@ -114,6 +114,13 @@ export function ProductsPage() {
 									>
 										Edit
 									</SecondaryButton>
+									<Link
+										to="/products/$slug/integration"
+										params={{ slug: p.slug }}
+										className="rounded-[9px] border border-ink/14 bg-card px-3 py-[7px] font-medium text-[12.5px] text-ink no-underline hover:border-ink/30"
+									>
+										Integration
+									</Link>
 									{connected ? (
 										<span className="rounded-[8px] border border-positive-border bg-positive-tint px-3 py-[7px] font-medium text-[12.5px] text-positive-deep">
 											Stripe connected

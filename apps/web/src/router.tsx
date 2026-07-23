@@ -12,6 +12,7 @@ import { ConsoleLayout } from './components/ConsoleLayout.js';
 import { AuditPage } from './pages/Audit.js';
 import { BillingPage } from './pages/Billing.js';
 import { CustomersPage } from './pages/Customers.js';
+import { IntegrationPage } from './pages/Integration.js';
 import { LicenseDetailPage } from './pages/LicenseDetail.js';
 import { LicensesPage } from './pages/Licenses.js';
 import { OverviewPage } from './pages/Overview.js';
@@ -45,6 +46,11 @@ const consoleRoutes = consoleLayout.addChildren([
 		component: LicenseDetailPage,
 	}),
 	createRoute({ getParentRoute: () => consoleLayout, path: '/products', component: ProductsPage }),
+	createRoute({
+		getParentRoute: () => consoleLayout,
+		path: '/products/$slug/integration',
+		component: IntegrationPage,
+	}),
 	createRoute({
 		getParentRoute: () => consoleLayout,
 		path: '/customers',

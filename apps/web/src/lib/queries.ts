@@ -19,6 +19,23 @@ export function useProducts() {
 	});
 }
 
+/**
+ * A product's public signing keys (kid -> key) for offline verification, from the public
+ * /v1/pubkey endpoint. Used by the Integration view to show and embed them. No secret here:
+ * these are public keys, the same ones an SDK fetches.
+ */
+export function useProductPubkeys(slug: string) {
+	return useQuery({
+		queryKey: ['pubkey', slug],
+		enabled: slug.length > 0,
+		queryFn: () =>
+			api<{ keys: Record<string, string> }>(
+				'GET',
+				`/v1/pubkey?product=${encodeURIComponent(slug)}`,
+			).then((r) => r.keys),
+	});
+}
+
 export function useLicenses(productSlug: string | null, status: string) {
 	return useQuery({
 		queryKey: ['licenses', productSlug, status],

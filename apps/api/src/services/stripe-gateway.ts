@@ -17,6 +17,12 @@ export interface StripeConnectResult {
 	webhookSecret: string;
 }
 
+/** What connect needs to know about a referenced price: does it exist, and is it recurring. */
+export interface StripePriceInfo {
+	/** True for a subscription price, false for a one-time price. */
+	recurring: boolean;
+}
+
 export interface SessionLineItem {
 	priceId: string;
 	quantity: number;
@@ -54,6 +60,12 @@ export interface StripeGateway {
 		lifetimePriceId: string;
 		yearlyPriceId: string;
 	}): Promise<StripeConnectResult>;
+	/**
+	 * Look up a price the vendor referenced, to confirm it exists in their account and is the
+	 * right billing mode for its tier. Null when Stripe has no such price (a typo, or a price
+	 * from another account, which the vendor's key cannot see).
+	 */
+	getPrice(priceId: string): Promise<StripePriceInfo | null>;
 }
 
 /** Basil moved invoice.subscription under parent.subscription_details. Support both. */
@@ -135,6 +147,16 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 				return_url: returnUrl,
 			});
 			return session.url;
+		},
+		async getPrice(priceId) {
+			try {
+				const price = await stripe.prices.retrieve(priceId);
+				// Stripe returns a recurring object for subscriptions, null for one-time prices.
+				return { recurring: Boolean(price.recurring) };
+			} catch {
+				// resource_missing (or any lookup failure): treat as "cannot confirm this price".
+				return null;
+			}
 		},
 		async connect(args) {
 			// The vendor owns pricing, so connect does not create Stripe products or

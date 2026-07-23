@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { badRequest, conflict, planLimitReached } from '../../http/errors.js';
-import { assertNotBillingPrice } from '../../services/billing.js';
+import { assertDistinctTierPrices, assertNotBillingPrice } from '../../services/billing.js';
 import { limitsFor } from '../../services/plan-limits.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
@@ -57,6 +57,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 	admin.post('/products', async (c) => {
 		const account = accountScope(c);
 		const body = await readBody(c, createProductBody);
+		assertDistinctTierPrices(body.stripe_price_lifetime, body.stripe_price_yearly);
 		// Global on purpose: slug and key_prefix are unique across the instance because
 		// both appear in public URLs. The message deliberately does not say which account
 		// holds it, so this cannot be used to enumerate other tenants.
@@ -139,6 +140,14 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			throw badRequest('slug and key_prefix cannot be changed after creation.');
 		}
 		assertNotBillingPrice(deps, body.stripe_price_lifetime, body.stripe_price_yearly);
+		// Check the resulting state, not just the patch: setting one tier to the id the other
+		// already holds is the same collision, so merge the patch over the stored values first.
+		assertDistinctTierPrices(
+			body.stripe_price_lifetime !== undefined
+				? body.stripe_price_lifetime
+				: product.stripePriceLifetime,
+			body.stripe_price_yearly !== undefined ? body.stripe_price_yearly : product.stripePriceYearly,
+		);
 		const patch: Record<string, unknown> = {};
 		if (body.name !== undefined) patch.name = body.name;
 		if (body.activation_limit !== undefined) patch.activationLimit = body.activation_limit;

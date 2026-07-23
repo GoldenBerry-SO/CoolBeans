@@ -69,22 +69,57 @@ describe('POST /admin/products/:slug/stripe/connect', () => {
 	it('rejects the same price id for both tiers, which would issue every sale as lifetime', async () => {
 		// Price resolution checks the lifetime column first, so identical ids would make a
 		// yearly subscription resolve as a non-expiring lifetime licence.
-		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
-			method: 'POST',
-			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://clementine.email/webhook',
-				lifetime_price_id: 'price_sameCLEM',
-				yearly_price_id: 'price_sameCLEM',
-			}),
-		});
-		expect(res.status).toBe(422);
+		const res = await connect('price_sameCLEM', 'price_sameCLEM');
+		expect(res.status).toBe(409);
+		expect(await storedLifetime()).toBeNull();
+	});
 
-		const check = await h.app.request('/admin/products/clementine', { headers: h.adminHeaders });
-		const product = ((await check.json()) as { product: Record<string, unknown> }).product;
-		expect(product.stripePriceLifetime).toBeNull();
+	it('rejects a lifetime tier pointed at a recurring price', async () => {
+		h.deps.stripe = fakeStripeGateway(undefined, undefined, {
+			prices: { price_badlife: { recurring: true }, price_yearCLEM: { recurring: true } },
+		});
+		const res = await connect('price_badlife', 'price_yearCLEM');
+		expect(res.status).toBe(400);
+		expect(await storedLifetime()).toBeNull();
+	});
+
+	it('rejects a yearly tier pointed at a one-time price', async () => {
+		h.deps.stripe = fakeStripeGateway(undefined, undefined, {
+			prices: { price_lifeCLEM: { recurring: false }, price_badyear: { recurring: false } },
+		});
+		const res = await connect('price_lifeCLEM', 'price_badyear');
+		expect(res.status).toBe(400);
+		expect(await storedLifetime()).toBeNull();
+	});
+
+	it('rejects a price id Stripe does not have', async () => {
+		// Only the yearly price is seeded, so the lifetime id resolves to "not found".
+		h.deps.stripe = fakeStripeGateway(undefined, undefined, {
+			prices: { price_yearCLEM: { recurring: true } },
+		});
+		const res = await connect('price_ghost', 'price_yearCLEM');
+		expect(res.status).toBe(400);
+		expect(await storedLifetime()).toBeNull();
 	});
 });
+
+/** POST a connect request with the two price ids; other tests read what got stored. */
+async function connect(lifetime: string, yearly: string): Promise<Response> {
+	return h.app.request('/admin/products/clementine/stripe/connect', {
+		method: 'POST',
+		headers: h.adminHeaders,
+		body: JSON.stringify({
+			webhook_url: 'https://clementine.email/webhook',
+			lifetime_price_id: lifetime,
+			yearly_price_id: yearly,
+		}),
+	});
+}
+
+async function storedLifetime(): Promise<unknown> {
+	const check = await h.app.request('/admin/products/clementine', { headers: h.adminHeaders });
+	return ((await check.json()) as { product: Record<string, unknown> }).product.stripePriceLifetime;
+}
 
 describe('connect never degrades a working integration', () => {
 	it('keeps the stored secret when Stripe reuses an endpoint and returns none', async () => {

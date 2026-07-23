@@ -5,8 +5,9 @@ import type { Product } from '@coolbeans/db';
 import { products } from '@coolbeans/db';
 import { eq } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
+import { badRequest } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
-import { assertNotBillingPrice } from './billing.js';
+import { assertDistinctTierPrices, assertNotBillingPrice } from './billing.js';
 
 export interface ConnectArgs {
 	actor?: string;
@@ -47,20 +48,60 @@ export const DUNNING_REQUIREMENT: DunningRequirement = {
 	note: 'In Stripe → Billing → Subscriptions and emails, set the action after all retries fail to "Cancel the subscription". That is what tells Cool Beans a yearly licence has lapsed.',
 };
 
+/**
+ * Confirm each referenced price exists in the vendor's account and is the right billing mode
+ * for its tier. A lifetime tier pointed at a recurring price (or a yearly at a one-time one)
+ * would issue the wrong entitlement on every sale, and a typo'd id would match nothing at
+ * checkout and silently issue no key to a paying buyer. Fail loudly here instead.
+ */
+async function assertTierPriceModes(
+	deps: AppDeps,
+	lifetimePriceId: string,
+	yearlyPriceId: string,
+): Promise<void> {
+	const stripe = deps.stripe;
+	if (!stripe) throw new Error('Stripe is not configured on this server.');
+	const [lifetime, yearly] = await Promise.all([
+		stripe.getPrice(lifetimePriceId),
+		stripe.getPrice(yearlyPriceId),
+	]);
+	if (!lifetime) {
+		throw badRequest(`No active Stripe price ${lifetimePriceId} in your account. Check the id.`);
+	}
+	if (lifetime.recurring) {
+		throw badRequest(
+			'The lifetime tier needs a one-time price, but that Stripe price is recurring.',
+		);
+	}
+	if (!yearly) {
+		throw badRequest(`No active Stripe price ${yearlyPriceId} in your account. Check the id.`);
+	}
+	if (!yearly.recurring) {
+		throw badRequest('The yearly tier needs a recurring price, but that Stripe price is one-time.');
+	}
+}
+
 /** Wire a product to Stripe and persist the price ids + webhook secret. */
 export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<ConnectResult> {
 	if (!deps.stripe) throw new Error('Stripe is not configured on this server.');
+	// Validate everything before any side effect (webhook registration, DB write), so a bad
+	// configuration fails clean and leaves nothing half-wired.
+	//
+	// The two tiers must differ: price resolution checks the lifetime column first, so a
+	// shared id would issue every sale for it — a yearly subscription included — as lifetime.
+	assertDistinctTierPrices(args.lifetimePriceId, args.yearlyPriceId);
+	// The vendor pastes their own price ids, so a shared Stripe account (which config refuses
+	// in production) is the only way one could be our platform Pro price. Assert it anyway:
+	// the failure it prevents is a Pro payment issuing somebody a licence key.
+	assertNotBillingPrice(deps, args.lifetimePriceId, args.yearlyPriceId);
+	await assertTierPriceModes(deps, args.lifetimePriceId, args.yearlyPriceId);
+
 	const result = await deps.stripe.connect({
 		productSlug: args.product.slug,
 		webhookUrl: args.webhookUrl,
 		lifetimePriceId: args.lifetimePriceId,
 		yearlyPriceId: args.yearlyPriceId,
 	});
-	// The vendor pastes their own price ids, so a shared Stripe account (which config
-	// refuses in production) is the only way one could be our platform Pro price. Assert
-	// it anyway: the failure it prevents is a Pro payment issuing somebody a licence key,
-	// and a paste makes that mistake easier than the old create-under-their-key flow did.
-	assertNotBillingPrice(deps, result.lifetimePriceId, result.yearlyPriceId);
 	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running
 	// connect against an existing one returns nothing, so writing it through would
 	// blank the stored secret and every later webhook would fail verification.

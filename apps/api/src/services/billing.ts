@@ -76,6 +76,24 @@ export function assertNotBillingPrice(
 	}
 }
 
+/**
+ * The two tiers must map to different Stripe prices. Price resolution
+ * (getProductByStripePrice) checks the lifetime column before the yearly one, so a shared id
+ * would resolve every checkout for it — including a yearly subscription — as a non-expiring
+ * lifetime licence. Enforced on every path that sets these columns (connect, create, patch).
+ */
+export function assertDistinctTierPrices(
+	lifetime: string | null | undefined,
+	yearly: string | null | undefined,
+): void {
+	if (lifetime && yearly && lifetime === yearly) {
+		throw conflict(
+			'price_conflict',
+			'The lifetime and yearly tiers must map to different Stripe prices.',
+		);
+	}
+}
+
 export async function getSubscriptionRow(
 	deps: Pick<AppDeps, 'db'>,
 	accountId: number,

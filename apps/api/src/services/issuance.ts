@@ -11,7 +11,7 @@ import { isUniqueConstraintError } from '../store/db-errors.js';
 
 const MAX_KEY_RETRIES = 3;
 
-export type Tier = 'lifetime' | 'yearly' | 'trial';
+export type Kind = 'perpetual' | 'subscription' | 'trial';
 
 /** Insert a license with a freshly generated, unique key. Retries on the rare collision. */
 export async function issueLicense(
@@ -19,7 +19,9 @@ export async function issueLicense(
 	args: {
 		product: Product;
 		purchaseId: number;
-		tier: Tier;
+		kind: Kind;
+		/** The vendor's free-form plan label, snapshotted onto the licence. Display only. */
+		plan?: string | null;
 		expiresAt?: string | null;
 		actor: string;
 	},
@@ -44,9 +46,10 @@ export async function issueLicense(
 						productId: args.product.id,
 						purchaseId: args.purchaseId,
 						key: normalized,
-						tier: args.tier,
+						kind: args.kind,
+						plan: args.plan ?? null,
 						status: 'active',
-						expiresAt: args.tier === 'lifetime' ? null : (args.expiresAt ?? null),
+						expiresAt: args.kind === 'perpetual' ? null : (args.expiresAt ?? null),
 					})
 					.returning();
 				return inserted;
@@ -64,7 +67,7 @@ export async function issueLicense(
 			productId: args.product.id,
 			licenseId: license.id,
 			// The key is the credential (§19): the audit trail records only its tail.
-			detail: { tier: args.tier, key_suffix: display.slice(-4) },
+			detail: { kind: args.kind, key_suffix: display.slice(-4) },
 		});
 		return license;
 	}
@@ -83,14 +86,13 @@ export function trialExpiry(deps: AppDeps, days: number): string {
 }
 
 /**
- * A year from now, for a manually issued yearly licence.
+ * A year from now, for a manually issued subscription licence with no Stripe subscription.
  *
- * A yearly key with no expiry never lapses: only trials are swept, and validate only
- * expires trials lazily, so it behaves as a lifetime key. A subscription supplies its own
- * period end; a manual issue has no subscription, so it needs a default rather than null.
- * Calendar arithmetic, not 365 days, so a leap year does not shift the date.
+ * A subscription key needs a period end; a Stripe checkout supplies one, but a manual issue
+ * has no subscription behind it, so it gets a default rather than null. Calendar arithmetic,
+ * not 365 days, so a leap year does not shift the date.
  */
-export function yearlyExpiry(deps: AppDeps): string {
+export function subscriptionExpiry(deps: AppDeps): string {
 	const now = nowDate(deps);
 	const next = new Date(now.getTime());
 	next.setUTCFullYear(now.getUTCFullYear() + 1);
@@ -103,7 +105,8 @@ export async function issueManual(
 	args: {
 		product: Product;
 		email: string;
-		tier: Tier;
+		kind: Kind;
+		plan?: string | null;
 		expiresAt?: string | null;
 		note?: string;
 		actor: string;
@@ -121,7 +124,8 @@ export async function issueManual(
 		return await issueLicense(scoped, {
 			product: args.product,
 			purchaseId: purchase.id,
-			tier: args.tier,
+			kind: args.kind,
+			plan: args.plan,
 			expiresAt: args.expiresAt,
 			actor: args.actor,
 		});

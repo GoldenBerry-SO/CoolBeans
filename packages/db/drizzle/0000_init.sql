@@ -86,6 +86,7 @@ CREATE TABLE "provider_events" (
 	"type" text NOT NULL,
 	"status" text DEFAULT 'done' NOT NULL,
 	"claimed_at" text,
+	"claim_token" text,
 	"received_at" text DEFAULT to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL
 );
 --> statement-breakpoint
@@ -103,7 +104,8 @@ CREATE TABLE "licenses" (
 	"product_id" integer NOT NULL,
 	"purchase_id" integer NOT NULL,
 	"key" text NOT NULL,
-	"tier" text NOT NULL,
+	"kind" text NOT NULL,
+	"plan" text,
 	"status" text DEFAULT 'active' NOT NULL,
 	"expires_at" text,
 	"disabled_at" text,
@@ -111,7 +113,7 @@ CREATE TABLE "licenses" (
 	"email_sent_at" text,
 	"created_at" text DEFAULT to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL,
 	CONSTRAINT "licenses_key_unique" UNIQUE("key"),
-	CONSTRAINT "ck_licenses_tier" CHECK ("licenses"."tier" IN ('lifetime','yearly','trial')),
+	CONSTRAINT "ck_licenses_kind" CHECK ("licenses"."kind" IN ('perpetual','subscription','trial')),
 	CONSTRAINT "ck_licenses_status" CHECK ("licenses"."status" IN ('active','disabled'))
 );
 --> statement-breakpoint

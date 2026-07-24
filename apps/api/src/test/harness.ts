@@ -16,7 +16,11 @@ export interface FakeClock {
 	set(date: Date): void;
 }
 
-export function fakeClock(start = '2026-07-17T09:00:00.000Z'): FakeClock {
+// Keep this start date in the future relative to the real wall clock. The offline e2e mints a
+// normal 7-day token on this fake clock, but the SDK verifies its `exp` against the real
+// Date.now(); once the real calendar passes `start + 7 days`, that token reads as past-TTL and
+// offlineState flips valid -> grace. Bump this forward (and only forward) before then.
+export function fakeClock(start = '2027-01-01T09:00:00.000Z'): FakeClock {
 	let current = new Date(start).getTime();
 	return {
 		now: () => new Date(current),

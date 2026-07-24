@@ -1,5 +1,5 @@
 // ABOUTME: Licenses page (PRD §16) — key table across products with status/product filters.
-// ABOUTME: Rows carry product identity, tier, seats, and buyer; disable/enable acts inline.
+// ABOUTME: Rows carry product identity, kind, seats, and buyer; disable/enable acts inline.
 
 import { Link } from '@tanstack/react-router';
 import { clsx } from 'clsx';
@@ -7,10 +7,10 @@ import { useState } from 'react';
 import {
 	Card,
 	EmptyState,
+	KindText,
 	SecondaryButton,
 	StatusPill,
 	TableHead,
-	TierText,
 } from '../components/ui.js';
 import { download } from '../lib/api.js';
 import { useLicensesAcross, useProducts, useSetLicenseStatus } from '../lib/queries.js';
@@ -99,7 +99,7 @@ export function LicensesPage() {
 			<Card className="overflow-x-auto">
 				<TableHead
 					gridClass={GRID}
-					columns={['License key', 'Product', 'Tier', 'Status', 'Seats', 'Customer', '']}
+					columns={['License key', 'Product', 'Kind', 'Status', 'Seats', 'Customer', '']}
 				/>
 				{loading ? (
 					<EmptyState>Loading…</EmptyState>
@@ -128,7 +128,7 @@ export function LicensesPage() {
 									/>
 									<span className="truncate">{p?.name ?? l.product}</span>
 								</span>
-								<TierText tier={l.tier} />
+								<KindText kind={l.kind} />
 								<StatusPill status={l.status} />
 								<span
 									className={clsx(

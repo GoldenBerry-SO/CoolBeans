@@ -18,7 +18,11 @@ export const licenses = pgTable(
 			.notNull()
 			.references(() => purchases.id),
 		key: text('key').notNull().unique(),
-		tier: text('tier', { enum: ['lifetime', 'yearly', 'trial'] }).notNull(),
+		// The lifecycle shape of the entitlement, not the vendor's pricing. 'perpetual' never
+		// expires, 'subscription' tracks a Stripe period end, 'trial' is a fixed window. The
+		// vendor's own label (e.g. "Pro monthly") is the free-form, display-only `plan`.
+		kind: text('kind', { enum: ['perpetual', 'subscription', 'trial'] }).notNull(),
+		plan: text('plan'),
 		status: text('status', { enum: ['active', 'disabled'] })
 			.notNull()
 			.default('active'),
@@ -31,7 +35,7 @@ export const licenses = pgTable(
 		createdAt: text('created_at').notNull().default(isoNow),
 	},
 	(t) => [
-		check('ck_licenses_tier', sql`${t.tier} IN ('lifetime','yearly','trial')`),
+		check('ck_licenses_kind', sql`${t.kind} IN ('perpetual','subscription','trial')`),
 		check('ck_licenses_status', sql`${t.status} IN ('active','disabled')`),
 		// The active-licence count behind the plan cap reads exactly this pair.
 		index('idx_licenses_product_status').on(t.productId, t.status),

@@ -1,5 +1,5 @@
 {
-  "id": "7eba6414-bd45-4126-b255-da36a4071bf0",
+  "id": "3b390c12-45dd-4d93-841c-3a48530df677",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -673,6 +673,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "claim_token": {
+          "name": "claim_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "received_at": {
           "name": "received_at",
           "type": "text",
@@ -817,11 +823,17 @@
           "primaryKey": false,
           "notNull": true
         },
-        "tier": {
-          "name": "tier",
+        "kind": {
+          "name": "kind",
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "plan": {
+          "name": "plan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "status": {
           "name": "status",
@@ -925,9 +937,9 @@
       },
       "policies": {},
       "checkConstraints": {
-        "ck_licenses_tier": {
-          "name": "ck_licenses_tier",
-          "value": "\"licenses\".\"tier\" IN ('lifetime','yearly','trial')"
+        "ck_licenses_kind": {
+          "name": "ck_licenses_kind",
+          "value": "\"licenses\".\"kind\" IN ('perpetual','subscription','trial')"
         },
         "ck_licenses_status": {
           "name": "ck_licenses_status",

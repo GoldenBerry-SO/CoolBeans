@@ -13,7 +13,7 @@ import { isUniqueConstraintError } from '../store/db-errors.js';
 import { findLicenseByProviderId } from '../store/payment-lookup.js';
 import { getProductById } from '../store/products.js';
 import { sendKeyEmail } from './email.js';
-import { createPurchase, issueLicense, type Tier } from './issuance.js';
+import { createPurchase, issueLicense, type Kind } from './issuance.js';
 import { enqueue } from './outbox.js';
 import { markOverLimit, planUsage, withinLimit } from './plan-limits.js';
 import { applyPendingRevocation } from './reconcile.js';
@@ -27,7 +27,8 @@ export interface EnsureArgs {
 	product: Product;
 	provider: 'stripe' | 'paypal';
 	checkoutId: string;
-	tier: Tier;
+	kind: Kind;
+	plan?: string | null;
 	email: string;
 	expiresAt?: string | null;
 	customerId?: string | null;
@@ -127,7 +128,8 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 				const issued = await issueLicense(scoped, {
 					product: args.product,
 					purchaseId: purchase.id,
-					tier: args.tier,
+					kind: args.kind,
+					plan: args.plan,
 					expiresAt: args.expiresAt,
 					actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
 				});

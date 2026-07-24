@@ -77,7 +77,7 @@ describe('per-key throttle', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		await h.app.request(`/admin/keys/${encodeURIComponent(key)}/disable`, {
 			method: 'POST',

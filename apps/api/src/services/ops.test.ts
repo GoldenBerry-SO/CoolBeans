@@ -24,7 +24,7 @@ describe('sweeps', () => {
 		const trialKey = await issueKey(h.app, {
 			product: 'clementine',
 			email: 't@example.com',
-			tier: 'trial',
+			kind: 'trial',
 			trial_days: 1,
 		});
 		h.clock.advance(2 * 86_400_000);
@@ -40,7 +40,7 @@ describe('sweeps', () => {
 		await issueKey(h.app, {
 			product: 'clementine',
 			email: 'boundary@example.com',
-			tier: 'trial',
+			kind: 'trial',
 			expires_at: expiresAt.toISOString(),
 		});
 		h.clock.set(expiresAt);
@@ -56,7 +56,7 @@ describe('sweeps', () => {
 			activation_model: 'floating',
 			floating_lease_minutes: 30,
 		});
-		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', tier: 'yearly' });
+		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', kind: 'subscription' });
 		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'a' });
 		h.clock.advance(31 * 60_000);
 		expect(await reapFloatingLeases(h.deps)).toBe(1);
@@ -74,7 +74,7 @@ describe('sweeps', () => {
 		const key = await issueKey(h.app, {
 			product: 'boundary-floating',
 			email: 'boundary@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		await post(h.app, '/v1/activate', {
 			license_key: key,

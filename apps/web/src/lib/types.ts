@@ -18,7 +18,8 @@ export interface Product {
 export interface LicenseRow {
 	key: string;
 	status: 'active' | 'disabled';
-	tier: 'lifetime' | 'yearly' | 'trial';
+	kind: 'perpetual' | 'subscription' | 'trial';
+	plan: string | null;
 	product: string;
 	expires_at: string | null;
 	id: number;

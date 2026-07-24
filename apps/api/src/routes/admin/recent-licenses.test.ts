@@ -18,7 +18,7 @@ async function issue(email: string): Promise<void> {
 	const res = await h.app.request('/admin/keys', {
 		method: 'POST',
 		headers: h.adminHeaders,
-		body: JSON.stringify({ product: 'clementine', email, tier: 'lifetime' }),
+		body: JSON.stringify({ product: 'clementine', email, kind: 'perpetual' }),
 	});
 	if (res.status !== 200) throw new Error(`issue failed: ${res.status} ${await res.text()}`);
 }
@@ -75,7 +75,7 @@ describe('GET /admin/licenses is account-scoped', () => {
 		);
 		await issueKey(
 			h2.app,
-			{ product: 'alpha-app', email: 'buyer@alpha.test', tier: 'lifetime' },
+			{ product: 'alpha-app', email: 'buyer@alpha.test', kind: 'perpetual' },
 			alice,
 		);
 

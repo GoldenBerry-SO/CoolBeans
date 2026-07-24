@@ -176,7 +176,7 @@ describe('audit attribution (PRD §16)', () => {
 		);
 		const issued = await post(
 			'/admin/keys',
-			{ product: 'clementine', email: 'buyer@example.com', tier: 'lifetime' },
+			{ product: 'clementine', email: 'buyer@example.com', kind: 'perpetual' },
 			session,
 		);
 		const key = issued.body.key as string;

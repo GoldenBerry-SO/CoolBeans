@@ -28,7 +28,7 @@ describe('GET /admin/usage', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Meter' });
 		const instanceId = (act.body.instance as { id: string }).id;

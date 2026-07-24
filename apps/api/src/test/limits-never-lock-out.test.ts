@@ -33,10 +33,10 @@ async function overEveryLimit() {
 	const key = await issueKey(h.app, {
 		product: 'alpha',
 		email: 'buyer@example.com',
-		tier: 'yearly',
+		kind: 'subscription',
 	});
 	for (const email of ['a@c.io', 'b@c.io', 'c@c.io']) {
-		await issueKey(h.app, { product: 'alpha', email, tier: 'lifetime' });
+		await issueKey(h.app, { product: 'alpha', email, kind: 'perpetual' });
 	}
 	// The downgrade.
 	await h.deps.db
@@ -155,7 +155,7 @@ describe('downgrading from Pro to Free', () => {
 			product,
 			provider: 'stripe',
 			checkoutId: 'cs_over_limit',
-			tier: 'lifetime',
+			kind: 'perpetual',
 			email: 'newbuyer@example.com',
 		});
 		expect(result.created).toBe(true);

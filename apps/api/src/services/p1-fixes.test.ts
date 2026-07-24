@@ -134,7 +134,7 @@ describe('manual issuance durability', () => {
 				body: JSON.stringify({
 					product: 'clementine',
 					email: 'buyer@example.com',
-					tier: 'lifetime',
+					kind: 'perpetual',
 				}),
 			});
 			expect(res.status).toBe(500);
@@ -158,7 +158,7 @@ describe('manual issuance durability', () => {
 			body: JSON.stringify({
 				product: 'clementine',
 				email: 'buyer@example.com',
-				tier: 'lifetime',
+				kind: 'perpetual',
 			}),
 		});
 		const body = (await issued.json()) as { key: string };
@@ -208,7 +208,7 @@ describe('the per-key throttle covers every public lookup', () => {
 		const good = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		for (let i = 0; i < 12; i++) {
 			await post(h.app, '/v1/validate', {

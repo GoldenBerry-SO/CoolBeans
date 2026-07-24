@@ -241,7 +241,8 @@ export function usePurchasesByEmail(email: string) {
 export interface IssueKeyInput {
 	product: string;
 	email: string;
-	tier: string;
+	kind: string;
+	plan?: string;
 	trial_days?: number;
 }
 

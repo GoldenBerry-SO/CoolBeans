@@ -131,7 +131,7 @@ export async function rotateKey(deps: AppDeps, productId: number | null): Promis
  */
 function bufferedExpiry(deps: AppDeps, license: License): string | null {
 	if (!license.expiresAt) return null;
-	if (license.tier === 'trial') return license.expiresAt;
+	if (license.kind === 'trial') return license.expiresAt;
 	const buffered =
 		new Date(license.expiresAt).getTime() + deps.config.offlineTokenBufferDays * 86_400_000;
 	return new Date(buffered).toISOString();
@@ -170,7 +170,7 @@ export async function mintToken(
 	let exp = iat + (args.offline?.ttlDays ?? deps.config.tokenTtlDays) * 86_400;
 	// Trial expiry is enforced (§9): the offline token must not outlive the trial itself,
 	// or verifyOffline would keep unlocking after the trial ends.
-	if (args.license.tier === 'trial' && args.license.expiresAt) {
+	if (args.license.kind === 'trial' && args.license.expiresAt) {
 		exp = Math.min(exp, Math.floor(new Date(args.license.expiresAt).getTime() / 1000));
 	}
 	// The renewal buffer exists so a client that CAN reconnect has room to. An air-gapped
@@ -188,7 +188,8 @@ export async function mintToken(
 	const payload: TokenPayload = {
 		key: args.displayKey,
 		status: 'active',
-		tier: args.license.tier,
+		kind: args.license.kind,
+		plan: args.license.plan ?? null,
 		product: args.product.slug,
 		expires_at: claimedExpiry,
 		...(args.offline ? { fingerprint: args.offline.fingerprint } : {}),

@@ -141,7 +141,7 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		// enough: without a subscription there is genuinely nothing to manage, and sending
 		// them to a billing portal would be a dead end.
 		const hasSubscription =
-			Boolean(purchase?.providerSubscriptionId) || resolved.license.tier === 'yearly';
+			Boolean(purchase?.providerSubscriptionId) || resolved.license.kind === 'subscription';
 		if (
 			!purchase ||
 			!customerId ||

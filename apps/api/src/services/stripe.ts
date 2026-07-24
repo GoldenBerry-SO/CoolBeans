@@ -81,7 +81,7 @@ export async function ensureLicenseForSession(
 		(typeof metadata.product === 'string' ? metadata.product : null) ??
 		str(obj, 'client_reference_id');
 	let product: Product | undefined;
-	let priceTier: 'lifetime' | 'yearly' | null = null;
+	let priceKind: 'perpetual' | 'subscription' | null = null;
 	let paidQuantity = 1;
 	if (deps.stripe) {
 		const sessionId = str(obj, 'id');
@@ -90,7 +90,7 @@ export async function ensureLicenseForSession(
 			const match = await getProductByStripePrice(deps.db, item.priceId);
 			if (match) {
 				product = match.product;
-				priceTier = match.tier;
+				priceKind = match.kind;
 				paidQuantity = item.quantity;
 				break;
 			}
@@ -129,10 +129,10 @@ export async function ensureLicenseForSession(
 	}
 
 	const mode = str(obj, 'mode');
-	const tier = priceTier ?? (mode === 'subscription' ? 'yearly' : 'lifetime');
+	const kind = priceKind ?? (mode === 'subscription' ? 'subscription' : 'perpetual');
 	const subscriptionId = str(obj, 'subscription');
 	let expiresAt: string | null = null;
-	if (tier === 'yearly' && subscriptionId && deps.stripe) {
+	if (kind === 'subscription' && subscriptionId && deps.stripe) {
 		expiresAt = await deps.stripe.subscriptionPeriodEnd(subscriptionId);
 	}
 	const email =
@@ -144,7 +144,7 @@ export async function ensureLicenseForSession(
 		provider: 'stripe',
 		eventId: actorEventId,
 		checkoutId: str(obj, 'id') ?? actorEventId,
-		tier,
+		kind,
 		email,
 		expiresAt,
 		customerId: str(obj, 'customer'),

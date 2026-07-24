@@ -115,7 +115,7 @@ describe('manual key limit', () => {
 		return h.app.request('/admin/keys', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({ product: 'alpha', email, tier: 'lifetime' }),
+			body: JSON.stringify({ product: 'alpha', email, kind: 'perpetual' }),
 		});
 	}
 

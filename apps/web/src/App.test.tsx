@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Dialog } from './components/Dialog.js';
-import { LimitBadge, StatusPill, TierText } from './components/ui.js';
+import { KindText, LimitBadge, StatusPill } from './components/ui.js';
 import { AuthProvider, LoginScreen } from './lib/auth.js';
 
 describe('primitives', () => {
@@ -14,10 +14,10 @@ describe('primitives', () => {
 		expect(renderToString(<StatusPill status="disabled" />)).toContain('Disabled');
 	});
 
-	it('tier text colors lifetime, yearly, and trial distinctly', () => {
-		expect(renderToString(<TierText tier="lifetime" />)).toContain('text-tier-lifetime');
-		expect(renderToString(<TierText tier="trial" />)).toContain('text-warn');
-		expect(renderToString(<TierText tier="yearly" />)).toContain('text-ink-secondary');
+	it('kind text colors perpetual, subscription, and trial distinctly', () => {
+		expect(renderToString(<KindText kind="perpetual" />)).toContain('text-tier-lifetime');
+		expect(renderToString(<KindText kind="trial" />)).toContain('text-warn');
+		expect(renderToString(<KindText kind="subscription" />)).toContain('text-ink-secondary');
 	});
 
 	it('says at limit when full and over limit only when genuinely exceeded', () => {

@@ -19,7 +19,7 @@ beforeEach(async () => {
 	key = await issueKey(h.app, {
 		product: 'clementine',
 		email: 'buyer@example.com',
-		tier: 'lifetime',
+		kind: 'perpetual',
 	});
 });
 
@@ -43,7 +43,7 @@ describe('DELETE /admin/products/:slug (archive)', () => {
 		const res = await h.app.request('/admin/keys', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({ product: 'clementine', email: 'late@example.com', tier: 'lifetime' }),
+			body: JSON.stringify({ product: 'clementine', email: 'late@example.com', kind: 'perpetual' }),
 		});
 		expect(res.status).toBe(409);
 		expect(((await res.json()) as { error: string }).error).toBe('product_archived');

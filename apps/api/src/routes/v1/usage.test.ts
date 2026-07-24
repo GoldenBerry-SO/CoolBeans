@@ -26,7 +26,7 @@ beforeEach(async () => {
 	key = await issueKey(h.app, {
 		product: 'clementine',
 		email: 'buyer@example.com',
-		tier: 'yearly',
+		kind: 'subscription',
 	});
 	// §9 binds metering to a live instance, so every increment needs a real seat.
 	const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Meter' });
@@ -169,7 +169,7 @@ describe('usage is bound to a live instance (PRD §9, §12)', () => {
 		const other = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'other@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		const act = await post(h.app, '/v1/activate', {
 			license_key: other,

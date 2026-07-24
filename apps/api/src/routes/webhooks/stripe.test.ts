@@ -71,7 +71,7 @@ describe('Stripe webhook', () => {
 		expect(r.status).toBe(200);
 		const keys = await keysForEmail(h, 'buyer@example.com');
 		expect(keys).toHaveLength(1);
-		expect(keys[0]?.tier).toBe('lifetime');
+		expect(keys[0]?.kind).toBe('perpetual');
 		expect(keys[0]?.expires_at).toBeNull();
 		expect(h.email.sent).toHaveLength(1);
 	});
@@ -79,7 +79,7 @@ describe('Stripe webhook', () => {
 	it('issues a yearly key with expires_at from the subscription (Basil item period end)', async () => {
 		await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_1' }));
 		const keys = await keysForEmail(h, 'buyer@example.com');
-		expect(keys[0]?.tier).toBe('yearly');
+		expect(keys[0]?.kind).toBe('subscription');
 		expect(keys[0]?.expires_at).toBe(PERIOD_END);
 	});
 
@@ -209,7 +209,7 @@ describe('Stripe webhook', () => {
 		expect(r.status).toBe(200);
 		const keys = await keysForEmail(h, 'link@example.com');
 		expect(keys).toHaveLength(1);
-		expect(keys[0]?.tier).toBe('lifetime');
+		expect(keys[0]?.kind).toBe('perpetual');
 	});
 
 	it('does NOT issue for an unpaid session; async settle issues later', async () => {

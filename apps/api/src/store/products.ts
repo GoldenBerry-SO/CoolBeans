@@ -96,10 +96,15 @@ export async function listPrefixes(db: Database): Promise<string[]> {
 
 export interface PriceMatch {
 	product: Product;
-	tier: 'lifetime' | 'yearly';
+	kind: 'perpetual' | 'subscription';
 }
 
-/** Resolve a product (and its tier) from a Stripe price id (PRD §13). */
+/**
+ * Resolve a product (and the grant kind) from a Stripe price id (PRD §13).
+ *
+ * The lifetime column maps to a perpetual entitlement, the yearly column to a subscription.
+ * PR2 replaces these two columns with an arbitrary set of license_grants.
+ */
 export async function getProductByStripePrice(
 	db: Database,
 	priceId: string,
@@ -109,12 +114,12 @@ export async function getProductByStripePrice(
 		.from(products)
 		.where(eq(products.stripePriceLifetime, priceId))
 		.limit(1);
-	if (lifetime) return { product: lifetime, tier: 'lifetime' };
+	if (lifetime) return { product: lifetime, kind: 'perpetual' };
 	const [yearly] = await db
 		.select()
 		.from(products)
 		.where(eq(products.stripePriceYearly, priceId))
 		.limit(1);
-	if (yearly) return { product: yearly, tier: 'yearly' };
+	if (yearly) return { product: yearly, kind: 'subscription' };
 	return undefined;
 }

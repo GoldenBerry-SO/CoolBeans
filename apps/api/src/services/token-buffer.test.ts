@@ -12,7 +12,7 @@ const DAY = 86_400_000;
 
 async function seed(
 	h: TestHarness,
-	tier: 'lifetime' | 'yearly' | 'trial',
+	kind: 'perpetual' | 'subscription' | 'trial',
 	expiresAt: string | null,
 ) {
 	const [product] = await h.deps.db
@@ -29,7 +29,7 @@ async function seed(
 			productId: product.id,
 			purchaseId: purchase.id,
 			key: 'CLEMABCDEFGHJKMNPQRS',
-			tier,
+			kind,
 			expiresAt,
 		})
 		.returning();
@@ -44,10 +44,10 @@ function payloadOf(token: string): TokenPayload {
 
 async function claimOf(
 	h: TestHarness,
-	tier: 'lifetime' | 'yearly' | 'trial',
+	kind: 'perpetual' | 'subscription' | 'trial',
 	expiresAt: string | null,
 ) {
-	const { product, license } = await seed(h, tier, expiresAt);
+	const { product, license } = await seed(h, kind, expiresAt);
 	const { token } = await mintToken(h.deps, {
 		license,
 		product,
@@ -63,7 +63,7 @@ describe('offline token expiry buffer', () => {
 		// would lock out a subscriber who renewed while offline and holds a stale token.
 		const h = await makeHarness();
 		const expiry = new Date(h.clock.now().getTime() + 30 * DAY).toISOString();
-		const payload = await claimOf(h, 'yearly', expiry);
+		const payload = await claimOf(h, 'subscription', expiry);
 		const claimed = new Date(payload.expires_at ?? '').getTime();
 		expect(claimed).toBe(new Date(expiry).getTime() + 14 * DAY);
 	});
@@ -71,7 +71,7 @@ describe('offline token expiry buffer', () => {
 	it('honours a custom buffer from config', async () => {
 		const h = await makeHarness({ config: { offlineTokenBufferDays: 3 } });
 		const expiry = new Date(h.clock.now().getTime() + 30 * DAY).toISOString();
-		const payload = await claimOf(h, 'yearly', expiry);
+		const payload = await claimOf(h, 'subscription', expiry);
 		const claimed = new Date(payload.expires_at ?? '').getTime();
 		expect(claimed).toBe(new Date(expiry).getTime() + 3 * DAY);
 	});
@@ -79,7 +79,7 @@ describe('offline token expiry buffer', () => {
 	it('leaves a lifetime licence with no expiry at all', async () => {
 		// A buffer applied to null would invent an expiry for a licence that has none.
 		const h = await makeHarness();
-		expect((await claimOf(h, 'lifetime', null)).expires_at).toBeNull();
+		expect((await claimOf(h, 'perpetual', null)).expires_at).toBeNull();
 	});
 
 	it('never extends a trial', async () => {
@@ -101,7 +101,7 @@ describe('offline token expiry buffer', () => {
 		// The buffer is a property of the token we hand out, not of the licence itself.
 		const h = await makeHarness();
 		const expiry = new Date(h.clock.now().getTime() + 30 * DAY).toISOString();
-		const { product, license } = await seed(h, 'yearly', expiry);
+		const { product, license } = await seed(h, 'subscription', expiry);
 		await mintToken(h.deps, {
 			license,
 			product,

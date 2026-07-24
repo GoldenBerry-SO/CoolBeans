@@ -27,7 +27,7 @@ export async function createProduct(
 
 export async function issueKey(
 	app: App,
-	body: { product: string; email: string; tier: string; trial_days?: number; expires_at?: string },
+	body: { product: string; email: string; kind: string; trial_days?: number; expires_at?: string },
 	headers: Record<string, string> = ADMIN,
 ): Promise<string> {
 	const res = await app.request('/admin/keys', {

@@ -26,8 +26,8 @@ describe('GET /admin/products/:slug/keys/export', () => {
 	});
 
 	it('exports a header row and one row per licence as CSV', async () => {
-		await issueKey(h.app, { product: 'clementine', email: 'a@example.com', tier: 'lifetime' });
-		await issueKey(h.app, { product: 'clementine', email: 'b@example.com', tier: 'yearly' });
+		await issueKey(h.app, { product: 'clementine', email: 'a@example.com', kind: 'perpetual' });
+		await issueKey(h.app, { product: 'clementine', email: 'b@example.com', kind: 'subscription' });
 
 		const res = await get('/admin/products/clementine/keys/export');
 		expect(res.status).toBe(200);
@@ -36,7 +36,7 @@ describe('GET /admin/products/:slug/keys/export', () => {
 		expect(res.headers.get('content-disposition')).toContain('clementine');
 
 		const lines = (await res.text()).trim().split('\n');
-		expect(lines[0]).toBe('key,status,tier,customer_email,created_at,expires_at,seats_used');
+		expect(lines[0]).toBe('key,status,kind,plan,customer_email,created_at,expires_at,seats_used');
 		expect(lines).toHaveLength(3);
 		expect(lines.join('\n')).toContain('a@example.com');
 		expect(lines.join('\n')).toContain('b@example.com');
@@ -62,7 +62,7 @@ describe('GET /admin/products/:slug/keys/export', () => {
 	});
 
 	it('exports JSON when asked', async () => {
-		await issueKey(h.app, { product: 'clementine', email: 'a@example.com', tier: 'lifetime' });
+		await issueKey(h.app, { product: 'clementine', email: 'a@example.com', kind: 'perpetual' });
 		const res = await get('/admin/products/clementine/keys/export?format=json');
 		expect(res.headers.get('content-type')).toContain('application/json');
 		const body = (await res.json()) as { keys: Array<{ customer_email: string }> };

@@ -44,7 +44,7 @@ describe('usage quota under contention', () => {
 		const license = await issueManual(h.deps, {
 			product,
 			email: 'race@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 			actor: 'race-test',
 		});
 		const key = toDisplayKey(license.key, prefix);

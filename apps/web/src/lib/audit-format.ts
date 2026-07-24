@@ -18,7 +18,7 @@ export function formatDetail(entry: AuditEntry): string {
 	if (typeof d.name === 'string') parts.push(String(d.name));
 	if (typeof d.slug === 'string')
 		parts.push(typeof d.prefix === 'string' ? `${d.slug} (${d.prefix})` : String(d.slug));
-	if (typeof d.tier === 'string') parts.push(String(d.tier));
+	if (typeof d.kind === 'string') parts.push(String(d.kind));
 	if (typeof d.reason === 'string') parts.push(`reason=${d.reason}`);
 	if (typeof d.email === 'string') parts.push(`→ ${d.email}`);
 	if (parts.length) return parts.join(' · ');

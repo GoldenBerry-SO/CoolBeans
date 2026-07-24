@@ -32,12 +32,12 @@ async function twoAccounts() {
 	);
 	const alphaKey = await issueKey(
 		h.app,
-		{ product: 'alpha-app', email: 'buyer@alpha.test', tier: 'lifetime' },
+		{ product: 'alpha-app', email: 'buyer@alpha.test', kind: 'perpetual' },
 		alice,
 	);
 	const betaKey = await issueKey(
 		h.app,
-		{ product: 'beta-app', email: 'buyer@beta.test', tier: 'lifetime' },
+		{ product: 'beta-app', email: 'buyer@beta.test', kind: 'perpetual' },
 		bob,
 	);
 	return { ...h, alice, bob, alphaKey, betaKey };
@@ -114,7 +114,7 @@ describe('cross-account reads', () => {
 		const res = await app.request('/admin/keys', {
 			method: 'POST',
 			headers: bob,
-			body: JSON.stringify({ product: 'alpha-app', email: 'x@beta.test', tier: 'lifetime' }),
+			body: JSON.stringify({ product: 'alpha-app', email: 'x@beta.test', kind: 'perpetual' }),
 		});
 		expect(res.status).toBe(404);
 	});

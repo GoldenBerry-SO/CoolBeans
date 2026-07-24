@@ -19,7 +19,11 @@ beforeEach(async () => {
 		activation_model: 'floating',
 		floating_lease_minutes: 30,
 	});
-	key = await issueKey(h.app, { product: 'hexis', email: 'buyer@example.com', tier: 'yearly' });
+	key = await issueKey(h.app, {
+		product: 'hexis',
+		email: 'buyer@example.com',
+		kind: 'subscription',
+	});
 });
 
 describe('floating leases', () => {

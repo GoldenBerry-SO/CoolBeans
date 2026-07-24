@@ -28,7 +28,7 @@ beforeEach(async () => {
 	key = await issueKey(h.app, {
 		product: 'clementine',
 		email: 'buyer@example.com',
-		tier: 'yearly',
+		kind: 'subscription',
 	});
 });
 
@@ -76,7 +76,7 @@ describe('LS parity: /v1/licenses/*', () => {
 		const trialKey = await issueKey(h.app, {
 			product: 'clementine',
 			email: 't@example.com',
-			tier: 'trial',
+			kind: 'trial',
 			trial_days: 1,
 		});
 		await ls('/v1/licenses/activate', { license_key: trialKey, instance_name: 'Mac' });

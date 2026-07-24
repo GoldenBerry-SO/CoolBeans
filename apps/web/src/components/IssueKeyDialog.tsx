@@ -10,7 +10,7 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 	const products = useProducts();
 	const [slug, setSlug] = useState('');
 	const [email, setEmail] = useState('');
-	const [tier, setTier] = useState('yearly');
+	const [kind, setKind] = useState('subscription');
 	const issue = useIssueKey();
 
 	useEffect(() => {
@@ -55,7 +55,7 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 					    said nothing about why. */}
 					<AccentButton
 						disabled={!email || !slug || issue.isPending}
-						onClick={() => email && slug && issue.mutate({ product: slug, email, tier })}
+						onClick={() => email && slug && issue.mutate({ product: slug, email, kind })}
 					>
 						{issue.isPending ? 'Issuing…' : 'Issue key'}
 					</AccentButton>
@@ -71,10 +71,10 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 					))}
 				</select>
 			</Field>
-			<Field label="Tier">
-				<select value={tier} onChange={(e) => setTier(e.target.value)} className={inputClass}>
-					<option value="lifetime">Lifetime</option>
-					<option value="yearly">Yearly</option>
+			<Field label="Kind">
+				<select value={kind} onChange={(e) => setKind(e.target.value)} className={inputClass}>
+					<option value="perpetual">Perpetual</option>
+					<option value="subscription">Subscription</option>
 					<option value="trial">Trial</option>
 				</select>
 			</Field>

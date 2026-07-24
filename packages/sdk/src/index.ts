@@ -8,7 +8,10 @@ export type { TokenPayload };
 export interface LicenseObject {
 	key: string;
 	status: 'active' | 'disabled';
-	tier: 'lifetime' | 'yearly' | 'trial';
+	/** Entitlement lifecycle, not pricing. Do not branch app logic on it. */
+	kind: 'perpetual' | 'subscription' | 'trial';
+	/** The vendor's free-form plan label (display only), or null. */
+	plan: string | null;
 	product: string;
 	expires_at: string | null;
 }
@@ -316,17 +319,17 @@ export class CoolBeans {
 
 		const now = Date.now();
 
-		// A signed expiry that has passed is definitive, whatever the tier. The token we
+		// A signed expiry that has passed is definitive, whatever the kind. The token we
 		// issued says this licence ended, so honouring it is reading our own credential,
 		// not inferring revocation from a network failure — §8 is untouched, and it is what
 		// makes subscription revocation reach someone who has gone offline.
 		//
-		// Lifetime licences carry no expires_at, so they are unaffected. The server decides
+		// Perpetual licences carry no expires_at, so they are unaffected. The server decides
 		// what date goes in here: pushing it out past the true expiry buys a dunning buffer
 		// without the client needing a second grace concept.
 		if (payload.expires_at && new Date(payload.expires_at).getTime() <= now) return 'expired';
 
-		if (payload.tier === 'trial') {
+		if (payload.kind === 'trial') {
 			// Trials get no TTL grace either. An unbounded grace would turn a blocked
 			// endpoint into an unlimited trial, which is the cheapest attack there is.
 			return payload.exp * 1000 > now ? 'valid' : 'expired';

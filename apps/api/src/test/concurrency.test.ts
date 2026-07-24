@@ -32,7 +32,7 @@ describe('activation seat limit under parallel activates', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 
 		const attempts = 10;
@@ -69,7 +69,7 @@ describe('activation seat limit under parallel activates', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 
 		const results = await Promise.all(
@@ -108,7 +108,7 @@ describe('usage quota under parallel increments', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Meter' });
 		const instanceId = (act.body.instance as { id: string }).id;
@@ -149,7 +149,7 @@ describe('floating leases under parallel pressure (CLAUDE.md requires this)', ()
 		const key = await issueKey(h.app, {
 			product: 'hexis',
 			email: 'team@northwind.io',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 
 		const results = await Promise.all(
@@ -173,7 +173,7 @@ describe('floating leases under parallel pressure (CLAUDE.md requires this)', ()
 		const key = await issueKey(h.app, {
 			product: 'hexis',
 			email: 'team@northwind.io',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'node-a' });
 		const instanceId = (act.body.instance as { id: string }).id;
@@ -208,7 +208,7 @@ describe('floating leases under parallel pressure (CLAUDE.md requires this)', ()
 		const key = await issueKey(h.app, {
 			product: 'hexis',
 			email: 'team@northwind.io',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'crashed-node' });
 
@@ -228,7 +228,7 @@ describe('floating leases under parallel pressure (CLAUDE.md requires this)', ()
 });
 
 describe('frozen §9 response shapes', () => {
-	it('the license object carries exactly the five contract fields', async () => {
+	it('the license object carries exactly the six contract fields', async () => {
 		await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',
@@ -238,7 +238,7 @@ describe('frozen §9 response shapes', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Mac' });
 
@@ -246,9 +246,10 @@ describe('frozen §9 response shapes', () => {
 		expect(Object.keys(act.body.license as object).sort()).toEqual([
 			'expires_at',
 			'key',
+			'kind',
+			'plan',
 			'product',
 			'status',
-			'tier',
 		]);
 		expect(Object.keys(act.body.instance as object).sort()).toEqual(['id', 'name']);
 		expect(Object.keys(act.body).sort()).toEqual(['instance', 'license', 'ok']);

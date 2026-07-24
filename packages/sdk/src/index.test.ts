@@ -31,7 +31,8 @@ function payloadOf(overrides: Partial<TokenPayload> = {}): TokenPayload {
 	return {
 		key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
 		status: 'active',
-		tier: 'yearly',
+		kind: 'subscription',
+		plan: null,
 		product: 'clementine',
 		expires_at: null,
 		instance_id: 'i',
@@ -78,7 +79,7 @@ describe('CoolBeans SDK', () => {
 					license: {
 						key: 'CLEM-...',
 						status: 'active',
-						tier: 'yearly',
+						kind: 'subscription',
 						product: 'clementine',
 						expires_at: null,
 					},
@@ -101,7 +102,7 @@ describe('CoolBeans SDK', () => {
 					license: {
 						key: 'HEX-...',
 						status: 'active',
-						tier: 'yearly',
+						kind: 'subscription',
 						product: 'hexis',
 						expires_at: null,
 					},
@@ -128,7 +129,7 @@ describe('CoolBeans SDK', () => {
 					license: {
 						key: 'CLEM-…',
 						status: 'disabled',
-						tier: 'yearly',
+						kind: 'subscription',
 						product: 'clementine',
 						expires_at: null,
 					},
@@ -210,7 +211,10 @@ describe('CoolBeans SDK', () => {
 		// what makes subscription revocation work for someone who has gone offline.
 		const now = Math.floor(Date.now() / 1000);
 		const lapsed = await signToken(
-			payloadOf({ tier: 'yearly', expires_at: new Date((now - 86_400) * 1000).toISOString() }),
+			payloadOf({
+				kind: 'subscription',
+				expires_at: new Date((now - 86_400) * 1000).toISOString(),
+			}),
 			'exp1',
 		);
 		const cb = new CoolBeans({
@@ -233,7 +237,7 @@ describe('CoolBeans SDK', () => {
 		const now = Math.floor(Date.now() / 1000);
 		const stale = await signToken(
 			payloadOf({
-				tier: 'yearly',
+				kind: 'subscription',
 				expires_at: new Date((now + 86_400 * 30) * 1000).toISOString(),
 				iat: now - 7200,
 				exp: now - 3600,
@@ -256,7 +260,7 @@ describe('CoolBeans SDK', () => {
 	it('a lifetime licence carries no expiry and keeps its unbounded grace', async () => {
 		const now = Math.floor(Date.now() / 1000);
 		const lifetime = await signToken(
-			payloadOf({ tier: 'lifetime', expires_at: null, iat: now - 7200, exp: now - 3600 }),
+			payloadOf({ kind: 'perpetual', expires_at: null, iat: now - 7200, exp: now - 3600 }),
 			'exp3',
 		);
 		const cb = new CoolBeans({
@@ -289,7 +293,7 @@ describe('CoolBeans SDK', () => {
 		const now = Math.floor(Date.now() / 1000);
 		const trial = await signToken(
 			payloadOf({
-				tier: 'trial',
+				kind: 'trial',
 				expires_at: new Date((now - 60) * 1000).toISOString(),
 				iat: now - 7200,
 				exp: now - 60,
@@ -371,7 +375,7 @@ describe('CoolBeans SDK', () => {
 						license: {
 							key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
 							status: 'active',
-							tier: 'yearly',
+							kind: 'subscription',
 							product: 'clementine',
 							expires_at: null,
 						},

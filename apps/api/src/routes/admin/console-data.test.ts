@@ -19,7 +19,7 @@ beforeEach(async () => {
 
 describe('GET /admin/products/:slug/keys', () => {
 	it('includes the customer email on each row', async () => {
-		await issueKey(h.app, { product: 'clementine', email: 'buyer@example.com', tier: 'lifetime' });
+		await issueKey(h.app, { product: 'clementine', email: 'buyer@example.com', kind: 'perpetual' });
 		const res = await h.app.request('/admin/products/clementine/keys', {
 			headers: h.adminHeaders,
 		});
@@ -35,9 +35,13 @@ describe('GET /admin/products', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'one@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
-		await issueKey(h.app, { product: 'clementine', email: 'two@example.com', tier: 'yearly' });
+		await issueKey(h.app, {
+			product: 'clementine',
+			email: 'two@example.com',
+			kind: 'subscription',
+		});
 		await h.app.request(`/admin/keys/${encodeURIComponent(key)}/disable`, {
 			method: 'POST',
 			headers: h.adminHeaders,
@@ -96,7 +100,7 @@ describe('key prefix bounds (PRD §9/§10)', () => {
 		const issued = await h.app.request('/admin/keys', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({ product: 'shortpfx', email: 'b@example.com', tier: 'lifetime' }),
+			body: JSON.stringify({ product: 'shortpfx', email: 'b@example.com', kind: 'perpetual' }),
 		});
 		const key = ((await issued.json()) as { key: string }).key;
 		const act = await h.app.request('/v1/activate', {

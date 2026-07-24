@@ -94,11 +94,11 @@ export function LicenseDetailPage() {
 			</div>
 
 			<Card className="mb-4 grid grid-cols-2 overflow-hidden sm:grid-cols-4">
-				<Fact label="Tier" value={license.tier} />
+				<Fact label="Kind" value={license.kind} />
 				<Fact label="Product" value={license.product} />
 				<Fact
 					label="Expires"
-					value={license.expires_at ?? (license.tier === 'lifetime' ? 'Never (lifetime)' : '—')}
+					value={license.expires_at ?? (license.kind === 'perpetual' ? 'Never (perpetual)' : '—')}
 					mono
 				/>
 				<Fact label="Seats" value={`${live.length}/${license.activation_limit}`} mono />

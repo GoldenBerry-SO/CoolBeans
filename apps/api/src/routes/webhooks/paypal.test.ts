@@ -50,7 +50,7 @@ describe('PayPal webhook', () => {
 			event_type: 'PAYMENT.CAPTURE.COMPLETED',
 			resource: {
 				id: 'cap_1',
-				custom_id: 'photoglide:lifetime',
+				custom_id: 'photoglide:perpetual',
 				payer: { email_address: 'b@x.io' },
 			},
 		});
@@ -64,14 +64,14 @@ describe('PayPal webhook', () => {
 			event_type: 'PAYMENT.CAPTURE.COMPLETED',
 			resource: {
 				id: 'cap_2',
-				custom_id: 'photoglide:lifetime',
+				custom_id: 'photoglide:perpetual',
 				payer: { email_address: 'b@x.io' },
 			},
 		});
 		expect(r.status).toBe(200);
 		const k = await keys(h, 'b@x.io');
 		expect(k).toHaveLength(1);
-		expect(k[0]?.tier).toBe('lifetime');
+		expect(k[0]?.kind).toBe('perpetual');
 	});
 
 	it('records provider=paypal on the purchase', async () => {
@@ -80,7 +80,7 @@ describe('PayPal webhook', () => {
 			event_type: 'PAYMENT.CAPTURE.COMPLETED',
 			resource: {
 				id: 'cap_3',
-				custom_id: 'photoglide:lifetime',
+				custom_id: 'photoglide:perpetual',
 				payer: { email_address: 'p@x.io' },
 			},
 		});
@@ -95,7 +95,7 @@ describe('PayPal webhook', () => {
 			event_type: 'PAYMENT.CAPTURE.COMPLETED',
 			resource: {
 				id: 'cap_4',
-				custom_id: 'photoglide:lifetime',
+				custom_id: 'photoglide:perpetual',
 				payer: { email_address: 'r@x.io' },
 			},
 		});
@@ -128,7 +128,7 @@ describe('PayPal webhook', () => {
 			event_type: 'PAYMENT.CAPTURE.COMPLETED',
 			resource: {
 				id: 'cap_early',
-				custom_id: 'photoglide:lifetime',
+				custom_id: 'photoglide:perpetual',
 				payer: { email_address: 'early-refund@example.com' },
 			},
 		});
@@ -151,7 +151,7 @@ describe('PayPal webhook', () => {
 			event_type: 'BILLING.SUBSCRIPTION.ACTIVATED',
 			resource: {
 				id: 'sub_early',
-				custom_id: 'photoglide:yearly',
+				custom_id: 'photoglide:subscription',
 				subscriber: { email_address: 'early-cancel@example.com' },
 			},
 		});
@@ -169,7 +169,7 @@ describe('PayPal webhook', () => {
 			event_type: 'PAYMENT.CAPTURE.COMPLETED',
 			resource: {
 				id: 'cap_6',
-				custom_id: 'photoglide:lifetime',
+				custom_id: 'photoglide:perpetual',
 				payer: { email_address: 'i@x.io' },
 			},
 		};

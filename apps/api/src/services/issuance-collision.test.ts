@@ -19,7 +19,7 @@ describe('issuance under a key collision', () => {
 		const first = await issueManual(h.deps, {
 			product,
 			email: 'first@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 			actor: 'test',
 		});
 
@@ -34,7 +34,7 @@ describe('issuance under a key collision', () => {
 			const second = await issueManual(h.deps, {
 				product,
 				email: 'second@example.com',
-				tier: 'lifetime',
+				kind: 'perpetual',
 				actor: 'test',
 			});
 			expect(second.key).not.toBe(first.key);

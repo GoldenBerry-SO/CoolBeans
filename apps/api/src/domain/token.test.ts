@@ -9,7 +9,8 @@ function samplePayload(): TokenPayload {
 	return {
 		key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
 		status: 'active',
-		tier: 'yearly',
+		kind: 'subscription',
+		plan: null,
 		product: 'clementine',
 		expires_at: '2027-07-17T00:00:00.000Z',
 		instance_id: 'inst_1',
@@ -54,7 +55,7 @@ describe('offline tokens', () => {
 		const pair = generateSigningKeyPair();
 		const token = signToken(samplePayload(), pair, '1');
 		const [h, , s] = token.split('.');
-		const forged = `${h}.${Buffer.from(JSON.stringify({ ...samplePayload(), status: 'active', tier: 'lifetime' })).toString('base64url')}.${s}`;
+		const forged = `${h}.${Buffer.from(JSON.stringify({ ...samplePayload(), status: 'active', kind: 'perpetual' })).toString('base64url')}.${s}`;
 		expect(verifyToken(forged, { '1': pair.publicKey })).toBeNull();
 	});
 });

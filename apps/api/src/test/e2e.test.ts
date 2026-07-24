@@ -52,7 +52,7 @@ describe('E2E: desktop app lifecycle', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		const cb = sdk('clementine');
 
@@ -78,7 +78,11 @@ describe('E2E: desktop app lifecycle', () => {
 
 describe('E2E: seat exhaustion and recovery', () => {
 	it('N+1 is refused, portal deactivate frees a seat, retry succeeds', async () => {
-		const key = await issueKey(h.app, { product: 'clementine', email: 'b@x.io', tier: 'lifetime' });
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'b@x.io',
+			kind: 'perpetual',
+		});
 		const ids: string[] = [];
 		for (let i = 0; i < 3; i++) {
 			const r = await post(h.app, '/v1/activate', { license_key: key, instance_name: `dev-${i}` });
@@ -94,7 +98,11 @@ describe('E2E: seat exhaustion and recovery', () => {
 	});
 
 	it('same device reactivation reuses the instance without burning a seat', async () => {
-		const key = await issueKey(h.app, { product: 'clementine', email: 'b@x.io', tier: 'lifetime' });
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'b@x.io',
+			kind: 'perpetual',
+		});
 		const first = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Mac' });
 		const again = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Mac' });
 		expect((first.body.instance as { id: string }).id).toBe(
@@ -172,7 +180,7 @@ describe('E2E: trial lifecycle', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 't@x.io',
-			tier: 'trial',
+			kind: 'trial',
 			trial_days: 7,
 		});
 		const cb = sdk('clementine');
@@ -196,7 +204,7 @@ describe('E2E: floating app', () => {
 			activation_model: 'floating',
 			floating_lease_minutes: 30,
 		});
-		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', tier: 'yearly' });
+		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', kind: 'subscription' });
 		const a = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'a' });
 		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'b' });
 		expect(
@@ -223,7 +231,11 @@ describe('E2E: metered app', () => {
 			default_limit: 5,
 			reset_period: 'daily',
 		});
-		const key = await issueKey(h.app, { product: 'clementine', email: 'm@x.io', tier: 'yearly' });
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'm@x.io',
+			kind: 'subscription',
+		});
 		// Metering is bound to a live seat (§9), so the app activates before counting.
 		const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'e2e app' });
 		const instanceId = (act.body.instance as { id: string }).id;
@@ -321,7 +333,7 @@ describe('E2E: Stripe yearly subscription lifecycle (gateway faked at the seam)'
 			metadata: { product: 'clementine' },
 		});
 		let keys = await adminKeys('yearly@example.com');
-		expect(keys[0]?.tier).toBe('yearly');
+		expect(keys[0]?.kind).toBe('subscription');
 		expect(keys[0]?.expires_at).toBe(firstPeriodEnd);
 
 		// A year later Stripe renews: subscription.updated advances the renewal date.
@@ -403,7 +415,11 @@ async function adminKeys(email: string) {
 
 describe('E2E: Lemon Squeezy client via alias routes', () => {
 	it('an LS-shaped client activates/validates/deactivates through /v1/licenses/*', async () => {
-		const key = await issueKey(h.app, { product: 'clementine', email: 'ls@x.io', tier: 'yearly' });
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'ls@x.io',
+			kind: 'subscription',
+		});
 		const activate = await post(h.app, '/v1/licenses/activate', {
 			license_key: key,
 			instance_name: 'Mac',

@@ -88,7 +88,8 @@ key
 	.command('issue')
 	.requiredOption('--product <slug>')
 	.requiredOption('--email <email>')
-	.option('--tier <tier>', 'lifetime | yearly | trial', 'lifetime')
+	.option('--kind <kind>', 'perpetual | subscription | trial', 'perpetual')
+	.option('--plan <label>', 'Optional vendor plan label (display only)')
 	.option('--trial-days <n>', 'Trial length in days')
 	.action(async (opts, cmd) => {
 		const { client, json } = ctx(cmd);
@@ -96,7 +97,8 @@ key
 			const res = (await apiRequest(client, 'POST', '/admin/keys', {
 				product: opts.product,
 				email: opts.email,
-				tier: opts.tier,
+				kind: opts.kind,
+				...(opts.plan ? { plan: opts.plan } : {}),
 				...(opts.trialDays ? { trial_days: Number(opts.trialDays) } : {}),
 			})) as { key: string };
 			out(json, res.key, res);
@@ -142,11 +144,11 @@ key
 		try {
 			const q = opts.status ? `?status=${opts.status}` : '';
 			const res = (await apiRequest(client, 'GET', `/admin/products/${opts.product}/keys${q}`)) as {
-				keys: Array<{ key: string; status: string; tier: string }>;
+				keys: Array<{ key: string; status: string; kind: string }>;
 			};
 			out(
 				json,
-				res.keys.map((k) => `${k.key}  ${k.status}  ${k.tier}`).join('\n') || 'No keys.',
+				res.keys.map((k) => `${k.key}  ${k.status}  ${k.kind}`).join('\n') || 'No keys.',
 				res,
 			);
 		} catch (err) {

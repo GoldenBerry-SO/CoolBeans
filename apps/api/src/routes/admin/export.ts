@@ -31,7 +31,8 @@ export function csvRow(values: Array<string | number | null | undefined>): strin
 const COLUMNS = [
 	'key',
 	'status',
-	'tier',
+	'kind',
+	'plan',
 	'customer_email',
 	'created_at',
 	'expires_at',
@@ -62,7 +63,8 @@ export function registerAdminExportRoutes(admin: OpenAPIHono, deps: AppDeps): vo
 				csvRow([
 					r.key,
 					r.status,
-					r.tier,
+					r.kind,
+					r.plan ?? '',
 					r.customer_email,
 					r.created_at,
 					r.expires_at,

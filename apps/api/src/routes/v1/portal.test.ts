@@ -21,7 +21,7 @@ beforeEach(async () => {
 	key = await issueKey(h.app, {
 		product: 'clementine',
 		email: 'buyer@example.com',
-		tier: 'yearly',
+		kind: 'subscription',
 	});
 });
 
@@ -63,7 +63,7 @@ async function flushDeferredEmail(): Promise<void> {
 
 describe('portal recovery by email (PRD §15, issue #35)', () => {
 	it('emails the keys to the address instead of returning them', async () => {
-		await issueKey(h.app, { product: 'clementine', email: 'buyer@example.com', tier: 'lifetime' });
+		await issueKey(h.app, { product: 'clementine', email: 'buyer@example.com', kind: 'perpetual' });
 		h.email.sent.length = 0;
 
 		const res = await post(h.app, '/v1/portal/recover', { email: 'buyer@example.com' });
@@ -104,7 +104,7 @@ describe('billing portal session (PRD §15, issue #35)', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'sub@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		// Attach a Stripe customer to the purchase behind this key.
 		await rawExec("UPDATE purchases SET provider = 'stripe', provider_customer_id = 'cus_123'");
@@ -121,7 +121,7 @@ describe('billing portal session (PRD §15, issue #35)', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'life@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		const res = await post(h.app, '/v1/portal/billing-session', { license_key: key });
 		expect(res.status).toBe(404);

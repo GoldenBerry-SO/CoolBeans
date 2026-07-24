@@ -7,7 +7,9 @@ import { toDisplayKey } from '../domain/keygen.js';
 export interface LicenseObject {
 	key: string;
 	status: 'active' | 'disabled';
-	tier: 'lifetime' | 'yearly' | 'trial';
+	kind: 'perpetual' | 'subscription' | 'trial';
+	/** The vendor's free-form plan label (display only, never an authorization input). */
+	plan: string | null;
 	product: string;
 	expires_at: string | null;
 }
@@ -29,7 +31,8 @@ export function serializeLicense(
 	return {
 		key: toDisplayKey(license.key, product.keyPrefix),
 		status: effectiveStatus ?? license.status,
-		tier: license.tier,
+		kind: license.kind,
+		plan: license.plan ?? null,
 		product: product.slug,
 		expires_at: license.expiresAt ?? null,
 	};

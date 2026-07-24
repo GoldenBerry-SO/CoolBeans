@@ -57,7 +57,7 @@ export function registerConnectWebhook(app: OpenAPIHono, deps: AppDeps): void {
 		// tenant it belongs to, so we record it and do nothing rather than guess.
 		const account = eventAccount(event);
 		const connection = account ? await getConnectionByStripeAccount(deps.db, account) : undefined;
-		if (!connection || connection.status !== 'active') {
+		if (connection?.status !== 'active') {
 			await writeAudit(deps.db, {
 				action: 'stripe.connect_unroutable',
 				actor: `stripe:${event.id}`,

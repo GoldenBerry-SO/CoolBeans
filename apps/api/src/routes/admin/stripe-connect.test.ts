@@ -48,6 +48,26 @@ describe('POST /admin/products/:slug/stripe/connect', () => {
 		expect(await connectionSecret()).toBe('whsec_clementine');
 	});
 
+	it('retires a grant when connect rewires its price', async () => {
+		await connect('price_lifeCLEM', 'price_yearCLEM');
+		expect(await grantsForClementine()).toEqual([
+			{ price: 'price_lifeCLEM', kind: 'perpetual' },
+			{ price: 'price_yearCLEM', kind: 'subscription' },
+		]);
+		// Rewire the perpetual price to a new id. The old one must stop issuing, so an old
+		// checkout link cannot keep minting keys.
+		await connect('price_newLife', 'price_yearCLEM');
+		expect(await grantsForClementine()).toEqual([
+			{ price: 'price_newLife', kind: 'perpetual' },
+			{ price: 'price_yearCLEM', kind: 'subscription' },
+		]);
+		// The old grant is retired, not deleted: the mapping keeps an audit trail.
+		const old = await rawQuery<{ status: string }>(
+			`SELECT status FROM license_grants WHERE stripe_price_id = 'price_lifeCLEM'`,
+		);
+		expect(old).toEqual([{ status: 'retired' }]);
+	});
+
 	it('rejects an id that is not a Stripe price id, before touching Stripe', async () => {
 		// A vendor pasting a product id (prod_) or a checkout link would otherwise store a
 		// value nothing matches at checkout time, silently issuing no key to a paid buyer.

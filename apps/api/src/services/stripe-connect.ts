@@ -3,11 +3,12 @@
 
 import type { Product } from '@coolbeans/db';
 import { licenseGrants, stripeConnections } from '@coolbeans/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
+import { nowDate } from '../deps.js';
 import { badRequest } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
-import { SELF_HOST_CONNECTION_ID } from '../store/grants.js';
+import { getConnection } from '../store/grants.js';
 import { assertDistinctTierPrices, assertNotBillingPrice } from './billing.js';
 
 export interface ConnectArgs {
@@ -104,35 +105,62 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	assertNotBillingPrice(deps, args.lifetimePriceId, args.yearlyPriceId);
 	await assertTierPriceModes(deps, args.lifetimePriceId, args.yearlyPriceId);
 
+	// Grants and the webhook secret hang off a connection, and the composite tenant FK
+	// requires that connection to belong to the product's account. Only the seeded self-host
+	// connection exists today (cloud accounts get their own in the Stripe Connect work), so a
+	// product on any other account fails clean here instead of hitting a foreign-key violation.
+	const connection = await getConnection(deps.db);
+	if (!connection || connection.accountId !== args.product.accountId) {
+		throw badRequest('Stripe is not connected for this account yet.');
+	}
+
 	const result = await deps.stripe.connect({
 		productSlug: args.product.slug,
 		webhookUrl: args.webhookUrl,
 		lifetimePriceId: args.lifetimePriceId,
 		yearlyPriceId: args.yearlyPriceId,
 	});
-	// Map the two prices to grants on the self-host connection: the one-time price grants a
-	// perpetual licence, the recurring one a subscription. Upsert by (connection, price) so
-	// re-running connect is idempotent and re-wiring an existing price just refreshes it.
+	// Map the two prices to grants on the connection: the one-time price grants a perpetual
+	// licence, the recurring one a subscription.
 	const mappings = [
 		{ priceId: result.lifetimePriceId, kind: 'perpetual' as const },
 		{ priceId: result.yearlyPriceId, kind: 'subscription' as const },
 	];
-	for (const m of mappings) {
-		await deps.db
-			.insert(licenseGrants)
-			.values({
-				accountId: args.product.accountId,
-				stripeConnectionId: SELF_HOST_CONNECTION_ID,
-				stripePriceId: m.priceId,
-				productId: args.product.id,
-				kind: m.kind,
-				status: 'active',
-			})
-			.onConflictDoUpdate({
-				target: [licenseGrants.stripeConnectionId, licenseGrants.stripePriceId],
-				set: { productId: args.product.id, kind: m.kind, status: 'active', retiredAt: null },
-			});
-	}
+	const keep = new Set(mappings.map((m) => m.priceId));
+	await deps.db.transaction(async (tx) => {
+		// Retire any active grant on this product the new mapping no longer includes, so a
+		// checkout link for a price the vendor rewired away stops issuing. Grants are
+		// retire-and-recreate, never edited, so an old link leaves an audit trail.
+		const active = await tx
+			.select()
+			.from(licenseGrants)
+			.where(and(eq(licenseGrants.productId, args.product.id), eq(licenseGrants.status, 'active')));
+		for (const g of active) {
+			if (keep.has(g.stripePriceId)) continue;
+			await tx
+				.update(licenseGrants)
+				.set({ status: 'retired', retiredAt: nowDate(deps).toISOString() })
+				.where(eq(licenseGrants.id, g.id));
+		}
+		// Upsert by (connection, price) so re-running connect is idempotent and re-wiring an
+		// existing price just refreshes it (and un-retires it if it was retired before).
+		for (const m of mappings) {
+			await tx
+				.insert(licenseGrants)
+				.values({
+					accountId: connection.accountId,
+					stripeConnectionId: connection.id,
+					stripePriceId: m.priceId,
+					productId: args.product.id,
+					kind: m.kind,
+					status: 'active',
+				})
+				.onConflictDoUpdate({
+					target: [licenseGrants.stripeConnectionId, licenseGrants.stripePriceId],
+					set: { productId: args.product.id, kind: m.kind, status: 'active', retiredAt: null },
+				});
+		}
+	});
 	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running connect
 	// against an existing one returns nothing, so writing it through would blank the stored
 	// secret and every later webhook would fail verification. The secret lives on the
@@ -141,7 +169,7 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 		await deps.db
 			.update(stripeConnections)
 			.set({ webhookSecret: result.webhookSecret })
-			.where(eq(stripeConnections.id, SELF_HOST_CONNECTION_ID));
+			.where(eq(stripeConnections.id, connection.id));
 	}
 	await writeAudit(deps.db, {
 		action: 'product.stripe_connected',

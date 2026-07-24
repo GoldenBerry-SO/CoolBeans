@@ -19,6 +19,12 @@ export interface AppDeps {
 	/** Absent when Stripe is not configured; the webhook route is inert without it. */
 	stripe?: StripeGateway;
 	/**
+	 * Stripe Connect (cloud multi-vendor): the platform gateway that verifies the one
+	 * connected-account webhook and makes scoped calls on each vendor's behalf. Absent on
+	 * self-host, which uses `stripe` and its single connection instead.
+	 */
+	connect?: StripeGateway;
+	/**
 	 * Platform billing — customers paying us for hosted Cool Beans. Separate from `stripe`
 	 * above, which is a customer's own integration for selling their software.
 	 */

@@ -19,11 +19,13 @@ export async function seedGrant(
 		kind: 'perpetual' | 'subscription';
 		plan?: string | null;
 		accountId?: number;
+		/** Defaults to the self-host connection; a cloud isolation test passes its own. */
+		connectionId?: number;
 	},
 ): Promise<void> {
 	await deps.db.insert(licenseGrants).values({
 		accountId: args.accountId ?? 1,
-		stripeConnectionId: SELF_HOST_CONNECTION_ID,
+		stripeConnectionId: args.connectionId ?? SELF_HOST_CONNECTION_ID,
 		stripePriceId: args.priceId,
 		productId: args.productId,
 		kind: args.kind,

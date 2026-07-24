@@ -55,6 +55,23 @@ export async function getConnection(
 	return row;
 }
 
+/**
+ * Load a connection by its Stripe account id (acct_...). A Connect webhook names the connected
+ * account it came from; stripe_account_id is unique, so that resolves to exactly one
+ * connection, which is how a cloud event is bound to its tenant and never another.
+ */
+export async function getConnectionByStripeAccount(
+	db: Database,
+	stripeAccountId: string,
+): Promise<StripeConnection | undefined> {
+	const [row] = await db
+		.select()
+		.from(stripeConnections)
+		.where(eq(stripeConnections.stripeAccountId, stripeAccountId))
+		.limit(1);
+	return row;
+}
+
 /** The active grants on a product, newest first, for the console and audit. */
 export async function listGrantsForProduct(
 	db: Database,

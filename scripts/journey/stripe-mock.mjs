@@ -43,7 +43,7 @@ const server = createServer((req, res) => {
 		return;
 	}
 
-	// GET /v1/checkout/sessions/:id/line_items — drives product+tier resolution (§13).
+	// GET /v1/checkout/sessions/:id/line_items — drives product+kind resolution (§13).
 	let m = path.match(/^\/v1\/checkout\/sessions\/([^/]+)\/line_items$/);
 	if (m) {
 		const session = state.sessions.get(m[1]);

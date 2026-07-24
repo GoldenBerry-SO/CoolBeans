@@ -49,7 +49,7 @@ curl -sf -X POST "$URL/admin/products" \
 echo "==> Issuing a key"
 KEY=$(curl -sf -X POST "$URL/admin/keys" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"product":"smoke","email":"buyer@smoke.test","tier":"lifetime"}' | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
+  -d '{"product":"smoke","email":"buyer@smoke.test","kind":"perpetual"}' | grep -o '"key":"[^"]*"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$KEY" ]; then echo "no key issued"; exit 1; fi
 echo "==> Issued $KEY"

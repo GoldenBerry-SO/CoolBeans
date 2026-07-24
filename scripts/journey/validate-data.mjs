@@ -138,7 +138,9 @@ await check('every issued licence is attributed in the audit log', async () => {
 });
 
 await check('a lifetime licence never carries an expiry', async () => {
-	const bad = await all("SELECT key FROM licenses WHERE tier = 'lifetime' AND expires_at IS NOT NULL");
+	const bad = await all(
+		"SELECT key FROM licenses WHERE kind = 'perpetual' AND expires_at IS NOT NULL",
+	);
 	assert.equal(bad.length, 0, `lifetime licences with an expiry: ${JSON.stringify(bad)}`);
 });
 

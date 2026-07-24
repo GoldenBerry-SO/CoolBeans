@@ -154,7 +154,7 @@ await step(
 await step('the key resolves to a paid lifetime licence for that buyer', async () => {
 	const res = await api('GET', '/admin/products/clementine/keys');
 	const row = res.body.keys.find((k) => k.key === licenseKey);
-	assert.equal(row.tier, 'lifetime');
+	assert.equal(row.kind, 'perpetual');
 	assert.equal(row.status, 'active');
 	assert.equal(row.customer_email, 'buyer@example.com');
 })();
@@ -303,7 +303,7 @@ await step('a subscription checkout issues a yearly key dated to the period end'
 	const row = (await api('GET', '/admin/products/clementine/keys')).body.keys.find(
 		(k) => k.customer_email === 'subscriber@example.com',
 	);
-	assert.equal(row.tier, 'yearly');
+	assert.equal(row.kind, 'subscription');
 	assert.equal(row.expires_at, '2027-07-18T00:00:00.000Z');
 	yearlyKey = row.key;
 })();

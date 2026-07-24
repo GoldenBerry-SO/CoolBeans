@@ -78,10 +78,9 @@ export function registerConnectWebhook(app: OpenAPIHono, deps: AppDeps): void {
 
 		// Everything else runs the shared idempotent path, scoped to this connection: grant
 		// lookup uses its id, and the row is attributed to its account. The connected account's
-		// own data (line items, subscription period) is read through the platform gateway, so
-		// swap it in as `stripe` for the duration. (In production those calls carry a
-		// Stripe-Account: <event.account> header; the gateway seam is where that lives.)
-		const scoped = { ...deps, stripe: gateway };
+		// own data (line items, subscription period) lives in that Stripe account, so read it
+		// through a gateway bound to it (Stripe-Account header) swapped in as `stripe`.
+		const scoped = { ...deps, stripe: gateway.forAccount(connection.stripeAccountId) };
 		await handleStripeEvent(scoped, event, {
 			connectionId: connection.id,
 			accountId: connection.accountId,

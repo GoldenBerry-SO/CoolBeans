@@ -56,6 +56,23 @@ export async function getConnection(
 }
 
 /**
+ * The active connection an account issues through: the seeded self-host default for account 1,
+ * or a cloud vendor's own Connect connection. One active connection per account, so grant
+ * creation and price validation both hang off the right Stripe account for the tenant.
+ */
+export async function getActiveConnectionForAccount(
+	db: Database,
+	accountId: number,
+): Promise<StripeConnection | undefined> {
+	const [row] = await db
+		.select()
+		.from(stripeConnections)
+		.where(and(eq(stripeConnections.accountId, accountId), eq(stripeConnections.status, 'active')))
+		.limit(1);
+	return row;
+}
+
+/**
  * Load a connection by its Stripe account id (acct_...). A Connect webhook names the connected
  * account it came from; stripe_account_id is unique, so that resolves to exactly one
  * connection, which is how a cloud event is bound to its tenant and never another.

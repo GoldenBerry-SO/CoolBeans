@@ -8,7 +8,7 @@ import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { badRequest } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
-import { getConnection } from '../store/grants.js';
+import { getActiveConnectionForAccount } from '../store/grants.js';
 import { assertDistinctTierPrices, assertNotBillingPrice } from './billing.js';
 
 export interface ConnectArgs {
@@ -106,12 +106,12 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	assertNotBillingPrice(deps, args.lifetimePriceId, args.yearlyPriceId);
 	await assertTierPriceModes(deps, args.lifetimePriceId, args.yearlyPriceId);
 
-	// Grants and the webhook secret hang off a connection, and the composite tenant FK
-	// requires that connection to belong to the product's account. Only the seeded self-host
-	// connection exists today (cloud accounts get their own in the Stripe Connect work), so a
-	// product on any other account fails clean here instead of hitting a foreign-key violation.
-	const connection = await getConnection(deps.db);
-	if (!connection || connection.accountId !== args.product.accountId) {
+	// Grants and the webhook secret hang off the account's own active connection (self-host
+	// default, or a cloud vendor's Connect connection), whose composite tenant FK matches the
+	// product's account. A product on an account with no connection fails clean here instead of
+	// hitting a foreign-key violation.
+	const connection = await getActiveConnectionForAccount(deps.db, args.product.accountId);
+	if (!connection) {
 		throw badRequest('Stripe is not connected for this account yet.');
 	}
 

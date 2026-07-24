@@ -31,6 +31,12 @@ export interface SessionLineItem {
 }
 
 export interface StripeGateway {
+	/**
+	 * A gateway that reads a connected account's data (Stripe-Account header on every call).
+	 * Stripe Connect deliveries carry the vendor's account, and their session/subscription
+	 * live in that account, not the platform's. Self-host never calls this.
+	 */
+	forAccount(stripeAccount: string): StripeGateway;
 	/** A Stripe billing-portal URL for a customer, so a subscriber can self-manage (§15). */
 	billingPortalSession(customerId: string, returnUrl: string): Promise<string>;
 	/** Verify a raw webhook body against a signature + secret. Throws on failure. */
@@ -93,7 +99,13 @@ function protocolOf(base: string): 'http' | 'https' {
 	return new URL(base).protocol === 'https:' ? 'https' : 'http';
 }
 
-export function createStripeGateway(secretKey: string, apiBase?: string): StripeGateway {
+export function createStripeGateway(
+	secretKey: string,
+	apiBase?: string,
+	// Set for a Stripe Connect scoped gateway: every read carries Stripe-Account, so it reads
+	// the connected vendor's account, not the platform's. Unset for self-host and platform calls.
+	stripeAccount?: string,
+): StripeGateway {
 	// apiBase points the SDK at a local mock for journey tests; unset in production.
 	const stripe = new Stripe(
 		secretKey,
@@ -101,33 +113,42 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 			? { host: hostOf(apiBase), port: portOf(apiBase), protocol: protocolOf(apiBase) }
 			: undefined,
 	);
+	// Merged into every connected-account read as the SDK's request options.
+	const req: Stripe.RequestOptions | undefined = stripeAccount ? { stripeAccount } : undefined;
 	return {
+		forAccount(account: string) {
+			return createStripeGateway(secretKey, apiBase, account);
+		},
 		constructEvent(rawBody, signature, secret) {
 			return stripe.webhooks.constructEvent(rawBody, signature, secret) as unknown as StripeEvent;
 		},
 		async subscriptionPeriodEnd(subscriptionId) {
-			const sub = await stripe.subscriptions.retrieve(subscriptionId);
+			const sub = await stripe.subscriptions.retrieve(subscriptionId, undefined, req);
 			// Basil (2025-03-31) moved current_period_end onto subscription items.
 			const item = sub.items?.data?.[0] as { current_period_end?: number } | undefined;
 			const end = item?.current_period_end;
 			return end ? new Date(end * 1000).toISOString() : null;
 		},
 		async sessionLineItems(sessionId) {
-			const items = await stripe.checkout.sessions.listLineItems(sessionId, { limit: 10 });
+			const items = await stripe.checkout.sessions.listLineItems(sessionId, { limit: 10 }, req);
 			return items.data
 				.filter((li) => !!li.price?.id)
 				.map((li) => ({ priceId: li.price?.id as string, quantity: li.quantity ?? 1 }));
 		},
 		async invoiceSubscription(invoiceId) {
-			const invoice = (await stripe.invoices.retrieve(invoiceId)) as unknown as Parameters<
-				typeof invoiceSubId
-			>[0];
+			const invoice = (await stripe.invoices.retrieve(
+				invoiceId,
+				undefined,
+				req,
+			)) as unknown as Parameters<typeof invoiceSubId>[0];
 			return invoiceSubId(invoice);
 		},
 		async subscriptionForCharge(chargeId) {
-			const charge = (await stripe.charges.retrieve(chargeId, {
-				expand: ['invoice'],
-			})) as unknown as { invoice?: unknown };
+			const charge = (await stripe.charges.retrieve(
+				chargeId,
+				{ expand: ['invoice'] },
+				req,
+			)) as unknown as { invoice?: unknown };
 			const invoice = charge.invoice;
 			if (invoice && typeof invoice === 'object') {
 				return invoiceSubId(invoice as Parameters<typeof invoiceSubId>[0]);
@@ -137,7 +158,7 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 		},
 		async getCheckoutSession(sessionId) {
 			try {
-				const session = await stripe.checkout.sessions.retrieve(sessionId);
+				const session = await stripe.checkout.sessions.retrieve(sessionId, undefined, req);
 				return session as unknown as Record<string, unknown>;
 			} catch {
 				return null;
@@ -152,7 +173,7 @@ export function createStripeGateway(secretKey: string, apiBase?: string): Stripe
 		},
 		async getPrice(priceId) {
 			try {
-				const price = await stripe.prices.retrieve(priceId);
+				const price = await stripe.prices.retrieve(priceId, undefined, req);
 				// An archived price can never be bought, so a tier pointed at one would take no
 				// sales — the same silent failure as a missing price. Treat it as unusable.
 				if (!price.active) return null;

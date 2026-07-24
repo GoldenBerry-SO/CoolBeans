@@ -88,7 +88,12 @@ export function fakeStripeGateway(
 		prices?: Record<string, { recurring: boolean; interval?: string }>;
 	} = {},
 ) {
-	return {
+	const gateway = {
+		// The fake serves what the test seeded regardless of account, so a scoped gateway is
+		// just itself. Production scopes reads with a Stripe-Account header; that seam is real.
+		forAccount() {
+			return gateway;
+		},
 		constructEvent(rawBody: string, signature: string, _secret: string) {
 			if (signature !== 'valid') throw new Error('Invalid signature');
 			return JSON.parse(rawBody);
@@ -131,6 +136,7 @@ export function fakeStripeGateway(
 			};
 		},
 	};
+	return gateway;
 }
 
 /**

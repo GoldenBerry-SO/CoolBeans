@@ -8,7 +8,7 @@ import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { badRequest, conflict, notFound } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
-import { getConnection, listGrantsForProduct } from '../store/grants.js';
+import { getActiveConnectionForAccount, listGrantsForProduct } from '../store/grants.js';
 import { assertNotBillingPrice } from './billing.js';
 
 export interface CreateGrantArgs {
@@ -58,10 +58,10 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 	assertNotBillingPrice(deps, args.priceId);
 	await assertPriceModeForKind(deps, args.priceId, args.kind);
 
-	// Grants hang off a connection whose composite tenant FK must match the product's account.
-	// Only the seeded self-host connection exists today; cloud accounts get their own with Connect.
-	const connection = await getConnection(deps.db);
-	if (!connection || connection.accountId !== args.product.accountId) {
+	// Grants hang off the account's own active connection (self-host default, or a cloud
+	// vendor's Connect connection), whose composite tenant FK matches the product's account.
+	const connection = await getActiveConnectionForAccount(deps.db, args.product.accountId);
+	if (!connection) {
 		throw badRequest('Stripe is not connected for this account yet.');
 	}
 

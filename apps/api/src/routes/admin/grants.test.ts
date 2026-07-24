@@ -3,7 +3,9 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Config } from '../../config.js';
+import { createCloudConnection } from '../../services/stripe-connection.js';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
+import { rawQuery } from '../../test/pg.js';
 import { createProduct, signUp } from '../../test/seed.js';
 
 let h: TestHarness;
@@ -115,6 +117,39 @@ describe('POST /admin/products/:slug/grants', () => {
 		const active = await grants();
 		expect(active).toHaveLength(1);
 		expect(active[0]?.plan).toBe('Lifetime v2');
+	});
+
+	it('lets a cloud account map a grant on its own connection', async () => {
+		// A second tenant with its own Stripe Connect connection, not the self-host default.
+		const b = await makeHarness({
+			config: {
+				stripe: { secretKey: 'sk', webhookSecret: 'wh' },
+				connect: { secretKey: 'sk_c', webhookSecret: 'wh_c' },
+				billing: { stripeSecretKey: 'sk_b', stripeWebhookSecret: 'wh_b', proPriceId: 'price_pro' },
+				logMagicCodes: true,
+			},
+		});
+		b.deps.stripe = fakeStripeGateway();
+		const alice = await signUp(b.app, b.logger, 'alice@x.test', 'alpha');
+		const aliceId = (
+			await rawQuery<{ id: number }>("SELECT id FROM accounts WHERE name = 'alpha'")
+		)[0].id;
+		await createCloudConnection(b.deps, {
+			accountId: aliceId,
+			stripeAccountId: 'acct_alice_grants',
+			actor: 'test',
+		});
+		await createProduct(
+			b.app,
+			{ slug: 'alice-app', name: 'Alice', key_prefix: 'ALCE', email_from: 'a@x.test' },
+			alice,
+		);
+		const res = await b.app.request('/admin/products/alice-app/grants', {
+			method: 'POST',
+			headers: alice,
+			body: JSON.stringify({ stripe_price_id: 'price_aliceOnce', kind: 'perpetual' }),
+		});
+		expect(res.status).toBe(200);
 	});
 
 	it('rejects mapping our own Pro price to a product', async () => {

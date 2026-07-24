@@ -96,8 +96,9 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	// Validate everything before any side effect (webhook registration, DB write), so a bad
 	// configuration fails clean and leaves nothing half-wired.
 	//
-	// The two tiers must differ: price resolution checks the lifetime column first, so a
-	// shared id would issue every sale for it — a yearly subscription included — as lifetime.
+	// The two prices must differ: connect writes one grant per (connection, price), so a
+	// shared id would collide on that key and leave a single grant, issuing a yearly
+	// subscription as a non-expiring perpetual licence.
 	assertDistinctTierPrices(args.lifetimePriceId, args.yearlyPriceId);
 	// The vendor pastes their own price ids, so a shared Stripe account (which config refuses
 	// in production) is the only way one could be our platform Pro price. Assert it anyway:

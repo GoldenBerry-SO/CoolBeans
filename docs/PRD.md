@@ -51,8 +51,8 @@ licensed, and lightweight.
 ### Goals (v1)
 
 1. Full license lifecycle: issue, activate, validate, deactivate, suspend, revoke, re-enable.
-2. Every license model that matters: **lifetime** (perpetual), **yearly** (subscription), **trial**,
-   and **floating** (concurrent seats).
+2. Every license model that matters: **perpetual** (one-time price), **subscription** (recurring
+   price), **trial**, and **floating** (concurrent seats).
 3. **Payments end-to-end**: Stripe first (5-minute onboarding, auto webhook), PayPal as a second
    provider. Payment in → license out; refund/lapse → license disabled.
 4. **Usage metering** with atomic quota enforcement.
@@ -97,7 +97,7 @@ philosophy, **keygate**, has ~11 GitHub stars, is pre-1.0, Go, and AGPL-with-att
 | Licence | **MIT (truly OSS)** | Fair Source (restricted) | Closed | AGPL + attribution | Closed | Closed |
 | Self-host | **✓** | ✓ (CE) | On-prem (enterprise) | ✓ | — | — |
 | Lightweight self-host (one compose file) | **✓ (Hono, Node)** | — (Rails) | — | ~ (Go) | — | — |
-| Lifetime + subscription | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Perpetual + subscription | **✓** | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Trial licenses | **✓** | ✓ | ✓ | ✓ | ~ | ✓ |
 | Floating licenses | **✓** | ✓ | ✓ | ✓ | — | — |
 | Usage metering | **✓** | — | — | ✓ | — | — |
@@ -144,7 +144,7 @@ marginal cost per validate is ~one indexed read, so we don't need to. Two option
 products are sold (own it, or subscribe):
 
 - **Self-host — free forever.** MIT. Unlimited products, keys, activations, validations, metering,
-  seats. You run it; you own it. This is the "lifetime" equivalent.
+  seats. You run it; you own it. This is the own-it equivalent.
 - **Cloud Free.** One product, up to 500 active licences, unlimited validations, emails from a shared
   sender — enough to ship and to get your first few hundred customers. Validations are never capped,
   and the caps are enforced on *creation* only: going over never disables or deletes anything, and a
@@ -192,14 +192,16 @@ Squeezy shape exactly and therefore omit it. This is a superset-compatible drop-
 The `license` object is identical wherever it appears:
 
 ```json
-{ "key": "CLEM-A2B3-C4D5-E6F7-H8JK", "status": "active", "tier": "yearly",
-  "product": "clementine", "expires_at": "2027-07-17T09:14:00Z" }
+{ "key": "CLEM-A2B3-C4D5-E6F7-H8JK", "status": "active", "kind": "subscription",
+  "plan": "Pro yearly", "product": "clementine", "expires_at": "2027-07-17T09:14:00Z" }
 ```
 
-`status` is `active` or `disabled`. `tier` is `lifetime` | `yearly` | `trial`. `product` is the slug (a
-client fails activation closed unless the product it expects matches). `expires_at` is ISO 8601 or
-`null` for lifetime; it is advisory for yearly (a renewal date, never enforced on the client's own
-clock) and **enforced only for `trial`**.
+`status` is `active` or `disabled`. `kind` is `perpetual` | `subscription` | `trial`. `plan` is a
+free-form vendor label (e.g. "Pro monthly") or `null` — display only, never an authorization input.
+`product` is the slug (a client fails activation closed unless the product it expects matches).
+`expires_at` is ISO 8601 or `null` for perpetual; it is advisory for subscription (a renewal date,
+never enforced on the client's own clock) and **enforced only for `trial`**. Clients branch only on
+`kind === 'trial'` (trials get no offline grace, §11); they otherwise never branch on `kind` or `plan`.
 
 ### Behaviour the contract guarantees
 
@@ -309,7 +311,7 @@ licensing must be a five-minute, few-line job, and the app must keep working off
 ### Offline tokens
 
 On a successful `validate`, Cool Beans returns a compact **Ed25519-signed token** (a JWT-style
-structure) carrying `{ key, status, tier, product, expires_at, instance_id, iat, exp }` with a short
+structure) carrying `{ key, status, kind, plan, product, expires_at, instance_id, iat, exp }` with a short
 TTL (default 7 days). The SDK caches it and can verify it **with no network** against a public key
 bundled in the app. Behaviour:
 
@@ -318,17 +320,17 @@ bundled in the app. Behaviour:
   treat as valid. Past TTL → keep trying online but **stay in a grace state**, never hard-lock on a
   network failure (offline-tolerant contract, §8).
 - Only an explicit `disabled` result (or a signed "disabled" token) revokes access.
-- **A signed `expires_at` in the past ends access, offline included, for every tier.** This is not a
+- **A signed `expires_at` in the past ends access, offline included, whatever the kind.** This is not a
   lockout on an inconclusive answer: the token we issued states the licence ended, so honouring it is
   reading our own credential rather than guessing from a network failure. It is what makes
-  subscription revocation reach a machine that has gone offline. Lifetime licences carry no
+  subscription revocation reach a machine that has gone offline. Perpetual licences carry no
   `expires_at` and are unaffected; trials additionally get no TTL grace, or a blocked endpoint would
   be an unlimited trial.
 - The date in the token is the server's choice, not the licence's raw expiry. It carries a buffer
   (`OFFLINE_TOKEN_BUFFER_DAYS`, default 14) so a subscriber who renews while offline — and is still
   holding a token stamped with the old date — has room to reconnect rather than being locked out of
   something they paid for. The policy lives on the server so it can change without an app update.
-  Never applied to trials, and never to a lifetime licence, which has no expiry to buffer.
+  Never applied to trials, and never to a perpetual licence, which has no expiry to buffer.
 
 Signing keys are per-product (or global), stored server-side with the private half encrypted at rest;
 the public half is what apps embed. Key rotation is supported (multiple active public keys).
@@ -415,29 +417,47 @@ the database level** so two concurrent requests can never both pass a limit chec
 
 ## 13. Payments
 
-Onboarding a product is: reference your existing Stripe prices by their price ids, point one
-webhook at the service, paste the signing secret. For Stripe we automate the webhook creation so
-it's genuinely a five-minute job. Pricing stays in Stripe: Cool Beans stores the price ids and
-never the amount or currency.
+Onboarding a product is: map your existing Stripe prices to the product with license grants, then
+point one webhook per Stripe connection at the service. For Stripe we automate the webhook creation
+so it's genuinely a five-minute job. Pricing stays entirely in Stripe: a grant records only the price
+id, the licence `kind` it issues, and an optional display-only `plan` label. Cool Beans never stores
+the amount, currency, interval, or product name.
+
+### License grants
+
+A **license grant** maps one Stripe price to one product: `{ stripe_price_id, kind, plan? }`, unique
+per (connection, price). A one-time price grants a `perpetual` licence (no expiry); a recurring price
+of any cadence grants a `subscription` licence whose `expires_at` tracks the Stripe period end. The
+`plan` label (e.g. "Pro monthly") is snapshotted onto every licence the grant issues and is display
+only, never an authorization input. Grants are managed through the admin API (§16); they are retired,
+never deleted, so an issued licence always resolves back to the rule that made it.
+
+### Stripe connections
+
+A **Stripe connection** models the vendor's Stripe account. One abstraction, two modes:
+`self_host_default` (one connection seeded per instance from the `STRIPE_*` credential, shared by
+every product on the box) and `cloud_connect` (Stripe Connect, one per account on the hosted service;
+this cloud onboarding is in progress). The webhook signing secret lives on the connection, not the
+product, so a self-host instance has exactly one Stripe webhook endpoint however many products it runs.
 
 ### Stripe (primary)
 
 Signature-verified with the official `stripe` SDK
-(`stripe.webhooks.constructEvent(rawBody, sig, secret)` against the raw request body). "Easy
-onboarding" specifics: `beans stripe connect` (CLI) or an admin action takes your two Stripe
-price ids (one-time lifetime, recurring yearly) and **auto-registers the webhook endpoint via the
-Stripe API**, then stores the signing secret. No manual dashboard wiring.
+(`stripe.webhooks.constructEvent(rawBody, sig, secret)` against the raw request body, using the
+connection's signing secret). "Easy onboarding" specifics: `beans stripe connect` (CLI) or an admin
+action maps a one-time price and an annual price to grants and **auto-registers the connection's
+webhook endpoint via the Stripe API**, then stores the signing secret. No manual dashboard wiring.
 
-`POST /v1/stripe/webhook` handles the table below, plus
+`POST /v1/stripe/webhook` (one endpoint per connection) handles the table below, plus
 `checkout.session.async_payment_succeeded` and `charge.dispute.created` per the integration notes
 that follow:
 
 | Event | Action |
 | --- | --- |
-| `checkout.session.completed` | Resolve product + tier from the session's price id, then `ensureLicenseForSession(session)`: insert the purchase, issue the key, send the key email. Tier from `session.mode` (`payment` = lifetime, `subscription` = yearly); yearly fetches the subscription for `current_period_end` → `expires_at`. |
+| `checkout.session.completed` | Resolve the product and grant from the session's price id, then `ensureLicenseForSession(session)`: insert the purchase, issue the key, send the key email. The grant's `kind` sets the licence: a one-time price issues `perpetual`; a recurring price issues `subscription` and fetches the subscription for `current_period_end` → `expires_at`. The grant's `plan` is snapshotted onto the licence. |
 | `charge.refunded` | Find the purchase via `charge.payment_intent`; disable the key, `reason=refund`. |
 | `customer.subscription.updated` | Find the purchase via `stripe_subscription_id`; set `expires_at = current_period_end`. Covers renewals and scheduled cancels (key stays active, date stops advancing). |
-| `customer.subscription.deleted` | Disable the key, `reason=subscription_canceled`. **This is the yearly-lapse enforcement**, fired at the end of the paid-through period. Lifetime keys are never touched by subscription events; they die only on refund. |
+| `customer.subscription.deleted` | Disable the key, `reason=subscription_canceled`. **This is the subscription-lapse enforcement**, fired at the end of the paid-through period. Perpetual keys are never touched by subscription events; they die only on refund. |
 
 ### Stripe integration notes (validated against 2026 Stripe API, 2026-07-17)
 
@@ -452,12 +472,12 @@ that follow:
   recorded in the audit log but leaves the license active.
 - **Disputes:** handle `charge.dispute.created` → disable the key (`reason=chargeback`), resolved
   via the same payment-intent/subscription fallback. A lost chargeback emits no `charge.refunded`,
-  so without this a charged-back lifetime key would stay active forever.
-- **Dunning must end in cancellation.** `customer.subscription.deleted` (our yearly-lapse signal)
+  so without this a charged-back perpetual key would stay active forever.
+- **Dunning must end in cancellation.** `customer.subscription.deleted` (our subscription-lapse signal)
   only fires when Stripe's post-retry action is *cancel*. `beans stripe connect` verifies/documents
   that setting, and as belt-and-braces `customer.subscription.updated` with `status: "unpaid"` is
-  also treated as a lapse (disable, `reason=subscription_canceled`), since yearly `expires_at` is
-  advisory and never enforced client-side.
+  also treated as a lapse (disable, `reason=subscription_canceled`), since a subscription's
+  `expires_at` is advisory and never enforced client-side.
 - **Quantity is 1.** Created prices/checkout links disable adjustable quantity; one checkout
   session issues exactly one key.
 
@@ -493,7 +513,7 @@ Two channels, both fed by the one idempotent issuance path — no race, no "chec
   the other reads.
 - **Email.** A pluggable sender: **Resend** (a plain `fetch`, works natively on Workers) for the cloud;
   an **SMTP** adapter for self-hosters. Sent from the product's `email_from`. Body: the key, activation
-  instructions, a download link; for yearly, the renewal date and a customer-portal link. Sets
+  instructions, a download link; for a subscription, the renewal date and a customer-portal link. Sets
   `email_sent_at` on success.
 
 ---
@@ -501,7 +521,7 @@ Two channels, both fed by the one idempotent issuance path — no race, no "chec
 ## 15. Customer portal
 
 A hosted self-service page (cloud) / bundled route (self-host) where a buyer enters their key or email
-and can: see their license (status, tier, renewal date), see and **deactivate their activations** to
+and can: see their license (status, kind, renewal date), see and **deactivate their activations** to
 free a seat, download the app, and reach the Stripe/PayPal billing portal to manage or cancel the
 subscription. This is what keeps support out of the seat-management loop.
 
@@ -512,9 +532,14 @@ subscription. This is what keeps support out of the seat-management loop.
 Bearer-token authed (global admin token, or per-product token). **CLI-first (`beans …`) plus a web
 dashboard.**
 
-- Create/update a product (slug, prefix, activation limit + model, email-from, Stripe/PayPal price ids,
-  metrics). Slug and key prefix are immutable after creation — issued keys embed the prefix and clients
-  match on the slug. Prefixes are 2–12 letters, matching the public format gate.
+- Create/update a product (slug, prefix, activation limit + model, email-from, metrics). Slug and key
+  prefix are immutable after creation — issued keys embed the prefix and clients match on the slug.
+  Prefixes are 2 to 12 letters, matching the public format gate.
+- Map Stripe pricing to a product with license grants (§13): `GET /admin/products/:slug/grants` lists
+  them, `POST /admin/products/:slug/grants` maps a price (`{ stripe_price_id, kind, plan? }`), and
+  `POST /admin/products/:slug/grants/:id/retire` retires one (never deleted, so issued licences keep
+  their provenance). `POST /admin/products/:slug/stripe/connect` still maps a one-time and an annual
+  price in a single call and registers the connection's webhook.
 - Issue a key manually for a product + email (reissues, comps, testing).
 - Disable a key (`reason=manual`) and re-enable one.
 - List a product's keys; list a key's activations & usage; look up a purchase by email or provider id.
@@ -541,12 +566,35 @@ CREATE TABLE products (
   activation_model  TEXT NOT NULL DEFAULT 'node_locked'
                       CHECK (activation_model IN ('node_locked','floating')),
   email_from        TEXT NOT NULL,                 -- 'Clementine <receipts@clementine.email>'
-  stripe_price_lifetime TEXT,
-  stripe_price_yearly   TEXT,
+  -- Stripe pricing lives in license_grants (keyed by connection + price), not on the product.
   paypal_plan_yearly    TEXT,
   paypal_sku_lifetime   TEXT,
   created_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE stripe_connections (                  -- the vendor's Stripe account; the secret lives here
+  id                INTEGER PRIMARY KEY,
+  mode              TEXT NOT NULL CHECK (mode IN ('self_host_default','cloud_connect')),
+  stripe_account_id TEXT NOT NULL UNIQUE,          -- acct_…; a price id only means anything within it
+  webhook_secret    TEXT,                          -- per-connection signing secret (NULL on cloud Connect)
+  status            TEXT NOT NULL DEFAULT 'active'
+                      CHECK (status IN ('active','disconnected','disabled')),
+  created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE license_grants (                      -- maps one Stripe price to a product's licence rule
+  id                   INTEGER PRIMARY KEY,
+  stripe_connection_id INTEGER NOT NULL REFERENCES stripe_connections(id),
+  product_id           INTEGER NOT NULL REFERENCES products(id),
+  stripe_price_id      TEXT NOT NULL,
+  kind                 TEXT NOT NULL CHECK (kind IN ('perpetual','subscription')),
+  plan                 TEXT,                        -- free-form vendor label, snapshotted onto licences
+  status               TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(stripe_connection_id, stripe_price_id)    -- one grant resolves a checkout's price
+);
+-- Tenant-scoped: composite FKs tie stripe_connection_id and product_id to the same owning account,
+-- so a grant can never wire a connection and a product from different tenants (enforced in the DB).
 
 CREATE TABLE purchases (
   id                    INTEGER PRIMARY KEY,
@@ -570,9 +618,11 @@ CREATE TABLE licenses (
   product_id      INTEGER NOT NULL REFERENCES products(id),
   purchase_id     INTEGER NOT NULL REFERENCES purchases(id),
   key             TEXT NOT NULL UNIQUE,          -- normalized, no dashes, uppercased
-  tier            TEXT NOT NULL CHECK (tier IN ('lifetime','yearly','trial')),
+  kind            TEXT NOT NULL CHECK (kind IN ('perpetual','subscription','trial')),
+  plan            TEXT,                          -- vendor label snapshotted from the grant; display only
+  issued_grant_id INTEGER REFERENCES license_grants(id),  -- provenance; NULL for trials + manual issues
   status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','disabled')),
-  expires_at      TEXT,                          -- yearly: period_end (advisory); trial: enforced; lifetime: NULL
+  expires_at      TEXT,                          -- subscription: period_end (advisory); trial: enforced; perpetual: NULL
   disabled_at     TEXT,
   disabled_reason TEXT,                          -- 'refund' | 'subscription_canceled' | 'manual' | 'trial_expired' | 'chargeback'
   email_sent_at   TEXT,                          -- NULL lets webhook retries resend the key
@@ -641,8 +691,8 @@ CREATE TABLE audit_log (
 ```
 
 Trial expiry is enforced lazily at `validate`/`verify` (a trial past `expires_at` is treated as
-`disabled`, `reason=trial_expired`) and swept periodically; lifetime/yearly `expires_at` stays advisory
-per §9.
+`disabled`, `reason=trial_expired`) and swept periodically; perpetual/subscription `expires_at` stays
+advisory per §9.
 
 ---
 
@@ -739,8 +789,8 @@ instead).
 - **Scope creep.** Metering/floating/PayPal/portal/dashboard are in v1 to match keygate; keep each
   minimal and resist entitlement-graph/feature-flag territory (a non-goal).
 - **Open questions:** Do we ship native SDK stubs (Swift/C#/C++) in v1 or fast-follow? Is Cloud Free
-  one product or two? Lifetime price on cloud is intentionally omitted (self-host is the "own it"
-  option) — confirm.
+  one product or two? A one-time (own-it) cloud price is intentionally omitted (self-host is the "own
+  it" option) — confirm.
 
 ---
 

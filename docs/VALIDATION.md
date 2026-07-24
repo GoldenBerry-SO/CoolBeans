@@ -10,7 +10,7 @@ counts are intentionally left to the runner so this document cannot drift every 
 | Goal | Status | Where / evidence |
 |---|---|---|
 | Full lifecycle: issue, activate, validate, deactivate, suspend, revoke, re-enable | ✅ | `services/licensing.ts`, `services/lifecycle.ts`; `routes/v1/licensing.test.ts` |
-| Lifetime, yearly, trial, floating models | ✅ | `licenses.tier`, `products.activation_model`; `floating.test.ts`, trial tests |
+| Perpetual, subscription, trial, floating models | ✅ | `licenses.kind`, `products.activation_model`; `floating.test.ts`, trial tests |
 | Payments end-to-end (Stripe first, PayPal second) | ✅ | `services/stripe.ts`, `services/paypal.ts`; `webhooks/*.test.ts` |
 | Usage metering with atomic quotas | ✅ | `services/usage.ts` (guarded UPDATE); `usage.test.ts` |
 | Offline verification via signed tokens | ✅ | `domain/token.ts` (Ed25519), `services/signing.ts`; `token.test.ts`, e2e offline |
@@ -31,7 +31,7 @@ counts are intentionally left to the runner so this document cannot drift every 
 | `POST /v1/heartbeat` — floating lease renew, auto-free on expiry | ✅ | `floating.test.ts` |
 | `POST /v1/usage/increment` + `GET /v1/usage` | ✅ | `usage.test.ts` |
 | LS-parity `/v1/licenses/*` | ✅ | `ls.test.ts` (activated/valid/deactivated + status mapping) |
-| license object shape (`key,status,tier,product,expires_at`) | ✅ | `http/serializers.ts`; asserted throughout |
+| license object shape (`key,status,kind,plan,product,expires_at`) | ✅ | `http/serializers.ts`; asserted throughout |
 
 ## §10 Key generation
 
@@ -70,16 +70,16 @@ Confirm the §9 example is just illustrative; if 12 chars is intended, it's a on
 |---|---|---|
 | Stripe signature verify before parse | ✅ | `routes/webhooks/stripe.ts`; invalid-signature test |
 | checkout.session.completed → ensureLicenseForSession | ✅ | `services/stripe.ts` + `payments.ts` |
-| Basil: current_period_end from subscription item | ✅ | `stripe-gateway.ts`, `subscriptionPeriodEnd`; yearly test |
+| Basil: current_period_end from subscription item | ✅ | `stripe-gateway.ts`, `subscriptionPeriodEnd`; subscription-period test |
 | charge.refunded full-only (partial keeps active) | ✅ | partial-refund test |
 | dispute.created → chargeback disable | ✅ | dispute test |
 | subscription.updated renewal + unpaid-lapse | ✅ | renewal + unpaid tests |
-| subscription.deleted → yearly lapse | ✅ | lapse test |
+| subscription.deleted → subscription lapse | ✅ | lapse test |
 | Idempotency: provider_events + checkout_id UNIQUE | ✅ | redelivery test; event recorded only on success |
 | Email failure → 500, retry only email | ✅ | email-retry test |
 | PayPal parallel adapter | ✅ | `paypal.test.ts` |
 | Purchase lookup for success page | ✅ | `purchase.test.ts` |
-| `beans stripe connect` (prices + webhook) | ✅ | `stripe-connect.test.ts`, CLI `stripe connect` |
+| `beans stripe connect` (prices → grants + webhook) | ✅ | `stripe-connect.test.ts`, CLI `stripe connect` |
 
 ## §14–§16 Delivery, portal, admin
 
@@ -156,7 +156,7 @@ It runs a Stripe stand-in and the API with emails logged rather than sent, then 
 four journeys with hard assertions. No containers, no mail service, nothing to install:
 `node` is enough.
 
-1. **Buy a lifetime licence and run it on three machines.** A signature-valid
+1. **Buy a perpetual licence and run it on three machines.** A signature-valid
    `checkout.session.completed` issues the key; the buyer's email is asserted to carry the
    key, the download link and the product's own from-address; a forged signature is
    rejected; a redelivery produces neither a second key nor a second email; the success
@@ -165,8 +165,8 @@ four journeys with hard assertions. No containers, no mail service, nothing to i
 2. **Refund.** A partial refund leaves the licence alone; a full refund disables it with
    `reason=refund`, the running app sees a definitive (never inconclusive) signal, its
    cached offline token stops working, and a fresh activation is refused.
-3. **Yearly renew and cancel.** The purchase dates the key to the period end, renewal
-   advances it, cancellation disables with `reason=subscription_canceled`, and a lifetime
+3. **Subscription renew and cancel.** The purchase dates the key to the period end, renewal
+   advances it, cancellation disables with `reason=subscription_canceled`, and a perpetual
    licence is proven untouched by subscription events.
 4. **Self-service.** Key recovery emails the keys and never returns them in the response,
    and an unknown address gets a byte-identical answer with no email sent.

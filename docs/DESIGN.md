@@ -27,7 +27,7 @@ alpha, never grey hexes. The old papery `#f6f5f1` survives only as the search-pi
 | `ink` | `#1a1a19` | Primary text, dark buttons |
 | `ink-heading` | `#2a2a26` | Login title |
 | `ink-body` | `#3a3a36` | Nav items, form labels |
-| `ink-secondary` | `#4a4a44` | Table body text, yearly tier |
+| `ink-secondary` | `#4a4a44` | Table body text, subscription kind |
 | `ink-muted` | `#6e6e68` | Table headers, secondary copy |
 | `ink-soft` | `#7a7a72` | Page-heading subtitles |
 | `ink-label` | `#8a8a82` | Sidebar section labels |
@@ -39,9 +39,9 @@ alpha, never grey hexes. The old papery `#f6f5f1` survives only as the search-pi
 | `positive-tint` / `-border` | `#eef7d3` / `#d4e9a6` | Active status pill, connected chip |
 | `danger` | `#b42318` (hover cue `#e0533f`) | Disabled status, destructive hover, delete button |
 | `danger-tint` / `-border` | `#fdecea` / `#f5cdc6` | Disabled status pill, over-limit badge |
-| `warn` | `#b8860b` | Trial tier, retrying, near-limit, Mixed status |
+| `warn` | `#b8860b` | Trial kind, retrying, near-limit, Mixed status |
 | `warn-tint` / `-border` | `#fdf3e0` / `#f0dcae` | Warning badges |
-| `tier-lifetime` | `#6b5bd6` | Lifetime tier text |
+| `tier-lifetime` | `#6b5bd6` | Perpetual kind text (CSS token name kept as-is) |
 | `stripe` | `#635bff` | Stripe-branded connect buttons and provider pill |
 | `meter-ok` / `meter-near` | `#8fbf3f` / `#e8a33a` | Usage bar fills (danger cue `#e0533f` when over) |
 
@@ -97,8 +97,8 @@ Hexis `#7b6cf0`, …), 7px squares with 2px radius.
 - **Stripe button**: `stripe` purple fill, white 600 text — only for Connect Stripe.
 - **Status pill**: 20px radius, 3×10px pad, 11.5px/600; active = positive set, disabled = danger
   set, customer "Mixed" = warn set.
-- **Tier**: plain 12.5px/500 colored text — yearly `ink-secondary`, lifetime `tier-lifetime`,
-  trial `warn`. No pill.
+- **Kind**: plain 12.5px/500 colored text — subscription `ink-secondary`, perpetual `tier-lifetime`,
+  trial `warn`. No pill. (`tier-lifetime` is the CSS token name; it colors the perpetual kind.)
 - **Segmented filter**: 4px-padded `track` container, 10px radius; active segment is a white pill
   with a soft shadow.
 - **Tables**: sentence-case 12px/500 `ink-muted` headers, `0.05`-alpha row dividers, rows hover at

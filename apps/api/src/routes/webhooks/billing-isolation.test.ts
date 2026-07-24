@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { Config } from '../../config.js';
 import { fakeBillingGateway, fakeStripeGateway, makeHarness } from '../../test/harness.js';
-import { createProduct } from '../../test/seed.js';
+import { createProduct, seedGrant } from '../../test/seed.js';
 
 // No underscores past the prefix: connect validates price ids against /^price_[A-Za-z0-9]+$/,
 // and the reserved-price guard only fires once a well-formed id gets that far.
@@ -49,11 +49,18 @@ const planOf = async (h: Awaited<ReturnType<typeof harness>>) => {
 describe('a platform subscription event cannot issue a licence key', () => {
 	it('is not matched to any product by the product webhook', async () => {
 		const h = await harness();
-		await createProduct(h.app, {
+		// A genuinely configured product: its own price maps to a grant. The Pro price still
+		// resolves to nothing, so a Pro payment cannot borrow this product's issuance.
+		const clementine = await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',
 			key_prefix: 'CLEM',
 			email_from: 'r@c.io',
+		});
+		await seedGrant(h.deps, {
+			productId: clementine.id as number,
+			priceId: PRODUCT_PRICE,
+			kind: 'perpetual',
 		});
 
 		// Somebody paying Goldenberry for Pro, delivered to the customer-product endpoint.

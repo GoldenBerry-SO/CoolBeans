@@ -24,7 +24,7 @@ export interface ConnectArgs {
 export interface ConnectResult {
 	lifetimePriceId: string;
 	yearlyPriceId: string;
-	/** Where to point Stripe: the secret is per product, so the global route cannot verify it. */
+	/** Where to point Stripe: the connection-level endpoint, one per connection. */
 	webhookPath: string;
 	/** False when Stripe reused an endpoint and returned no secret (the stored one was kept). */
 	secretRotated: boolean;
@@ -115,9 +115,14 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 		throw badRequest('Stripe is not connected for this account yet.');
 	}
 
+	// One endpoint per connection: register the connection-level path regardless of the URL the
+	// caller passed. Two products registering two per-product URLs would make Stripe mint two
+	// endpoints with two secrets, and only the last would be stored — every later delivery for
+	// the first product would then fail signature verification.
+	const webhookUrl = new URL('/v1/stripe/webhook', args.webhookUrl).toString();
 	const result = await deps.stripe.connect({
 		productSlug: args.product.slug,
-		webhookUrl: args.webhookUrl,
+		webhookUrl,
 		lifetimePriceId: args.lifetimePriceId,
 		yearlyPriceId: args.yearlyPriceId,
 	});
@@ -181,9 +186,9 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	return {
 		lifetimePriceId: result.lifetimePriceId,
 		yearlyPriceId: result.yearlyPriceId,
-		// The secret is stored per product, so only the per-product route can verify
-		// these deliveries. Point Stripe here, not at the global endpoint.
-		webhookPath: `/v1/stripe/webhook/${args.product.slug}`,
+		// One connection, one endpoint: point Stripe at the connection-level path. Every
+		// product on this connection is verified by the one secret stored above.
+		webhookPath: '/v1/stripe/webhook',
 		secretRotated: Boolean(result.webhookSecret),
 		dunning: DUNNING_REQUIREMENT,
 	};

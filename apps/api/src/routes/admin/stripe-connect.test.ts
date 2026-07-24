@@ -199,15 +199,15 @@ describe('connect never degrades a working integration', () => {
 		expect(await connectionSecret()).toBe('whsec_clementine');
 	});
 
-	it('reports the per-product webhook URL to point Stripe at', async () => {
+	it('reports the connection-level webhook URL to point Stripe at', async () => {
 		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
 			method: 'POST',
 			headers: h.adminHeaders,
 			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
 		});
 		const body = (await res.json()) as { webhook_path: string };
-		// The secret is stored per product, so only the per-product route can verify it.
-		expect(body.webhook_path).toBe('/v1/stripe/webhook/clementine');
+		// One endpoint per connection: every product on it shares this path and its one secret.
+		expect(body.webhook_path).toBe('/v1/stripe/webhook');
 	});
 
 	it('tells the operator what their dunning setting has to be (§13)', async () => {

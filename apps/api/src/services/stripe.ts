@@ -4,7 +4,7 @@
 import type { License, Product } from '@coolbeans/db';
 import type { AppDeps } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
-import { type GrantMatch, getGrantByPrice } from '../store/grants.js';
+import { type GrantMatch, getGrantByPrice, SELF_HOST_CONNECTION_ID } from '../store/grants.js';
 import {
 	lastSubscriptionEventAt,
 	markSubscriptionEventApplied,
@@ -60,6 +60,10 @@ export async function ensureLicenseForSession(
 	deps: AppDeps,
 	obj: Record<string, unknown>,
 	actorEventId: string,
+	// The connection the delivery was resolved to. A price maps to a grant only within its
+	// own connection, so a cloud vendor's price never resolves under another tenant. Defaults
+	// to the self-host connection, which is the only one a single-vendor instance has.
+	connectionId: number = SELF_HOST_CONNECTION_ID,
 ): Promise<{ license: License; product: Product } | null> {
 	if (!sessionIsPaid(obj)) {
 		// Async payment methods complete the session before the money settles; the
@@ -81,7 +85,7 @@ export async function ensureLicenseForSession(
 		const sessionId = str(obj, 'id');
 		const lineItems = sessionId ? await deps.stripe.sessionLineItems(sessionId) : [];
 		for (const item of lineItems) {
-			const found = await getGrantByPrice(deps.db, item.priceId);
+			const found = await getGrantByPrice(deps.db, item.priceId, connectionId);
 			if (found) {
 				match = found;
 				paidQuantity = item.quantity;
@@ -169,15 +173,16 @@ export async function ensureLicenseForSession(
 export async function handleStripeEvent(
 	deps: AppDeps,
 	event: StripeEvent,
-	// Known when the delivery arrived on the per-product URL, which is what connectStripe
-	// registers. The global endpoint has no product in the path, so it stays unattributed.
-	accountId?: number,
+	// The connection the delivery resolved to. connectionId scopes grant lookup; accountId
+	// attributes the row to a tenant for the console. Both come from the same connection, so a
+	// self-host instance runs everything on its single default connection.
+	ctx?: { connectionId?: number; accountId?: number },
 ): Promise<void> {
 	const claim = await claimEventStatus(deps, {
 		id: event.id,
 		provider: 'stripe',
 		type: event.type,
-		...(accountId === undefined ? {} : { accountId }),
+		...(ctx?.accountId === undefined ? {} : { accountId: ctx.accountId }),
 	});
 	// Already finished: acknowledge so the provider stops retrying.
 	if (claim.result === 'done') return;
@@ -187,7 +192,7 @@ export async function handleStripeEvent(
 		throw new Error(`Event ${event.id} is already being processed; retry shortly.`);
 	}
 	try {
-		await processStripeEvent(deps, event);
+		await processStripeEvent(deps, event, ctx?.connectionId ?? SELF_HOST_CONNECTION_ID);
 	} catch (err) {
 		await releaseEvent(deps, event.id, claim.token);
 		throw err;
@@ -195,13 +200,17 @@ export async function handleStripeEvent(
 	await completeEvent(deps, event.id, claim.token);
 }
 
-async function processStripeEvent(deps: AppDeps, event: StripeEvent): Promise<void> {
+async function processStripeEvent(
+	deps: AppDeps,
+	event: StripeEvent,
+	connectionId: number,
+): Promise<void> {
 	const obj = event.data.object;
 
 	switch (event.type) {
 		case 'checkout.session.completed':
 		case 'checkout.session.async_payment_succeeded': {
-			await ensureLicenseForSession(deps, obj, event.id);
+			await ensureLicenseForSession(deps, obj, event.id, connectionId);
 			break;
 		}
 

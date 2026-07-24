@@ -3,18 +3,20 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { makeHarness, type TestHarness } from '../../test/harness.js';
-import { createProduct, issueKey } from '../../test/seed.js';
+import { createProduct, issueKey, seedGrant } from '../../test/seed.js';
 
 let h: TestHarness;
+let clementineId: number;
 
 beforeEach(async () => {
 	h = await makeHarness();
-	await createProduct(h.app, {
+	const product = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
 		email_from: 'r@clementine.email',
 	});
+	clementineId = product.id as number;
 });
 
 describe('GET /admin/products/:slug/keys', () => {
@@ -55,6 +57,22 @@ describe('GET /admin/products', () => {
 		const clem = body.products.find((p) => p.slug === 'clementine');
 		expect(clem?.keysTotal).toBe(2);
 		expect(clem?.keysActive).toBe(1);
+	});
+
+	it('marks a product connected once a price maps to it', async () => {
+		const connectedOf = async () => {
+			const res = await h.app.request('/admin/products', { headers: h.adminHeaders });
+			const body = (await res.json()) as { products: { slug: string; connected: boolean }[] };
+			return body.products.find((p) => p.slug === 'clementine')?.connected;
+		};
+		// No grant yet: the card shows "not connected".
+		expect(await connectedOf()).toBe(false);
+		await seedGrant(h.deps, {
+			productId: clementineId,
+			priceId: 'price_clemLife',
+			kind: 'perpetual',
+		});
+		expect(await connectedOf()).toBe(true);
 	});
 
 	it('never ships webhook secrets or token hashes in the list', async () => {

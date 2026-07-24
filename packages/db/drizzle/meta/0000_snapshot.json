@@ -1,5 +1,5 @@
 {
-  "id": "3b390c12-45dd-4d93-841c-3a48530df677",
+  "id": "acf85398-f399-4a4f-b195-814762ea863d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -709,6 +709,165 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.license_grants": {
+      "name": "license_grants",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stripe_connection_id": {
+          "name": "stripe_connection_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stripe_price_id": {
+          "name": "stripe_price_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "product_id": {
+          "name": "product_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "plan": {
+          "name": "plan",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+        }
+      },
+      "indexes": {
+        "idx_license_grants_product_status": {
+          "name": "idx_license_grants_product_status",
+          "columns": [
+            {
+              "expression": "product_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "license_grants_account_id_accounts_id_fk": {
+          "name": "license_grants_account_id_accounts_id_fk",
+          "tableFrom": "license_grants",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "fk_license_grants_connection": {
+          "name": "fk_license_grants_connection",
+          "tableFrom": "license_grants",
+          "tableTo": "stripe_connections",
+          "columnsFrom": [
+            "account_id",
+            "stripe_connection_id"
+          ],
+          "columnsTo": [
+            "account_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "fk_license_grants_product": {
+          "name": "fk_license_grants_product",
+          "tableFrom": "license_grants",
+          "tableTo": "products",
+          "columnsFrom": [
+            "account_id",
+            "product_id"
+          ],
+          "columnsTo": [
+            "account_id",
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_license_grants_connection_price": {
+          "name": "uq_license_grants_connection_price",
+          "nullsNotDistinct": false,
+          "columns": [
+            "stripe_connection_id",
+            "stripe_price_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "ck_license_grants_kind": {
+          "name": "ck_license_grants_kind",
+          "value": "\"license_grants\".\"kind\" IN ('perpetual','subscription')"
+        },
+        "ck_license_grants_status": {
+          "name": "ck_license_grants_status",
+          "value": "\"license_grants\".\"status\" IN ('active','retired')"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.license_revocations": {
       "name": "license_revocations",
       "schema": "",
@@ -835,6 +994,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "issued_grant_id": {
+          "name": "issued_grant_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -923,6 +1088,19 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "licenses_issued_grant_id_license_grants_id_fk": {
+          "name": "licenses_issued_grant_id_license_grants_id_fk",
+          "tableFrom": "licenses",
+          "tableTo": "license_grants",
+          "columnsFrom": [
+            "issued_grant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -944,6 +1122,116 @@
         "ck_licenses_status": {
           "name": "ck_licenses_status",
           "value": "\"licenses\".\"status\" IN ('active','disabled')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.stripe_connections": {
+      "name": "stripe_connections",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'stripe'"
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stripe_account_id": {
+          "name": "stripe_account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "livemode": {
+          "name": "livemode",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "webhook_secret": {
+          "name": "webhook_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "stripe_connections_account_id_accounts_id_fk": {
+          "name": "stripe_connections_account_id_accounts_id_fk",
+          "tableFrom": "stripe_connections",
+          "tableTo": "accounts",
+          "columnsFrom": [
+            "account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "uq_stripe_connections_account": {
+          "name": "uq_stripe_connections_account",
+          "nullsNotDistinct": false,
+          "columns": [
+            "stripe_account_id"
+          ]
+        },
+        "uq_stripe_connections_tenant": {
+          "name": "uq_stripe_connections_tenant",
+          "nullsNotDistinct": false,
+          "columns": [
+            "account_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "ck_stripe_connections_mode": {
+          "name": "ck_stripe_connections_mode",
+          "value": "\"stripe_connections\".\"mode\" IN ('cloud_connect','self_host_default')"
+        },
+        "ck_stripe_connections_status": {
+          "name": "ck_stripe_connections_status",
+          "value": "\"stripe_connections\".\"status\" IN ('active','disconnected','disabled')"
         }
       },
       "isRLSEnabled": false
@@ -1372,24 +1660,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "stripe_price_lifetime": {
-          "name": "stripe_price_lifetime",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stripe_price_yearly": {
-          "name": "stripe_price_yearly",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stripe_webhook_secret": {
-          "name": "stripe_webhook_secret",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "paypal_plan_yearly": {
           "name": "paypal_plan_yearly",
           "type": "text",
@@ -1469,6 +1739,14 @@
           "columns": [
             "key_prefix"
           ]
+        },
+        "uq_products_tenant": {
+          "name": "uq_products_tenant",
+          "nullsNotDistinct": false,
+          "columns": [
+            "account_id",
+            "id"
+          ]
         }
       },
       "policies": {},
@@ -1495,6 +1773,12 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true
+        },
+        "stripe_connection_id": {
+          "name": "stripe_connection_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         },
         "provider": {
           "name": "provider",
@@ -1604,6 +1888,19 @@
           "tableTo": "products",
           "columnsFrom": [
             "product_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "purchases_stripe_connection_id_stripe_connections_id_fk": {
+          "name": "purchases_stripe_connection_id_stripe_connections_id_fk",
+          "tableFrom": "purchases",
+          "tableTo": "stripe_connections",
+          "columnsFrom": [
+            "stripe_connection_id"
           ],
           "columnsTo": [
             "id"

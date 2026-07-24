@@ -9,8 +9,8 @@ export interface Product {
 	activationLimit: number;
 	activationModel: 'node_locked' | 'floating';
 	emailFrom: string;
-	stripePriceLifetime: string | null;
-	stripePriceYearly: string | null;
+	/** True once at least one Stripe price maps to this product (a license grant). */
+	connected: boolean;
 	keysTotal: number;
 	keysActive: number;
 }

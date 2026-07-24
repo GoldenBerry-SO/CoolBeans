@@ -4,6 +4,7 @@
 import { index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
 import { isoNow } from './columns.js';
 import { products } from './products.js';
+import { stripeConnections } from './stripe-connections.js';
 
 export const purchases = pgTable(
 	'purchases',
@@ -12,6 +13,9 @@ export const purchases = pgTable(
 		productId: integer('product_id')
 			.notNull()
 			.references(() => products.id),
+		// The Stripe connection this purchase came through (null for paypal/manual). Scopes
+		// refund/dispute/subscription resolution to the right tenant on cloud.
+		stripeConnectionId: integer('stripe_connection_id').references(() => stripeConnections.id),
 		provider: text('provider', { enum: ['stripe', 'paypal', 'manual'] })
 			.notNull()
 			.default('stripe'),

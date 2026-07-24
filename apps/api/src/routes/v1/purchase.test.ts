@@ -8,19 +8,24 @@ import {
 	makeHarness,
 	type TestHarness,
 } from '../../test/harness.js';
-import { createProduct } from '../../test/seed.js';
+import { createProduct, seedGrant } from '../../test/seed.js';
 
 let h: TestHarness;
 
 beforeEach(async () => {
 	h = await makeHarness();
 	h.deps.config.stripe = { secretKey: 'sk_test', webhookSecret: 'whsec_test' };
-	h.deps.stripe = fakeStripeGateway();
-	await createProduct(h.app, {
+	h.deps.stripe = fakeStripeGateway({}, { cs_race: ['price_clem'], cs_early: ['price_clem'] });
+	const product = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
 		email_from: 'r@clementine.email',
+	});
+	await seedGrant(h.deps, {
+		productId: product.id as number,
+		priceId: 'price_clem',
+		kind: 'perpetual',
 	});
 });
 
@@ -89,7 +94,7 @@ describe('GET /v1/purchase/session/:id', () => {
 		// The paid session exists at Stripe but no webhook has arrived yet.
 		h.deps.stripe = fakeStripeGateway(
 			{},
-			{},
+			{ cs_early: ['price_clem'] },
 			{
 				sessions: {
 					cs_early: {

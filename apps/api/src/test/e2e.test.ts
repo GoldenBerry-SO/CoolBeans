@@ -4,9 +4,13 @@
 import { CoolBeans } from '@coolbeans/sdk';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from './harness.js';
-import { createProduct, defineMetric, issueKey, post } from './seed.js';
+import { createProduct, defineMetric, issueKey, post, seedGrant } from './seed.js';
 
 let h: TestHarness;
+// Clementine's two Stripe prices, mapped to grants in beforeEach. A checkout resolves to a
+// product only through its line-item price now, so the Stripe flows below ride on these.
+const PERPETUAL_PRICE = 'price_clemLife';
+const SUBSCRIPTION_PRICE = 'price_clemYear';
 
 /** Route the SDK's absolute-URL fetch into the in-process app (no socket needed). */
 function appFetch(app: TestHarness['app']): typeof fetch {
@@ -38,12 +42,22 @@ function sdk(product: string) {
 
 beforeEach(async () => {
 	h = await makeHarness();
-	await createProduct(h.app, {
+	const product = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
 		email_from: 'r@clementine.email',
 		activation_limit: 3,
+	});
+	await seedGrant(h.deps, {
+		productId: product.id as number,
+		priceId: PERPETUAL_PRICE,
+		kind: 'perpetual',
+	});
+	await seedGrant(h.deps, {
+		productId: product.id as number,
+		priceId: SUBSCRIPTION_PRICE,
+		kind: 'subscription',
 	});
 });
 
@@ -114,7 +128,7 @@ describe('E2E: seat exhaustion and recovery', () => {
 describe('E2E: disabled key is the definitive revocation signal', () => {
 	it('refund disables; validate returns disabled, activate fails closed, unknown stays 404', async () => {
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
-		h.deps.stripe = fakeStripeGateway();
+		h.deps.stripe = fakeStripeGateway({}, { cs_1: [PERPETUAL_PRICE] });
 		// Buy via Stripe.
 		await h.app.request('/v1/stripe/webhook', {
 			method: 'POST',
@@ -278,7 +292,7 @@ describe('E2E: metered app', () => {
 describe('E2E: Stripe lifetime purchase lifecycle (gateway faked at the seam)', () => {
 	it('checkout -> email -> SDK activates + verifies offline -> refund -> definitive lockout', async () => {
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
-		h.deps.stripe = fakeStripeGateway();
+		h.deps.stripe = fakeStripeGateway({}, { cs_life: [PERPETUAL_PRICE] });
 
 		// 1. The customer buys: Stripe delivers checkout.session.completed (paid).
 		await stripeWebhook('evt_buy', 'checkout.session.completed', {
@@ -322,7 +336,10 @@ describe('E2E: Stripe yearly subscription lifecycle (gateway faked at the seam)'
 	it('subscribe -> renewal advances expiry -> lapse disables', async () => {
 		const firstPeriodEnd = '2027-07-17T00:00:00.000Z';
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
-		h.deps.stripe = fakeStripeGateway({ sub_year: firstPeriodEnd });
+		h.deps.stripe = fakeStripeGateway(
+			{ sub_year: firstPeriodEnd },
+			{ cs_year: [SUBSCRIPTION_PRICE] },
+		);
 
 		await stripeWebhook('evt_sub', 'checkout.session.completed', {
 			id: 'cs_year',
@@ -363,7 +380,7 @@ describe('E2E: Stripe yearly subscription lifecycle (gateway faked at the seam)'
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
 		h.deps.stripe = fakeStripeGateway(
 			{},
-			{},
+			{ cs_race2: [PERPETUAL_PRICE] },
 			{
 				sessions: {
 					cs_race2: {

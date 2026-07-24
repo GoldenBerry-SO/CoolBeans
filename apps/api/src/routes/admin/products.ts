@@ -1,14 +1,13 @@
 // ABOUTME: Admin product routes (PRD §16) — create/update products and define metered metrics.
 // ABOUTME: Bearer-token authed upstream; uniqueness violations surface as the uniform envelope.
 
-import { applied, licenses, metrics, products } from '@coolbeans/db';
+import { applied, licenseGrants, licenses, metrics, products } from '@coolbeans/db';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { badRequest, conflict, planLimitReached } from '../../http/errors.js';
-import { assertDistinctTierPrices, assertNotBillingPrice } from '../../services/billing.js';
 import { limitsFor } from '../../services/plan-limits.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
@@ -38,9 +37,7 @@ const createProductBody = z.object({
 	floating_lease_minutes: z.number().int().positive().optional(),
 	email_from: z.string().min(1),
 	download_url: z.string().url().optional(),
-	stripe_price_lifetime: z.string().optional(),
-	stripe_price_yearly: z.string().optional(),
-	stripe_webhook_secret: z.string().optional(),
+	// Stripe pricing is wired via /stripe/connect (license_grants), not on the product.
 	paypal_plan_yearly: z.string().optional(),
 	paypal_sku_lifetime: z.string().optional(),
 	archived: z.boolean().optional(),
@@ -57,14 +54,12 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 	admin.post('/products', async (c) => {
 		const account = accountScope(c);
 		const body = await readBody(c, createProductBody);
-		assertDistinctTierPrices(body.stripe_price_lifetime, body.stripe_price_yearly);
 		// Global on purpose: slug and key_prefix are unique across the instance because
 		// both appear in public URLs. The message deliberately does not say which account
 		// holds it, so this cannot be used to enumerate other tenants.
 		if (await getProductBySlugGlobal(deps.db, body.slug)) {
 			throw conflict('product_exists', `A product with slug "${body.slug}" already exists.`);
 		}
-		assertNotBillingPrice(deps, body.stripe_price_lifetime, body.stripe_price_yearly);
 		try {
 			// The cap is enforced under a lock on the accounts row, because on Postgres the
 			// guarded INSERT alone is not enough: concurrent creates each count products
@@ -84,15 +79,14 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			const insertStatement = sql`
 				INSERT INTO products (
 					account_id, slug, name, key_prefix, activation_limit, activation_model,
-					floating_lease_minutes, email_from, download_url, stripe_price_lifetime,
-					stripe_price_yearly, stripe_webhook_secret, paypal_plan_yearly, paypal_sku_lifetime
+					floating_lease_minutes, email_from, download_url,
+					paypal_plan_yearly, paypal_sku_lifetime
 				)
 				SELECT
 					${account.id}, ${body.slug}, ${body.name}, ${body.key_prefix.toUpperCase()},
 					${body.activation_limit ?? 3}, ${body.activation_model ?? 'node_locked'},
 					${body.floating_lease_minutes ?? 30}, ${body.email_from},
-					${body.download_url ?? null}, ${body.stripe_price_lifetime ?? null},
-					${body.stripe_price_yearly ?? null}, ${body.stripe_webhook_secret ?? null},
+					${body.download_url ?? null},
 					${body.paypal_plan_yearly ?? null}, ${body.paypal_sku_lifetime ?? null}
 				WHERE ${guard}
 				RETURNING id
@@ -139,15 +133,6 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 		if (body.slug !== undefined || body.key_prefix !== undefined) {
 			throw badRequest('slug and key_prefix cannot be changed after creation.');
 		}
-		assertNotBillingPrice(deps, body.stripe_price_lifetime, body.stripe_price_yearly);
-		// Check the resulting state, not just the patch: setting one tier to the id the other
-		// already holds is the same collision, so merge the patch over the stored values first.
-		assertDistinctTierPrices(
-			body.stripe_price_lifetime !== undefined
-				? body.stripe_price_lifetime
-				: product.stripePriceLifetime,
-			body.stripe_price_yearly !== undefined ? body.stripe_price_yearly : product.stripePriceYearly,
-		);
 		const patch: Record<string, unknown> = {};
 		if (body.name !== undefined) patch.name = body.name;
 		if (body.activation_limit !== undefined) patch.activationLimit = body.activation_limit;
@@ -156,11 +141,6 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			patch.floatingLeaseMinutes = body.floating_lease_minutes;
 		if (body.email_from !== undefined) patch.emailFrom = body.email_from;
 		if (body.download_url !== undefined) patch.downloadUrl = body.download_url;
-		if (body.stripe_price_lifetime !== undefined)
-			patch.stripePriceLifetime = body.stripe_price_lifetime;
-		if (body.stripe_price_yearly !== undefined) patch.stripePriceYearly = body.stripe_price_yearly;
-		if (body.stripe_webhook_secret !== undefined)
-			patch.stripeWebhookSecret = body.stripe_webhook_secret;
 		if (body.paypal_plan_yearly !== undefined) patch.paypalPlanYearly = body.paypal_plan_yearly;
 		if (body.paypal_sku_lifetime !== undefined) patch.paypalSkuLifetime = body.paypal_sku_lifetime;
 		if (body.archived !== undefined)
@@ -203,12 +183,22 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			if (row.status === 'active') entry.active += 1;
 			counts.set(row.productId, entry);
 		}
+		// A product is "connected" to Stripe once at least one price maps to it (a grant).
+		// That replaced the old per-product price columns; the console reads this flag.
+		const connected = new Set<number>();
+		for (const row of await deps.db
+			.select({ productId: licenseGrants.productId })
+			.from(licenseGrants)
+			.where(eq(licenseGrants.status, 'active'))) {
+			if (visibleIds.has(row.productId)) connected.add(row.productId);
+		}
 		return c.json({
 			ok: true,
-			products: visible.map(({ stripeWebhookSecret: _secret, productTokenHash: _hash, ...p }) => ({
+			products: visible.map(({ productTokenHash: _hash, ...p }) => ({
 				...p,
 				keysTotal: counts.get(p.id)?.total ?? 0,
 				keysActive: counts.get(p.id)?.active ?? 0,
+				connected: connected.has(p.id),
 			})),
 		});
 	});

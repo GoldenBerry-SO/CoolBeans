@@ -3,13 +3,14 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
-import { createProduct, defineMetric, issueKey, post } from '../../test/seed.js';
+import { createProduct, defineMetric, issueKey, post, seedGrant } from '../../test/seed.js';
 
 let h: TestHarness;
+let product: Record<string, unknown>;
 
 beforeEach(async () => {
 	h = await makeHarness();
-	await createProduct(h.app, {
+	product = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
@@ -63,10 +64,10 @@ describe('GET /admin/events', () => {
 	it('lists processed provider events newest first', async () => {
 		h.deps.config.stripe = { secretKey: 'sk_test', webhookSecret: 'whsec_test' };
 		h.deps.stripe = fakeStripeGateway({}, { cs_evt: ['price_x'] });
-		await h.app.request('/admin/products/clementine', {
-			method: 'PATCH',
-			headers: h.adminHeaders,
-			body: JSON.stringify({ stripe_price_lifetime: 'price_x' }),
+		await seedGrant(h.deps, {
+			productId: product.id as number,
+			priceId: 'price_x',
+			kind: 'perpetual',
 		});
 		await h.app.request('/v1/stripe/webhook', {
 			method: 'POST',

@@ -4,7 +4,7 @@
 import type { License, Product } from '@coolbeans/db';
 import type { AppDeps } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
-import { getProductBySlugGlobal, getProductByStripePrice } from '../store/products.js';
+import { type GrantMatch, getGrantByPrice } from '../store/grants.js';
 import {
 	lastSubscriptionEventAt,
 	markSubscriptionEventApplied,
@@ -71,65 +71,49 @@ export async function ensureLicenseForSession(
 		return null;
 	}
 
-	// Resolve the product from what was actually PAID (§13): the line-item price id
-	// maps to exactly one product and tier, and it is set in Stripe rather than by
-	// whoever opened the checkout session. metadata.product / client_reference_id is
-	// only a fallback — trusting a label over the price lets a stale or mislabelled
-	// landing page issue another product's key for this payment.
-	const metadata = (obj.metadata as Record<string, unknown> | undefined) ?? {};
-	const slug =
-		(typeof metadata.product === 'string' ? metadata.product : null) ??
-		str(obj, 'client_reference_id');
-	let product: Product | undefined;
-	let priceKind: 'perpetual' | 'subscription' | null = null;
+	// Resolve the grant from what was actually PAID (§13): a line-item price id maps to
+	// exactly one grant on the connection, which names the product, the kind, and the plan.
+	// There is NO metadata fallback — trusting a label over the price would let a stale or
+	// mislabelled landing page issue another product's key for this payment.
+	let match: GrantMatch | undefined;
 	let paidQuantity = 1;
 	if (deps.stripe) {
 		const sessionId = str(obj, 'id');
 		const lineItems = sessionId ? await deps.stripe.sessionLineItems(sessionId) : [];
 		for (const item of lineItems) {
-			const match = await getProductByStripePrice(deps.db, item.priceId);
-			if (match) {
-				product = match.product;
-				priceKind = match.kind;
+			const found = await getGrantByPrice(deps.db, item.priceId);
+			if (found) {
+				match = found;
 				paidQuantity = item.quantity;
 				break;
 			}
 		}
 	}
-	if (!product && slug) {
-		product = await getProductBySlugGlobal(deps.db, slug);
-		if (product) {
-			deps.logger.info('Stripe checkout resolved by metadata, no price matched', {
-				slug,
-				event: actorEventId,
-			});
-		}
-	}
-	if (!product) {
-		deps.logger.error('Stripe checkout resolves to no product', {
-			slug,
+	if (!match) {
+		const metadata = (obj.metadata as Record<string, unknown> | undefined) ?? {};
+		deps.logger.error('Stripe checkout resolves to no grant', {
 			event: actorEventId,
+			metadata_product: typeof metadata.product === 'string' ? metadata.product : undefined,
 		});
-		// We answer 200 so Stripe stops retrying (a retry cannot fix a price id that
-		// points nowhere), which means a log line is the only trace unless we write one.
-		// Someone paid: record it so the money can be reconciled against a real person.
+		// We answer 200 so Stripe stops retrying (a retry cannot fix a price id that maps to
+		// no grant), which means a log line is the only trace unless we write one. Someone
+		// paid: record it so the money can be reconciled against a real person.
 		await writeAudit(deps.db, {
 			action: 'payment.unfulfilled',
 			actor: `stripe:${actorEventId}`,
 			detail: {
-				reason: 'no_product_for_checkout',
+				reason: 'no_grant_for_checkout',
 				checkout_id: str(obj, 'id'),
 				email: str(obj, 'customer_email'),
 				amount_total: num(obj, 'amount_total'),
 				currency: str(obj, 'currency'),
-				slug,
 			},
 		});
 		return null;
 	}
+	const { product, grant } = match;
 
-	const mode = str(obj, 'mode');
-	const kind = priceKind ?? (mode === 'subscription' ? 'subscription' : 'perpetual');
+	const kind = grant.kind;
 	const subscriptionId = str(obj, 'subscription');
 	let expiresAt: string | null = null;
 	if (kind === 'subscription' && subscriptionId && deps.stripe) {
@@ -145,6 +129,9 @@ export async function ensureLicenseForSession(
 		eventId: actorEventId,
 		checkoutId: str(obj, 'id') ?? actorEventId,
 		kind,
+		plan: grant.plan,
+		issuedGrantId: grant.id,
+		stripeConnectionId: grant.stripeConnectionId,
 		email,
 		expiresAt,
 		customerId: str(obj, 'customer'),

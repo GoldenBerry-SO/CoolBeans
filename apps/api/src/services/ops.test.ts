@@ -3,15 +3,16 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { makeHarness, type TestHarness } from '../test/harness.js';
-import { createProduct, issueKey, post } from '../test/seed.js';
+import { createProduct, issueKey, post, seedGrant } from '../test/seed.js';
 import { drainOutbox } from './outbox.js';
 import { reapFloatingLeases, sweepExpiredTrials } from './sweep.js';
 
 let h: TestHarness;
+let clementine: Record<string, unknown>;
 
 beforeEach(async () => {
 	h = await makeHarness();
-	await createProduct(h.app, {
+	clementine = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
@@ -89,7 +90,12 @@ describe('outbox backstop', () => {
 	it('resends the key email when inline send failed, and is idempotent', async () => {
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
 		const { fakeStripeGateway } = await import('../test/harness.js');
-		h.deps.stripe = fakeStripeGateway();
+		h.deps.stripe = fakeStripeGateway({}, { cs_1: ['price_clem_life'] });
+		await seedGrant(h.deps, {
+			productId: clementine.id as number,
+			priceId: 'price_clem_life',
+			kind: 'perpetual',
+		});
 		h.email.failNext = true;
 		// Inline send fails -> 500, but a backstop job was enqueued and license issued.
 		await h.app.request('/v1/stripe/webhook', {

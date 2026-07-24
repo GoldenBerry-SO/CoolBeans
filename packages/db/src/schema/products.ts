@@ -2,7 +2,7 @@
 // ABOUTME: Onboarding a product is an admin action; the key prefix resolves keys to their product.
 
 import { sql } from 'drizzle-orm';
-import { check, index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
+import { check, index, integer, pgTable, serial, text, unique } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { isoNow } from './columns.js';
 
@@ -30,9 +30,8 @@ export const products = pgTable(
 		floatingLeaseMinutes: integer('floating_lease_minutes').notNull().default(30),
 		emailFrom: text('email_from').notNull(),
 		downloadUrl: text('download_url'),
-		stripePriceLifetime: text('stripe_price_lifetime'),
-		stripePriceYearly: text('stripe_price_yearly'),
-		stripeWebhookSecret: text('stripe_webhook_secret'),
+		// Stripe pricing now lives in license_grants (issue #62), keyed by (connection, price),
+		// not in per-product columns. PayPal still carries its two ids until it moves too.
 		paypalPlanYearly: text('paypal_plan_yearly'),
 		paypalSkuLifetime: text('paypal_sku_lifetime'),
 		// SHA-256 hex of the per-product token (PRD §16): scopes the success-page
@@ -46,6 +45,8 @@ export const products = pgTable(
 	(t) => [
 		check('ck_products_activation_model', sql`${t.activationModel} IN ('node_locked','floating')`),
 		index('idx_products_account').on(t.accountId),
+		// Composite unique so license_grants can reference (account_id, id) as a tenant FK.
+		unique('uq_products_tenant').on(t.accountId, t.id),
 	],
 );
 

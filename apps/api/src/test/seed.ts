@@ -1,7 +1,36 @@
 // ABOUTME: Test seed helpers — create products and issue keys through the real admin API.
-// ABOUTME: Fixtures never write the DB directly, so tests exercise the same path production does.
+// ABOUTME: Fixtures never write the DB directly, except seedGrant (internal pricing config).
 
+import { licenseGrants } from '@coolbeans/db';
 import type { App } from '../app.js';
+import type { AppDeps } from '../deps.js';
+import { SELF_HOST_CONNECTION_ID } from '../store/grants.js';
+
+/**
+ * Map a Stripe price to a product on the self-host connection, as `beans stripe connect`
+ * would. A direct insert (not an endpoint) so a test can wire one price without a full
+ * two-price connect + a live gateway.
+ */
+export async function seedGrant(
+	deps: AppDeps,
+	args: {
+		productId: number;
+		priceId: string;
+		kind: 'perpetual' | 'subscription';
+		plan?: string | null;
+		accountId?: number;
+	},
+): Promise<void> {
+	await deps.db.insert(licenseGrants).values({
+		accountId: args.accountId ?? 1,
+		stripeConnectionId: SELF_HOST_CONNECTION_ID,
+		stripePriceId: args.priceId,
+		productId: args.productId,
+		kind: args.kind,
+		plan: args.plan ?? null,
+		status: 'active',
+	});
+}
 
 const ADMIN = {
 	Authorization: 'Bearer test-admin-token-0123456789',

@@ -29,6 +29,8 @@ export interface EnsureArgs {
 	checkoutId: string;
 	kind: Kind;
 	plan?: string | null;
+	issuedGrantId?: number | null;
+	stripeConnectionId?: number | null;
 	email: string;
 	expiresAt?: string | null;
 	customerId?: string | null;
@@ -117,6 +119,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 				const purchase = await createPurchase(scoped, {
 					productId: args.product.id,
 					provider: args.provider,
+					stripeConnectionId: args.stripeConnectionId ?? null,
 					providerCheckoutId: args.checkoutId,
 					providerCustomerId: args.customerId ?? null,
 					providerSubscriptionId: args.subscriptionId ?? null,
@@ -130,6 +133,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 					purchaseId: purchase.id,
 					kind: args.kind,
 					plan: args.plan,
+					issuedGrantId: args.issuedGrantId,
 					expiresAt: args.expiresAt,
 					actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
 				});

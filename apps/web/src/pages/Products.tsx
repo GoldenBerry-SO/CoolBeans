@@ -79,7 +79,7 @@ export function ProductsPage() {
 			{products.data?.length ? (
 				<div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
 					{products.data.map((p, i) => {
-						const connected = Boolean(p.stripePriceLifetime || p.stripePriceYearly);
+						const connected = p.connected;
 						return (
 							<Card key={p.slug} className="p-4 sm:p-5">
 								<div className="mb-4 flex items-center gap-3">

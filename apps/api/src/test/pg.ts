@@ -46,6 +46,9 @@ async function reset(client: PGlite): Promise<void> {
 		TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE;
 		INSERT INTO "accounts" ("id", "name", "plan") VALUES (1, 'Default account', 'pro');
 		SELECT setval('accounts_id_seq', 1, true);
+		INSERT INTO "stripe_connections" ("id", "account_id", "provider", "mode", "stripe_account_id", "livemode", "status")
+			VALUES (1, 1, 'stripe', 'self_host_default', 'acct_self_host', false, 'active');
+		SELECT setval('stripe_connections_id_seq', 1, true);
 	`);
 }
 

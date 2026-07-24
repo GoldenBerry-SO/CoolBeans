@@ -4,10 +4,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
 import { rawQuery } from '../../test/pg.js';
-import { createProduct } from '../../test/seed.js';
+import { createProduct, seedGrant } from '../../test/seed.js';
 
 let h: TestHarness;
 const PERIOD_END = '2027-07-17T00:00:00.000Z';
+// Clementine's two prices, mapped to grants in beforeEach. A checkout resolves to a product
+// only through its line-item price now (no metadata fallback), so every issuing checkout
+// below rides on one of these: cs_1 pays the perpetual price, cs_2 the subscription one.
+const PERPETUAL_PRICE = 'price_clem_life';
+const SUBSCRIPTION_PRICE = 'price_clem_year';
 
 async function webhook(app: TestHarness['app'], event: unknown, signature = 'valid') {
 	const res = await app.request('/v1/stripe/webhook', {
@@ -31,12 +36,31 @@ async function keysForEmail(h: TestHarness, email: string) {
 beforeEach(async () => {
 	h = await makeHarness();
 	h.deps.config.stripe = { secretKey: 'sk_test', webhookSecret: 'whsec_test' };
-	h.deps.stripe = fakeStripeGateway({ sub_1: PERIOD_END });
-	await createProduct(h.app, {
+	// cs_1 (and the async settle session) carry the perpetual price; cs_2 the subscription
+	// one. sub_1/sub_2 supply the period ends a subscription licence expires at.
+	h.deps.stripe = fakeStripeGateway(
+		{ sub_1: PERIOD_END, sub_2: PERIOD_END },
+		{
+			cs_1: [PERPETUAL_PRICE],
+			cs_2: [SUBSCRIPTION_PRICE],
+			cs_async: [PERPETUAL_PRICE],
+		},
+	);
+	const product = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
 		email_from: 'Clementine <r@clementine.email>',
+	});
+	await seedGrant(h.deps, {
+		productId: product.id as number,
+		priceId: PERPETUAL_PRICE,
+		kind: 'perpetual',
+	});
+	await seedGrant(h.deps, {
+		productId: product.id as number,
+		priceId: SUBSCRIPTION_PRICE,
+		kind: 'subscription',
 	});
 });
 
@@ -182,17 +206,9 @@ describe('Stripe webhook', () => {
 	});
 
 	it('resolves the product from the line-item price id when metadata is absent', async () => {
-		// Wire the product's price ids (as beans stripe connect would), then send a
-		// checkout with no metadata — e.g. a dashboard Payment Link.
-		await h.app.request('/admin/products/clementine', {
-			method: 'PATCH',
-			headers: h.adminHeaders,
-			body: JSON.stringify({
-				stripe_price_lifetime: 'price_life_1',
-				stripe_price_yearly: 'price_year_1',
-			}),
-		});
-		h.deps.stripe = fakeStripeGateway({}, { cs_nometa: ['price_life_1'] });
+		// The perpetual price is already mapped to a grant (beforeEach). Send a checkout with
+		// no metadata — e.g. a dashboard Payment Link — and it still resolves off the price.
+		h.deps.stripe = fakeStripeGateway({}, { cs_nometa: [PERPETUAL_PRICE] });
 		const r = await webhook(h.app, {
 			id: 'evt_nometa',
 			type: 'checkout.session.completed',
@@ -439,7 +455,7 @@ describe('Stripe webhook', () => {
 		// Parking it under that id alone means issuance can never find it.
 		h.deps.stripe = fakeStripeGateway(
 			{ sub_1: PERIOD_END },
-			{},
+			{ cs_2: [SUBSCRIPTION_PRICE] },
 			{ chargeSubscriptions: { ch_renewal: 'sub_1' } },
 		);
 		await webhook(h.app, {
@@ -467,7 +483,7 @@ describe('Stripe webhook', () => {
 		// and the customer keeps access they charged back.
 		h.deps.stripe = fakeStripeGateway(
 			{ sub_1: PERIOD_END },
-			{},
+			{ cs_2: [SUBSCRIPTION_PRICE] },
 			{ chargeSubscriptions: { ch_dispute: 'sub_1' } },
 		);
 		await webhook(h.app, {
@@ -484,7 +500,7 @@ describe('Stripe webhook', () => {
 	it('clears BOTH parked references when that subscription dispute is won', async () => {
 		h.deps.stripe = fakeStripeGateway(
 			{ sub_1: PERIOD_END },
-			{},
+			{ cs_2: [SUBSCRIPTION_PRICE] },
 			{ chargeSubscriptions: { ch_dispute: 'sub_1' } },
 		);
 		await webhook(h.app, {
@@ -720,12 +736,7 @@ describe('Stripe webhook', () => {
 		// A landing page with adjustable quantity (or quantity: 3) charges three times
 		// and still gets exactly one licence. We cannot un-charge them, but leaving no
 		// record means nobody ever finds out they were short-changed.
-		await h.app.request('/admin/products/clementine', {
-			method: 'PATCH',
-			headers: h.adminHeaders,
-			body: JSON.stringify({ stripe_price_lifetime: 'price_life_1' }),
-		});
-		h.deps.stripe = fakeStripeGateway({}, { cs_bulk: [{ priceId: 'price_life_1', quantity: 3 }] });
+		h.deps.stripe = fakeStripeGateway({}, { cs_bulk: [{ priceId: PERPETUAL_PRICE, quantity: 3 }] });
 		const r = await webhook(h.app, {
 			id: 'evt_bulk',
 			type: 'checkout.session.completed',
@@ -752,12 +763,7 @@ describe('Stripe webhook', () => {
 	});
 
 	it('says nothing about quantity on an ordinary single-unit checkout', async () => {
-		await h.app.request('/admin/products/clementine', {
-			method: 'PATCH',
-			headers: h.adminHeaders,
-			body: JSON.stringify({ stripe_price_lifetime: 'price_life_1' }),
-		});
-		h.deps.stripe = fakeStripeGateway({}, { cs_one: [{ priceId: 'price_life_1', quantity: 1 }] });
+		h.deps.stripe = fakeStripeGateway({}, { cs_one: [{ priceId: PERPETUAL_PRICE, quantity: 1 }] });
 		await webhook(h.app, {
 			id: 'evt_one',
 			type: 'checkout.session.completed',
@@ -822,20 +828,20 @@ describe('Stripe webhook', () => {
 
 describe('product resolution trusts the price, not the label (PRD §13)', () => {
 	it('issues for the product that owns the paid price even when metadata says otherwise', async () => {
-		await createProduct(h.app, {
+		const hexis = await createProduct(h.app, {
 			slug: 'hexis',
 			name: 'Hexis',
 			key_prefix: 'HEX',
 			email_from: 'r@hexis.app',
-			stripe_price_lifetime: 'price_hex_life',
 		});
-		await h.app.request('/admin/products/clementine', {
-			method: 'PATCH',
-			headers: h.adminHeaders,
-			body: JSON.stringify({ stripe_price_lifetime: 'price_clem_life' }),
+		await seedGrant(h.deps, {
+			productId: hexis.id as number,
+			priceId: 'price_hex_life',
+			kind: 'perpetual',
 		});
-		// The buyer paid Clementine's price; a stale landing page labelled the session 'hexis'.
-		h.deps.stripe = fakeStripeGateway({}, { cs_mislabelled: ['price_clem_life'] });
+		// The buyer paid Clementine's price (mapped in beforeEach); a stale landing page
+		// labelled the session 'hexis'. The price wins, so Clementine gets the key.
+		h.deps.stripe = fakeStripeGateway({}, { cs_mislabelled: [PERPETUAL_PRICE] });
 
 		await webhook(h.app, {
 			id: 'evt_mislabelled',
@@ -856,23 +862,5 @@ describe('product resolution trusts the price, not the label (PRD §13)', () => 
 
 		const hexRes = await h.app.request('/admin/products/hexis/keys', { headers: h.adminHeaders });
 		expect(((await hexRes.json()) as { keys: unknown[] }).keys).toHaveLength(0);
-	});
-
-	it('still falls back to metadata when no price matches a product', async () => {
-		h.deps.stripe = fakeStripeGateway({}, { cs_meta_only: ['price_unknown'] });
-		await webhook(h.app, {
-			id: 'evt_meta_only',
-			type: 'checkout.session.completed',
-			data: {
-				object: {
-					id: 'cs_meta_only',
-					mode: 'payment',
-					payment_status: 'paid',
-					customer_email: 'fallback@example.com',
-					metadata: { product: 'clementine' },
-				},
-			},
-		});
-		expect(await keysForEmail(h, 'fallback@example.com')).toHaveLength(1);
 	});
 });

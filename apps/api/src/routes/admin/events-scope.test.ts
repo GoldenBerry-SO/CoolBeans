@@ -54,8 +54,6 @@ describe('provider event attribution', () => {
 				name: 'Alpha',
 				key_prefix: 'ALPHA',
 				email_from: 'a@alpha.test',
-				stripe_price_lifetime: 'price_lifetime_alpha-app',
-				stripe_webhook_secret: 'whsec_alpha',
 			},
 			alice,
 		);

@@ -26,12 +26,13 @@ export const BILLING_PROVIDER = 'stripe_billing';
 const PAYING_STATUSES = new Set(['active', 'trialing', 'past_due']);
 
 /**
- * Refuse to store our own Pro price as a product's price.
+ * Refuse to map our own Pro price to a product via a grant.
  *
- * getProductByStripePrice resolves a product from a price id, so a product carrying the
- * Pro price would make a Cool Beans subscription payment look like a sale of that
- * product, and issue somebody a licence key for it. The webhook side has four layers of
- * separation; this is the one that stops the confusion being configured in.
+ * A checkout resolves to a product through the license grant on its paid price
+ * (getGrantByPrice), so a grant on the Pro price would make a Cool Beans subscription
+ * payment look like a sale of that product, and issue somebody a licence key for it. The
+ * webhook side has four layers of separation; this is the one that stops the confusion
+ * being configured in.
  */
 /**
  * The app another Goldenberry product stamped on this event's object, if any.
@@ -77,10 +78,11 @@ export function assertNotBillingPrice(
 }
 
 /**
- * The two tiers must map to different Stripe prices. Price resolution
- * (getProductByStripePrice) checks the lifetime column before the yearly one, so a shared id
- * would resolve every checkout for it — including a yearly subscription — as a non-expiring
- * lifetime licence. Enforced on every path that sets these columns (connect, create, patch).
+ * The two prices connect maps must differ. connect writes one grant per price (perpetual for
+ * the one-time price, subscription for the recurring one), keyed by (connection, price). A
+ * shared id would collide on that key and leave a single grant, so a yearly subscription
+ * would resolve as a non-expiring perpetual licence. Enforced in connectStripe before any
+ * grant is written.
  */
 export function assertDistinctTierPrices(
 	lifetime: string | null | undefined,

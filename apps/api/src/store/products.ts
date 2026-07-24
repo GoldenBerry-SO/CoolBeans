@@ -94,32 +94,5 @@ export async function listPrefixes(db: Database): Promise<string[]> {
 	return rows.map((r) => r.prefix);
 }
 
-export interface PriceMatch {
-	product: Product;
-	kind: 'perpetual' | 'subscription';
-}
-
-/**
- * Resolve a product (and the grant kind) from a Stripe price id (PRD §13).
- *
- * The lifetime column maps to a perpetual entitlement, the yearly column to a subscription.
- * PR2 replaces these two columns with an arbitrary set of license_grants.
- */
-export async function getProductByStripePrice(
-	db: Database,
-	priceId: string,
-): Promise<PriceMatch | undefined> {
-	const [lifetime] = await db
-		.select()
-		.from(products)
-		.where(eq(products.stripePriceLifetime, priceId))
-		.limit(1);
-	if (lifetime) return { product: lifetime, kind: 'perpetual' };
-	const [yearly] = await db
-		.select()
-		.from(products)
-		.where(eq(products.stripePriceYearly, priceId))
-		.limit(1);
-	if (yearly) return { product: yearly, kind: 'subscription' };
-	return undefined;
-}
+// Price -> product resolution moved to store/grants.ts (getGrantByPrice): a Stripe price now
+// maps to a license_grant on a connection, which names the product, kind, and plan.

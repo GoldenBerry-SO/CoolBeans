@@ -2,11 +2,12 @@
 // ABOUTME: The five-minute job: one call leaves a product fully wired, no manual dashboard steps.
 
 import type { Product } from '@coolbeans/db';
-import { products } from '@coolbeans/db';
+import { licenseGrants, stripeConnections } from '@coolbeans/db';
 import { eq } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { badRequest } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
+import { SELF_HOST_CONNECTION_ID } from '../store/grants.js';
 import { assertDistinctTierPrices, assertNotBillingPrice } from './billing.js';
 
 export interface ConnectArgs {
@@ -109,22 +110,44 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 		lifetimePriceId: args.lifetimePriceId,
 		yearlyPriceId: args.yearlyPriceId,
 	});
-	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running
-	// connect against an existing one returns nothing, so writing it through would
-	// blank the stored secret and every later webhook would fail verification.
-	await deps.db
-		.update(products)
-		.set({
-			stripePriceLifetime: result.lifetimePriceId,
-			stripePriceYearly: result.yearlyPriceId,
-			...(result.webhookSecret ? { stripeWebhookSecret: result.webhookSecret } : {}),
-		})
-		.where(eq(products.id, args.product.id));
+	// Map the two prices to grants on the self-host connection: the one-time price grants a
+	// perpetual licence, the recurring one a subscription. Upsert by (connection, price) so
+	// re-running connect is idempotent and re-wiring an existing price just refreshes it.
+	const mappings = [
+		{ priceId: result.lifetimePriceId, kind: 'perpetual' as const },
+		{ priceId: result.yearlyPriceId, kind: 'subscription' as const },
+	];
+	for (const m of mappings) {
+		await deps.db
+			.insert(licenseGrants)
+			.values({
+				accountId: args.product.accountId,
+				stripeConnectionId: SELF_HOST_CONNECTION_ID,
+				stripePriceId: m.priceId,
+				productId: args.product.id,
+				kind: m.kind,
+				status: 'active',
+			})
+			.onConflictDoUpdate({
+				target: [licenseGrants.stripeConnectionId, licenseGrants.stripePriceId],
+				set: { productId: args.product.id, kind: m.kind, status: 'active', retiredAt: null },
+			});
+	}
+	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running connect
+	// against an existing one returns nothing, so writing it through would blank the stored
+	// secret and every later webhook would fail verification. The secret lives on the
+	// connection now, not the product.
+	if (result.webhookSecret) {
+		await deps.db
+			.update(stripeConnections)
+			.set({ webhookSecret: result.webhookSecret })
+			.where(eq(stripeConnections.id, SELF_HOST_CONNECTION_ID));
+	}
 	await writeAudit(deps.db, {
 		action: 'product.stripe_connected',
 		actor: args.actor ?? 'admin',
 		productId: args.product.id,
-		detail: { lifetime: result.lifetimePriceId, yearly: result.yearlyPriceId },
+		detail: { perpetual: result.lifetimePriceId, subscription: result.yearlyPriceId },
 	});
 	return {
 		lifetimePriceId: result.lifetimePriceId,

@@ -4,6 +4,7 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppDeps } from '../../deps.js';
 import { handleStripeEvent } from '../../services/stripe.js';
+import { getConnection } from '../../store/grants.js';
 import { getProductBySlugGlobal } from '../../store/products.js';
 
 async function process(
@@ -73,12 +74,15 @@ export function registerStripeWebhook(app: OpenAPIHono, deps: AppDeps): void {
 
 	app.post('/v1/stripe/webhook/:product', async (c) => {
 		const product = await getProductBySlugGlobal(deps.db, c.req.param('product'));
+		// The signing secret lives on the connection now (issue #62). Self-host runs on the
+		// default connection; connect stores the secret Stripe returned there.
+		const connection = await getConnection(deps.db);
 		const rawBody = await c.req.text();
 		const result = await process(
 			deps,
 			rawBody,
 			c.req.header('stripe-signature'),
-			product?.stripeWebhookSecret ?? deps.config.stripe?.webhookSecret,
+			connection?.webhookSecret ?? deps.config.stripe?.webhookSecret,
 			product?.accountId,
 		);
 		return c.json(result.body as object, result.status as never);

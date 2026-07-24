@@ -4,6 +4,7 @@
 import { sql } from 'drizzle-orm';
 import { check, index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
 import { isoNow } from './columns.js';
+import { licenseGrants } from './license-grants.js';
 import { products } from './products.js';
 import { purchases } from './purchases.js';
 
@@ -23,6 +24,9 @@ export const licenses = pgTable(
 		// vendor's own label (e.g. "Pro monthly") is the free-form, display-only `plan`.
 		kind: text('kind', { enum: ['perpetual', 'subscription', 'trial'] }).notNull(),
 		plan: text('plan'),
+		// The grant that issued this licence (null for trials and manual issues, which have
+		// no Stripe price behind them). Immutable provenance: answers "which rule made this key".
+		issuedGrantId: integer('issued_grant_id').references(() => licenseGrants.id),
 		status: text('status', { enum: ['active', 'disabled'] })
 			.notNull()
 			.default('active'),

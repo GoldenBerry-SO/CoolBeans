@@ -22,6 +22,8 @@ export async function issueLicense(
 		kind: Kind;
 		/** The vendor's free-form plan label, snapshotted onto the licence. Display only. */
 		plan?: string | null;
+		/** The grant that issued this licence (null for trials and manual issues). */
+		issuedGrantId?: number | null;
 		expiresAt?: string | null;
 		actor: string;
 	},
@@ -48,6 +50,7 @@ export async function issueLicense(
 						key: normalized,
 						kind: args.kind,
 						plan: args.plan ?? null,
+						issuedGrantId: args.issuedGrantId ?? null,
 						status: 'active',
 						expiresAt: args.kind === 'perpetual' ? null : (args.expiresAt ?? null),
 					})

@@ -15,6 +15,10 @@ const state = {
 	charges: new Map(),
 };
 
+// connect stores this on the connection; the journey signs its webhooks with the same value,
+// so deliveries keep verifying after onboarding. Matches run.mjs's default.
+const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_journey';
+
 function json(res, body, status = 200) {
 	const payload = JSON.stringify(body);
 	res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -43,8 +47,41 @@ const server = createServer((req, res) => {
 		return;
 	}
 
+	// Connect onboarding: register the webhook endpoint and hand back a signing secret.
+	if (path === '/v1/webhook_endpoints') {
+		if (req.method === 'GET') {
+			// Idempotency probe: no existing endpoint, so connect creates one.
+			return json(res, { object: 'list', data: [], has_more: false });
+		}
+		if (req.method === 'POST') {
+			req.on('data', () => {});
+			req.on('end', () => {
+				json(res, {
+					id: 'we_journey',
+					object: 'webhook_endpoint',
+					status: 'enabled',
+					secret: WEBHOOK_SECRET,
+				});
+			});
+			return;
+		}
+	}
+
+	// GET /v1/prices/:id — connect confirms each referenced price exists and its billing mode.
+	// A yearly id is recurring (annual); anything else is a one-time price.
+	let m = path.match(/^\/v1\/prices\/([^/]+)$/);
+	if (m && req.method === 'GET') {
+		const yearly = m[1].toLowerCase().includes('year');
+		return json(res, {
+			id: m[1],
+			object: 'price',
+			active: true,
+			recurring: yearly ? { interval: 'year' } : null,
+		});
+	}
+
 	// GET /v1/checkout/sessions/:id/line_items — drives product+kind resolution (§13).
-	let m = path.match(/^\/v1\/checkout\/sessions\/([^/]+)\/line_items$/);
+	m = path.match(/^\/v1\/checkout\/sessions\/([^/]+)\/line_items$/);
 	if (m) {
 		const session = state.sessions.get(m[1]);
 		const priceId = session?.price_id;

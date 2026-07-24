@@ -16,6 +16,7 @@ import { writeAudit } from '../../store/audit.js';
 import { accountProductIds } from '../../store/products.js';
 import { registerAdminBillingRoutes } from './billing.js';
 import { registerAdminExportRoutes } from './export.js';
+import { registerAdminGrantRoutes } from './grants.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
 import { registerAdminSurfaceRoutes } from './surfaces.js';
@@ -28,6 +29,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 
 	registerAdminBillingRoutes(admin, deps);
 	registerAdminProductRoutes(admin, deps);
+	registerAdminGrantRoutes(admin, deps);
 	registerAdminKeyRoutes(admin, deps);
 	registerAdminExportRoutes(admin, deps);
 	registerAdminTeamRoutes(admin, deps);

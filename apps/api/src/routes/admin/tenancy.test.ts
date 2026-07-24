@@ -87,6 +87,9 @@ describe('cross-account reads', () => {
 		['POST', '/admin/products/alpha-app/signing-keys/rotate'],
 		['POST', '/admin/products/alpha-app/token/rotate'],
 		['POST', '/admin/products/alpha-app/stripe/connect'],
+		['GET', '/admin/products/alpha-app/grants'],
+		['POST', '/admin/products/alpha-app/grants'],
+		['POST', '/admin/products/alpha-app/grants/1/retire'],
 	])('%s %s is not reachable from another account', async (method, path) => {
 		const { app, bob } = await twoAccounts();
 		const res = await app.request(path, {
@@ -333,6 +336,9 @@ const COVERED = new Set([
 	'POST /admin/products/:slug/signing-keys/rotate',
 	'POST /admin/products/:slug/token/rotate',
 	'POST /admin/products/:slug/stripe/connect',
+	'GET /admin/products/:slug/grants',
+	'POST /admin/products/:slug/grants',
+	'POST /admin/products/:slug/grants/:id/retire',
 	'POST /admin/keys',
 	'GET /admin/keys/:key',
 	// Cross-account case lives in recent-licenses.test.ts: another account sees an empty list.

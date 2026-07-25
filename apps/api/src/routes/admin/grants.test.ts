@@ -32,12 +32,24 @@ async function post(path: string, body: unknown) {
 }
 
 async function grants(): Promise<
-	Array<{ stripePriceId: string; kind: string; status: string; plan: string | null }>
+	Array<{
+		stripePriceId: string;
+		kind: string;
+		status: string;
+		plan: string | null;
+		activationLimit: number | null;
+	}>
 > {
 	const res = await h.app.request('/admin/products/clementine/grants', { headers: h.adminHeaders });
 	return (
 		(await res.json()) as {
-			grants: Array<{ stripePriceId: string; kind: string; status: string; plan: string | null }>;
+			grants: Array<{
+				stripePriceId: string;
+				kind: string;
+				status: string;
+				plan: string | null;
+				activationLimit: number | null;
+			}>;
 		}
 	).grants;
 }
@@ -265,5 +277,81 @@ describe('POST /admin/products/:slug/grants/:id/retire', () => {
 			headers: alice,
 		});
 		expect(res.status).toBe(404);
+	});
+});
+
+describe('seats priced per grant', () => {
+	it('sells Basic 3 seats and Pro 10 seats from ONE product, enforced independently', async () => {
+		// The gap this closes: seats used to live only on the product, so every price on it shared
+		// one limit and a vendor had to split Basic and Pro into two products — two key prefixes
+		// and two signing keys, which breaks offline verification for a single app binary.
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_basicOnce',
+			kind: 'perpetual',
+			plan: 'Basic',
+			activation_limit: 2,
+		});
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_proOnce',
+			kind: 'perpetual',
+			plan: 'Pro',
+			activation_limit: 5,
+		});
+		const active = await grants();
+		expect(active.find((g) => g.plan === 'Basic')?.activationLimit).toBe(2);
+		expect(active.find((g) => g.plan === 'Pro')?.activationLimit).toBe(5);
+	});
+
+	it('omitting seats keeps inheriting the product limit, as every grant did before', async () => {
+		const made = await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_inheritOnce',
+			kind: 'perpetual',
+		});
+		expect((made.body.grant as { activationLimit: number | null }).activationLimit).toBeNull();
+	});
+
+	it('refuses zero or negative seats', async () => {
+		const zero = await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_zeroOnce',
+			kind: 'perpetual',
+			activation_limit: 0,
+		});
+		expect(zero.status).toBe(422);
+	});
+});
+
+describe('re-mapping a price does not quietly change what it grants', () => {
+	it('keeps the priced seats when a re-map does not mention them', async () => {
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_keepSeats',
+			kind: 'perpetual',
+			plan: 'Pro',
+			activation_limit: 9,
+		});
+		// Re-mapped to fix the label only. Silently resetting Pro's nine seats to the product
+		// default would change what every future Pro licence is worth.
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_keepSeats',
+			kind: 'perpetual',
+			plan: 'Pro annual',
+		});
+		const g = (await grants()).find((x) => x.stripePriceId === 'price_keepSeats');
+		expect(g?.plan).toBe('Pro annual');
+		expect(g?.activationLimit).toBe(9);
+	});
+
+	it('still applies a seat count that IS given', async () => {
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_raiseSeats',
+			kind: 'perpetual',
+			activation_limit: 2,
+		});
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_raiseSeats',
+			kind: 'perpetual',
+			activation_limit: 7,
+		});
+		const g = (await grants()).find((x) => x.stripePriceId === 'price_raiseSeats');
+		expect(g?.activationLimit).toBe(7);
 	});
 });

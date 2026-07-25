@@ -338,6 +338,8 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 	const [priceId, setPriceId] = useState('');
 	const [kind, setKind] = useState<'perpetual' | 'subscription'>('perpetual');
 	const [plan, setPlan] = useState('');
+	// Blank inherits the product's limit, which is what every price did before seats could differ.
+	const [seats, setSeats] = useState('');
 	// The same shape the API enforces, so a fat-fingered id is caught before the round trip.
 	const canAdd = /^price_[A-Za-z0-9]+$/.test(priceId);
 
@@ -360,6 +362,9 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 								{g.kind === 'perpetual' ? 'Perpetual' : 'Subscription'}
 							</span>
 							{g.plan ? <span className="text-[11.5px] text-ink-muted">{g.plan}</span> : null}
+							{g.activationLimit ? (
+								<span className="text-[11.5px] text-ink-faint">{g.activationLimit} seats</span>
+							) : null}
 							<div className="flex-1" />
 							<button
 								type="button"
@@ -400,16 +405,30 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 					value={plan}
 					onChange={(e) => setPlan(e.target.value)}
 				/>
+				<input
+					className={inputClass}
+					placeholder="Seats (optional)"
+					inputMode="numeric"
+					value={seats}
+					onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ''))}
+				/>
 			</div>
 			<AccentButton
 				disabled={!canAdd || create.isPending}
 				onClick={() =>
 					create.mutate(
-						{ slug: product.slug, stripe_price_id: priceId, kind, plan: plan || undefined },
+						{
+							slug: product.slug,
+							stripe_price_id: priceId,
+							kind,
+							plan: plan || undefined,
+							activation_limit: seats ? Number(seats) : undefined,
+						},
 						{
 							onSuccess: () => {
 								setPriceId('');
 								setPlan('');
+								setSeats('');
 							},
 						},
 					)

@@ -19,6 +19,7 @@ import {
 import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, subscriptionExpiry, trialExpiry } from '../../services/issuance.js';
+import { seatLimit } from '../../services/licensing.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
 import { issueOfflineActivation } from '../../services/offline-activation.js';
 import { enqueue } from '../../services/outbox.js';
@@ -106,7 +107,9 @@ export async function adminLicenseView(deps: AppDeps, license: License, product:
 		created_at: license.createdAt,
 		email_sent_at: license.emailSentAt,
 		live_seats: liveSeats,
-		activation_limit: product.activationLimit,
+		// The licence's own snapshot when it has one, so a Pro key shows 10 seats next to a Basic
+		// key's 3 on the same product.
+		activation_limit: seatLimit(license, product),
 		customer_email: purchase?.email ?? null,
 	};
 }

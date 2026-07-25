@@ -3,7 +3,7 @@
 
 import type { LicenseGrant, Product } from '@coolbeans/db';
 import { licenseGrants } from '@coolbeans/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { badRequest, conflict, notFound } from '../http/errors.js';
@@ -19,6 +19,8 @@ export interface CreateGrantArgs {
 	kind: 'perpetual' | 'subscription';
 	/** The vendor's free-form plan label, snapshotted onto every licence this grant issues. */
 	plan?: string | null;
+	/** Seats this price buys. Null inherits the product's limit. */
+	activationLimit?: number | null;
 	actor: string;
 }
 
@@ -79,6 +81,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			productId: args.product.id,
 			kind: args.kind,
 			plan: args.plan ?? null,
+			activationLimit: args.activationLimit ?? null,
 			status: 'active',
 		})
 		.onConflictDoUpdate({
@@ -86,7 +89,12 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			set: {
 				productId: args.product.id,
 				kind: args.kind,
-				plan: args.plan ?? null,
+				// Omitting these keeps what the price already grants rather than clearing it.
+				// Seats decide what future licences are worth, so a caller who re-maps a price to
+				// change its label must not silently reset Pro's ten seats to the product default.
+				// Clearing one is deliberate: retire the grant and map the price again.
+				plan: sql`coalesce(${args.plan ?? null}, ${licenseGrants.plan})`,
+				activationLimit: sql`coalesce(${args.activationLimit ?? null}, ${licenseGrants.activationLimit})`,
 				status: 'active',
 				retiredAt: null,
 			},
@@ -97,7 +105,12 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 		actor: args.actor,
 		accountId: args.product.accountId,
 		productId: args.product.id,
-		detail: { price: args.priceId, kind: args.kind, plan: args.plan ?? null },
+		detail: {
+			price: args.priceId,
+			kind: args.kind,
+			plan: args.plan ?? null,
+			seats: args.activationLimit ?? null,
+		},
 	});
 	return grant;
 }

@@ -358,6 +358,8 @@ export interface Grant {
 	stripePriceId: string;
 	kind: 'perpetual' | 'subscription';
 	plan: string | null;
+	/** Seats this price buys; null inherits the product's limit. */
+	activationLimit: number | null;
 	status: 'active' | 'retired';
 	createdAt: string;
 }
@@ -376,6 +378,7 @@ export interface CreateGrantInput {
 	stripe_price_id: string;
 	kind: 'perpetual' | 'subscription';
 	plan?: string;
+	activation_limit?: number;
 }
 
 export function useCreateGrant() {

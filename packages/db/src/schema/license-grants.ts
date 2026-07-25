@@ -30,6 +30,10 @@ export const licenseGrants = pgTable(
 		kind: text('kind', { enum: ['perpetual', 'subscription'] }).notNull(),
 		// The vendor's free-form plan label, snapshotted onto every licence this grant issues.
 		plan: text('plan'),
+		// Seats this price buys. NULL inherits the product's limit, which is what every grant did
+		// before: a grant already says what duration and what name a price buys, so how MANY it
+		// buys belongs here too. Without it one product cannot sell Basic 3 seats and Pro 10.
+		activationLimit: integer('activation_limit'),
 		// Retired means "issue no new licences", not "erase history": a grant referenced by a
 		// licence stays resolvable for audit. Editing a price or kind means retire + recreate.
 		status: text('status', { enum: ['active', 'retired'] })
@@ -41,6 +45,7 @@ export const licenseGrants = pgTable(
 	(t) => [
 		check('ck_license_grants_kind', sql`${t.kind} IN ('perpetual','subscription')`),
 		check('ck_license_grants_status', sql`${t.status} IN ('active','retired')`),
+		check('ck_license_grants_seats', sql`${t.activationLimit} IS NULL OR ${t.activationLimit} > 0`),
 		// A price is unambiguous within one Stripe connection: one grant resolves a checkout.
 		unique('uq_license_grants_connection_price').on(t.stripeConnectionId, t.stripePriceId),
 		index('idx_license_grants_product_status').on(t.productId, t.status),

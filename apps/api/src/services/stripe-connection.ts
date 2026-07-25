@@ -6,6 +6,7 @@ import { licenseGrants, stripeConnections } from '@coolbeans/db';
 import { and, eq } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
+import { conflict } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
 import { getConnectionByStripeAccount } from '../store/grants.js';
 import type { StripeGateway } from './stripe-gateway.js';
@@ -30,8 +31,15 @@ export function gatewayForConnection(deps: AppDeps, connection: StripeConnection
 /**
  * Record a vendor's authorized Stripe Connect account as a connection. Upsert by
  * stripe_account_id (unique), so re-authorizing reactivates the same connection rather than
- * duplicating it. The account that owns it never changes on re-auth: a Stripe account belongs
- * to exactly one Cool Beans tenant.
+ * duplicating it.
+ *
+ * A Stripe account belongs to exactly one Cool Beans tenant, and that is enforced here rather
+ * than merely documented. The conflict update is guarded on account_id, so authorizing an
+ * account somebody else already holds updates nothing and returns nothing: the caller gets a
+ * plain conflict instead of a success that quietly left the connection under the other tenant
+ * (and instead of one tenant's authorization flipping another's connection back to active).
+ * Guarding it in the statement rather than a read-then-write also settles the race where two
+ * tenants authorize the same account at once.
  */
 export async function createCloudConnection(
 	deps: AppDeps,
@@ -50,8 +58,15 @@ export async function createCloudConnection(
 		.onConflictDoUpdate({
 			target: stripeConnections.stripeAccountId,
 			set: { status: 'active', livemode: args.livemode ?? false },
+			where: eq(stripeConnections.accountId, args.accountId),
 		})
 		.returning();
+	if (!connection) {
+		throw conflict(
+			'stripe_account_linked',
+			'That Stripe account is already connected to a different Cool Beans account.',
+		);
+	}
 	await writeAudit(deps.db, {
 		action: 'stripe.connection_authorized',
 		actor: args.actor,

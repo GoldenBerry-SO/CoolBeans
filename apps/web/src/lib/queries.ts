@@ -338,6 +338,21 @@ export function useConnectStripe() {
 	});
 }
 
+/**
+ * Cloud onboarding: ask for the Stripe authorization URL and send the vendor there. The state
+ * that binds the callback to this account is minted server side, so the browser only ever
+ * carries the URL.
+ */
+export function useStartStripeConnect() {
+	return useMutation({
+		mutationFn: () => api<{ url: string }>('POST', '/admin/stripe/connect/authorize'),
+		onSuccess: (res) => {
+			window.location.href = res.url;
+		},
+		onError: (err) => toast.error('Could not start Stripe Connect', { description: message(err) }),
+	});
+}
+
 export interface Grant {
 	id: number;
 	stripePriceId: string;

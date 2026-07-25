@@ -11,6 +11,7 @@ import { consoleAuth } from '../../middleware/console-auth.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { rotateKey } from '../../services/signing.js';
 import { connectStripe } from '../../services/stripe-connect.js';
+import { startConnectAuthorization } from '../../services/stripe-onboarding.js';
 import { recentValidationCounts } from '../../services/validation-stats.js';
 import { writeAudit } from '../../store/audit.js';
 import { accountProductIds } from '../../store/products.js';
@@ -164,6 +165,20 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			secret_rotated: result.secretRotated,
 			dunning: result.dunning,
 		});
+	});
+
+	// Cloud onboarding: hand the vendor a Stripe URL to authorize their own account. The
+	// state minted here is what binds the callback back to this account, so this endpoint has
+	// to be authenticated even though the callback cannot be.
+	admin.post('/stripe/connect/authorize', async (c) => {
+		const account = accountScope(c);
+		const { url } = await startConnectAuthorization(deps, { accountId: account.id });
+		await writeAudit(deps.db, {
+			action: 'stripe.connect_authorization_started',
+			actor: auditActor(c),
+			accountId: account.id,
+		});
+		return c.json({ ok: true, url });
 	});
 
 	app.route('/admin', admin);

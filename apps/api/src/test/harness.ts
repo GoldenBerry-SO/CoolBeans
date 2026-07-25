@@ -86,6 +86,8 @@ export function fakeStripeGateway(
 		connectSecret?: string;
 		/** Model referenced prices for connect verification; an absent id reads as not found. */
 		prices?: Record<string, { recurring: boolean; interval?: string }>;
+		/** Authorization codes Stripe would honour, mapped to the account they belong to. */
+		connectCodes?: Record<string, { stripeAccountId: string; livemode?: boolean }>;
 	} = {},
 ) {
 	const gateway = {
@@ -125,6 +127,11 @@ export function fakeStripeGateway(
 			if (extras.prices) return extras.prices[priceId] ?? null;
 			const yearly = priceId.toLowerCase().includes('year');
 			return { recurring: yearly, interval: yearly ? 'year' : undefined };
+		},
+		async exchangeConnectCode(code: string) {
+			const found = extras.connectCodes?.[code];
+			if (!found) return null;
+			return { stripeAccountId: found.stripeAccountId, livemode: found.livemode ?? false };
 		},
 		async connect(args: { productSlug: string; lifetimePriceId: string; yearlyPriceId: string }) {
 			// Connect no longer mints prices: it echoes back the vendor's own price ids,

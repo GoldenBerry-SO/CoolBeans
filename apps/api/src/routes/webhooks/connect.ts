@@ -5,6 +5,7 @@ import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppDeps } from '../../deps.js';
 import { handleStripeEvent } from '../../services/stripe.js';
 import { disconnectConnection } from '../../services/stripe-connection.js';
+import { completeConnectAuthorization } from '../../services/stripe-onboarding.js';
 import { writeAudit } from '../../store/audit.js';
 import { getConnectionByStripeAccount } from '../../store/grants.js';
 
@@ -15,6 +16,32 @@ function eventAccount(event: unknown): string | null {
 }
 
 export function registerConnectWebhook(app: OpenAPIHono, deps: AppDeps): void {
+	// Where Stripe returns the vendor after they authorize. Public by necessity (Stripe does
+	// the redirecting), which is exactly why the state carries the identity: the code alone
+	// proves somebody authorized something, never WHO it should be attached to.
+	app.get('/v1/connect/stripe/callback', async (c) => {
+		const code = c.req.query('code');
+		const state = c.req.query('state');
+		const error = c.req.query('error');
+		const console_ = `${deps.config.publicUrl}/products`;
+		if (error) {
+			// The vendor pressed cancel on Stripe's screen. Not a failure, just a no.
+			return c.redirect(`${console_}?stripe=cancelled`);
+		}
+		if (!code || !state) {
+			return c.redirect(`${console_}?stripe=failed`);
+		}
+		try {
+			await completeConnectAuthorization(deps, { code, state });
+		} catch (err) {
+			deps.logger.error('Stripe Connect authorization failed', {
+				message: (err as Error).message,
+			});
+			return c.redirect(`${console_}?stripe=failed`);
+		}
+		return c.redirect(`${console_}?stripe=connected`);
+	});
+
 	app.post('/v1/connect/stripe/webhook', async (c) => {
 		// The platform gateway verifies with the platform Connect secret. One secret verifies
 		// every connected account's events, so this is the only endpoint cloud vendors point at.

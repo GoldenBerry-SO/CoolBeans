@@ -8,6 +8,24 @@ import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
 import { getConnectionByStripeAccount } from '../store/grants.js';
+import type { StripeGateway } from './stripe-gateway.js';
+
+/**
+ * The gateway that reads a connection's OWN Stripe account.
+ *
+ * A price id only means anything inside the account that owns it, so a cloud vendor's price
+ * must be looked up through the platform Connect credential scoped to their connected account
+ * (Stripe-Account). Asking the platform account instead answers "no such price" for every
+ * price a vendor has, which reads as a typo and leaves them unable to sell anything.
+ */
+export function gatewayForConnection(deps: AppDeps, connection: StripeConnection): StripeGateway {
+	if (connection.mode === 'cloud_connect') {
+		if (!deps.connect) throw new Error('Stripe Connect is not configured on this server.');
+		return deps.connect.forAccount(connection.stripeAccountId);
+	}
+	if (!deps.stripe) throw new Error('Stripe is not configured on this server.');
+	return deps.stripe;
+}
 
 /**
  * Record a vendor's authorized Stripe Connect account as a connection. Upsert by

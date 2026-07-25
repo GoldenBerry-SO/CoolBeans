@@ -10,6 +10,8 @@ import { badRequest } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
 import { getActiveConnectionForAccount } from '../store/grants.js';
 import { assertDistinctTierPrices, assertNotBillingPrice } from './billing.js';
+import { gatewayForConnection } from './stripe-connection.js';
+import type { StripeGateway } from './stripe-gateway.js';
 
 export interface ConnectArgs {
 	actor?: string;
@@ -57,12 +59,12 @@ export const DUNNING_REQUIREMENT: DunningRequirement = {
  * checkout and silently issue no key to a paying buyer. Fail loudly here instead.
  */
 async function assertTierPriceModes(
-	deps: AppDeps,
+	// The gateway bound to the connection being wired, NOT deps.stripe: a cloud vendor's
+	// prices live in their connected account and the platform key cannot see them.
+	stripe: StripeGateway,
 	lifetimePriceId: string,
 	yearlyPriceId: string,
 ): Promise<void> {
-	const stripe = deps.stripe;
-	if (!stripe) throw new Error('Stripe is not configured on this server.');
 	const [lifetime, yearly] = await Promise.all([
 		stripe.getPrice(lifetimePriceId),
 		stripe.getPrice(yearlyPriceId),
@@ -104,16 +106,30 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	// in production) is the only way one could be our platform Pro price. Assert it anyway:
 	// the failure it prevents is a Pro payment issuing somebody a licence key.
 	assertNotBillingPrice(deps, args.lifetimePriceId, args.yearlyPriceId);
-	await assertTierPriceModes(deps, args.lifetimePriceId, args.yearlyPriceId);
 
 	// Grants and the webhook secret hang off the account's own active connection (self-host
 	// default, or a cloud vendor's Connect connection), whose composite tenant FK matches the
 	// product's account. A product on an account with no connection fails clean here instead of
-	// hitting a foreign-key violation.
+	// hitting a foreign-key violation. Resolved before the prices are checked, because which
+	// Stripe account holds them is the connection's to say.
 	const connection = await getActiveConnectionForAccount(deps.db, args.product.accountId);
 	if (!connection) {
 		throw badRequest('Stripe is not connected for this account yet.');
 	}
+	// This flow registers a webhook endpoint and stores its signing secret, which is the
+	// self-host shape. A Connect vendor's events already arrive on the platform endpoint and
+	// are verified with the platform secret, so minting them a second endpoint would leave a
+	// secret nothing verifies against. They map prices through the grants API instead.
+	if (connection.mode === 'cloud_connect') {
+		throw badRequest(
+			'This account sells through Stripe Connect, so its events already reach us. Map prices with the grants API instead of connect.',
+		);
+	}
+	await assertTierPriceModes(
+		gatewayForConnection(deps, connection),
+		args.lifetimePriceId,
+		args.yearlyPriceId,
+	);
 
 	// One endpoint per connection: register the connection-level path regardless of the URL the
 	// caller passed. Two products registering two per-product URLs would make Stripe mint two

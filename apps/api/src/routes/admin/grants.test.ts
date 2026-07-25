@@ -119,6 +119,44 @@ describe('POST /admin/products/:slug/grants', () => {
 		expect(active[0]?.plan).toBe('Lifetime v2');
 	});
 
+	it('validates a cloud price through the CONNECTED account, not the platform key', async () => {
+		// The failure this pins: a vendor's price lives in their Stripe account, so looking it
+		// up with the platform key answers "no such price" for everything they sell. The
+		// platform gateway here knows no prices at all; only the Connect one does.
+		const b = await makeHarness({
+			config: {
+				stripe: { secretKey: 'sk', webhookSecret: 'wh' },
+				connect: { secretKey: 'sk_c', webhookSecret: 'wh_c' },
+				billing: { stripeSecretKey: 'sk_b', stripeWebhookSecret: 'wh_b', proPriceId: 'price_pro' },
+				logMagicCodes: true,
+			},
+		});
+		b.deps.stripe = fakeStripeGateway(undefined, undefined, { prices: {} });
+		b.deps.connect = fakeStripeGateway(undefined, undefined, {
+			prices: { price_vendorOnly: { recurring: true, interval: 'month' } },
+		});
+		const alice = await signUp(b.app, b.logger, 'alice@scoped.test', 'scoped');
+		const aliceId = (
+			await rawQuery<{ id: number }>("SELECT id FROM accounts WHERE name = 'scoped'")
+		)[0].id;
+		await createCloudConnection(b.deps, {
+			accountId: aliceId,
+			stripeAccountId: 'acct_scoped',
+			actor: 'test',
+		});
+		await createProduct(
+			b.app,
+			{ slug: 'scoped-app', name: 'Scoped', key_prefix: 'SCOP', email_from: 'a@scoped.test' },
+			alice,
+		);
+		const res = await b.app.request('/admin/products/scoped-app/grants', {
+			method: 'POST',
+			headers: alice,
+			body: JSON.stringify({ stripe_price_id: 'price_vendorOnly', kind: 'subscription' }),
+		});
+		expect(res.status, await res.text()).toBe(200);
+	});
+
 	it('lets a cloud account map a grant on its own connection', async () => {
 		// A second tenant with its own Stripe Connect connection, not the self-host default.
 		const b = await makeHarness({
@@ -130,6 +168,9 @@ describe('POST /admin/products/:slug/grants', () => {
 			},
 		});
 		b.deps.stripe = fakeStripeGateway();
+		// A cloud vendor's prices are read through the platform Connect credential, scoped to
+		// their account, so that is the gateway a cloud grant needs.
+		b.deps.connect = fakeStripeGateway();
 		const alice = await signUp(b.app, b.logger, 'alice@x.test', 'alpha');
 		const aliceId = (
 			await rawQuery<{ id: number }>("SELECT id FROM accounts WHERE name = 'alpha'")

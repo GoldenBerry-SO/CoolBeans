@@ -10,6 +10,8 @@ import { badRequest, conflict, notFound } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
 import { getActiveConnectionForAccount, listGrantsForProduct } from '../store/grants.js';
 import { assertNotBillingPrice } from './billing.js';
+import { gatewayForConnection } from './stripe-connection.js';
+import type { StripeGateway } from './stripe-gateway.js';
 
 export interface CreateGrantArgs {
 	product: Product;
@@ -27,12 +29,13 @@ export interface CreateGrantArgs {
  * paying buyer. Confirm the price exists and its mode before writing the grant.
  */
 async function assertPriceModeForKind(
-	deps: AppDeps,
+	// The gateway bound to the connection the grant will hang off, NOT deps.stripe: a cloud
+	// vendor's price lives in their connected account and is invisible to the platform key.
+	stripe: StripeGateway,
 	priceId: string,
 	kind: 'perpetual' | 'subscription',
 ): Promise<void> {
-	if (!deps.stripe) throw new Error('Stripe is not configured on this server.');
-	const price = await deps.stripe.getPrice(priceId);
+	const price = await stripe.getPrice(priceId);
 	if (!price) {
 		throw badRequest(`No active Stripe price ${priceId} in your account. Check the id.`);
 	}
@@ -56,14 +59,16 @@ async function assertPriceModeForKind(
 export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise<LicenseGrant> {
 	// Same reserved-price guard connect uses: our own Pro price must never resolve to a product.
 	assertNotBillingPrice(deps, args.priceId);
-	await assertPriceModeForKind(deps, args.priceId, args.kind);
 
 	// Grants hang off the account's own active connection (self-host default, or a cloud
 	// vendor's Connect connection), whose composite tenant FK matches the product's account.
+	// Resolved BEFORE the price is checked, because which Stripe account to ask is the
+	// connection's to say.
 	const connection = await getActiveConnectionForAccount(deps.db, args.product.accountId);
 	if (!connection) {
 		throw badRequest('Stripe is not connected for this account yet.');
 	}
+	await assertPriceModeForKind(gatewayForConnection(deps, connection), args.priceId, args.kind);
 
 	const [grant] = await deps.db
 		.insert(licenseGrants)

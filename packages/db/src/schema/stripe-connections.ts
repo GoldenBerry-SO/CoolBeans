@@ -2,7 +2,16 @@
 // ABOUTME: Cloud uses Stripe Connect (one per account); self-host seeds a single default from config.
 
 import { sql } from 'drizzle-orm';
-import { boolean, check, integer, pgTable, serial, text, unique } from 'drizzle-orm/pg-core';
+import {
+	boolean,
+	check,
+	integer,
+	pgTable,
+	serial,
+	text,
+	unique,
+	uniqueIndex,
+} from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { isoNow } from './columns.js';
 
@@ -38,6 +47,14 @@ export const stripeConnections = pgTable(
 		unique('uq_stripe_connections_account').on(t.stripeAccountId),
 		// Composite unique so license_grants can reference (account_id, id) as a tenant FK.
 		unique('uq_stripe_connections_tenant').on(t.accountId, t.id),
+		// One ACTIVE connection per account. Without this an account that authorized a second
+		// Stripe account kept both, and "the account's connection" became whichever row came
+		// back first — so a price could be validated against one Stripe account while its grant
+		// hung off the other, and the webhooks arriving on the first would find no grant.
+		// Partial, so disconnected history is kept.
+		uniqueIndex('uq_stripe_connections_one_active')
+			.on(t.accountId)
+			.where(sql`${t.status} = 'active'`),
 	],
 );
 

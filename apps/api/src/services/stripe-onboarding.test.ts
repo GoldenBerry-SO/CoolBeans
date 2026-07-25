@@ -244,3 +244,34 @@ describe('one Stripe account, one tenant', () => {
 		expect(back.status).toBe('active');
 	});
 });
+
+describe('one active connection per account', () => {
+	it('refuses a second Stripe account while the first is still connected', async () => {
+		// Two active connections made "the account's connection" whichever row came back first,
+		// so a price could be validated against one Stripe account while its grant hung off the
+		// other, and webhooks arriving on the first would find no grant at all.
+		const first = await startConnectAuthorization(h.deps, { accountId: aliceId });
+		await completeConnectAuthorization(h.deps, { code: 'ac_alice', state: first.state });
+		const second = await startConnectAuthorization(h.deps, { accountId: aliceId });
+		await expect(
+			completeConnectAuthorization(h.deps, { code: 'ac_bob', state: second.state }),
+		).rejects.toThrow();
+		const rows = await rawQuery<{ n: number }>(
+			`SELECT count(*)::int n FROM stripe_connections WHERE account_id = ${aliceId} AND status = 'active'`,
+		);
+		expect(rows[0]?.n).toBe(1);
+	});
+
+	it('lets an account switch Stripe accounts after disconnecting the first', async () => {
+		const first = await startConnectAuthorization(h.deps, { accountId: aliceId });
+		await completeConnectAuthorization(h.deps, { code: 'ac_alice', state: first.state });
+		await disconnectConnection(h.deps, { stripeAccountId: 'acct_alice', actor: 'test' });
+		const second = await startConnectAuthorization(h.deps, { accountId: aliceId });
+		const moved = await completeConnectAuthorization(h.deps, {
+			code: 'ac_bob',
+			state: second.state,
+		});
+		expect(moved.stripeAccountId).toBe('acct_bob');
+		expect(moved.status).toBe('active');
+	});
+});

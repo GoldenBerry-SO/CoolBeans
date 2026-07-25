@@ -864,3 +864,24 @@ describe('product resolution trusts the price, not the label (PRD §13)', () => 
 		expect(((await hexRes.json()) as { keys: unknown[] }).keys).toHaveLength(0);
 	});
 });
+
+describe('a subscription must never issue without an expiry', () => {
+	it('refuses (and lets Stripe retry) when the period end cannot be determined', async () => {
+		// The failure this prevents: expires_at null on a subscription licence is a key that
+		// never expires, so a customer who paid for one month holds a perpetual licence and the
+		// SDK grants offline grace forever. Refusing is recoverable; over-issuing is not.
+		h.deps.stripe = fakeStripeGateway({}, { cs_2: [SUBSCRIPTION_PRICE] }); // no period end for sub_1
+		const r = await webhook(
+			h.app,
+			checkout({ id: 'cs_2', mode: 'subscription', subscription: 'sub_noperiod' }),
+		);
+		expect(r.status).toBe(500);
+		expect(await keysForEmail(h, 'buyer@example.com')).toHaveLength(0);
+	});
+
+	it('refuses when a subscription checkout carries no subscription id at all', async () => {
+		const r = await webhook(h.app, checkout({ id: 'cs_2', mode: 'subscription' }));
+		expect(r.status).toBe(500);
+		expect(await keysForEmail(h, 'buyer@example.com')).toHaveLength(0);
+	});
+});

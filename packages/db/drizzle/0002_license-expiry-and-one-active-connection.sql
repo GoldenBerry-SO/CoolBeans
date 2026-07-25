@@ -1,0 +1,3 @@
+CREATE UNIQUE INDEX "uq_stripe_connections_one_active" ON "stripe_connections" USING btree ("account_id") WHERE "stripe_connections"."status" = 'active';--> statement-breakpoint
+ALTER TABLE "licenses" ADD CONSTRAINT "ck_licenses_expiry_matches_kind" CHECK (("licenses"."kind" = 'perpetual' AND "licenses"."expires_at" IS NULL)
+			 OR ("licenses"."kind" IN ('subscription','trial') AND "licenses"."expires_at" IS NOT NULL));

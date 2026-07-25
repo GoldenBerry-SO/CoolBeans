@@ -41,6 +41,16 @@ export const licenses = pgTable(
 	(t) => [
 		check('ck_licenses_kind', sql`${t.kind} IN ('perpetual','subscription','trial')`),
 		check('ck_licenses_status', sql`${t.status} IN ('active','disabled')`),
+		// The kind decides whether an expiry exists, so the database says so too. A subscription
+		// or trial row with a NULL expiry never expires, which hands a monthly customer a
+		// perpetual key and lets the SDK grant offline grace forever; a perpetual row WITH an
+		// expiry cuts off someone who bought it outright. Application code gets this right, and
+		// this is the constraint that keeps it right.
+		check(
+			'ck_licenses_expiry_matches_kind',
+			sql`(${t.kind} = 'perpetual' AND ${t.expiresAt} IS NULL)
+			 OR (${t.kind} IN ('subscription','trial') AND ${t.expiresAt} IS NOT NULL)`,
+		),
 		// The active-licence count behind the plan cap reads exactly this pair.
 		index('idx_licenses_product_status').on(t.productId, t.status),
 	],

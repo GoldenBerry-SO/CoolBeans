@@ -123,6 +123,15 @@ export async function ensureLicenseForSession(
 	if (kind === 'subscription' && subscriptionId && deps.stripe) {
 		expiresAt = await deps.stripe.subscriptionPeriodEnd(subscriptionId);
 	}
+	// A subscription licence with no expiry never expires, so a customer who paid for one month
+	// would hold a perpetual key and the SDK would grant offline grace forever. Throwing makes
+	// this a 500 and Stripe retries, which is the right answer: the period end is usually
+	// available a moment later, and refusing to issue is recoverable where over-issuing is not.
+	if (kind === 'subscription' && !expiresAt) {
+		throw new Error(
+			`Subscription checkout ${str(obj, 'id') ?? actorEventId} has no period end yet (subscription=${subscriptionId ?? 'missing'}); refusing to issue a never-expiring key.`,
+		);
+	}
 	const email =
 		str(obj, 'customer_email') ??
 		str((obj.customer_details as Record<string, unknown>) ?? {}, 'email') ??

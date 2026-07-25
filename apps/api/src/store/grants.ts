@@ -3,7 +3,7 @@
 
 import type { Database, LicenseGrant, Product, StripeConnection } from '@coolbeans/db';
 import { licenseGrants, products, stripeConnections } from '@coolbeans/db';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 
 /**
  * The connection every self-host issuance and the current single-connection flow runs on.
@@ -68,6 +68,10 @@ export async function getActiveConnectionForAccount(
 		.select()
 		.from(stripeConnections)
 		.where(and(eq(stripeConnections.accountId, accountId), eq(stripeConnections.status, 'active')))
+		// A partial unique index allows only one active connection per account, so this returns
+		// that one. Ordered anyway: if the invariant is ever relaxed, "whichever row came back
+		// first" is not a decision anybody made.
+		.orderBy(asc(stripeConnections.id))
 		.limit(1);
 	return row;
 }

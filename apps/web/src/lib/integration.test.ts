@@ -15,6 +15,7 @@ function product(overrides: Partial<Product> = {}): Product {
 		activationModel: 'node_locked',
 		emailFrom: 'keys@acme.com',
 		connected: false,
+		stripeConnected: false,
 		keysTotal: 0,
 		keysActive: 0,
 		...overrides,

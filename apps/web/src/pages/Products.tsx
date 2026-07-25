@@ -106,7 +106,13 @@ export function ProductsPage() {
 			{products.data?.length ? (
 				<div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
 					{products.data.map((p, i) => {
-						const connected = p.connected;
+						// Which button to show depends on whether STRIPE is authorized, not on
+						// whether prices happen to be mapped yet. On cloud those are two steps,
+						// so keying this off grants alone sent a vendor who had just authorized
+						// straight back through OAuth and never let them map a first price.
+						const canMapPrices = p.stripeConnected;
+						// Whether this product actually sells anything yet, for the label.
+						const hasPrices = p.connected;
 						return (
 							<Card key={p.slug} className="p-4 sm:p-5">
 								<div className="mb-4 flex items-center gap-3">
@@ -148,13 +154,13 @@ export function ProductsPage() {
 									>
 										Integration
 									</Link>
-									{connected ? (
+									{canMapPrices ? (
 										<button
 											type="button"
 											onClick={() => setManaging(p)}
-											className="cursor-pointer rounded-[8px] border border-positive-border bg-positive-tint px-3 py-[7px] font-medium text-[12.5px] text-positive-deep"
+											className={`cursor-pointer rounded-[8px] border px-3 py-[7px] font-medium text-[12.5px] ${hasPrices ? 'border-positive-border bg-positive-tint text-positive-deep' : 'border-ink/14 bg-card text-ink'}`}
 										>
-											Stripe prices
+											{hasPrices ? 'Stripe prices' : 'Map prices'}
 										</button>
 									) : (
 										<button

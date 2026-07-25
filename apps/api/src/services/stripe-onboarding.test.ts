@@ -66,6 +66,31 @@ describe('starting authorization', () => {
 		expect(all.every((r) => r.state_hash !== state)).toBe(true);
 	});
 
+	it('builds a redirect_uri with no double slash even when PUBLIC_URL ends in one', async () => {
+		// Stripe matches redirect_uri EXACTLY against the values on the Connect application, so
+		// a stray slash from PUBLIC_URL is onboarding that fails for an unguessable reason.
+		const slashed = await makeHarness({
+			config: { ...cloud, publicUrl: 'https://keys.example.com/' },
+		});
+		slashed.deps.connect = fakeStripeGateway();
+		const { url } = await startConnectAuthorization(slashed.deps, { accountId: 1 });
+		const redirect = new URL(url).searchParams.get('redirect_uri');
+		expect(redirect).toBe('https://keys.example.com/v1/connect/stripe/callback');
+	});
+
+	it('keeps a PUBLIC_URL path prefix in the redirect_uri', async () => {
+		// new URL('/v1/...', base) would drop the prefix, which is the other way to get a
+		// redirect_uri Stripe has never seen.
+		const prefixed = await makeHarness({
+			config: { ...cloud, publicUrl: 'https://keys.example.com/coolbeans' },
+		});
+		prefixed.deps.connect = fakeStripeGateway();
+		const { url } = await startConnectAuthorization(prefixed.deps, { accountId: 1 });
+		expect(new URL(url).searchParams.get('redirect_uri')).toBe(
+			'https://keys.example.com/coolbeans/v1/connect/stripe/callback',
+		);
+	});
+
 	it('refuses to start when no Connect client id is configured', async () => {
 		const bare = await makeHarness({ config: { stripe: { secretKey: 'sk', webhookSecret: 'w' } } });
 		await expect(startConnectAuthorization(bare.deps, { accountId: 1 })).rejects.toThrow(
@@ -165,7 +190,9 @@ describe('housekeeping', () => {
 		const used = await startConnectAuthorization(h.deps, { accountId: aliceId });
 		await completeConnectAuthorization(h.deps, { code: 'ac_alice', state: used.state });
 		h.clock.advance(16 * 60_000);
-		await pruneConnectStates(h.deps);
+		// The abandoned one goes; the spent one stays as the record that it happened.
+		const removed = await pruneConnectStates(h.deps);
+		expect(removed).toBe(1);
 		const left = await rawQuery<{ n: number }>('SELECT count(*)::int n FROM stripe_connect_states');
 		expect(left[0]?.n).toBe(1);
 	});

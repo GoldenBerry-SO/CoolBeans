@@ -7,6 +7,7 @@ import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
 import { pruneProviderEvents } from './prune.js';
+import { pruneConnectStates } from './stripe-onboarding.js';
 
 /** Disable every active trial whose expires_at has passed. Returns the count disabled. */
 export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
@@ -73,6 +74,9 @@ export async function runSweeps(
 	return {
 		trials: await sweepExpiredTrials(deps),
 		leases: await reapFloatingLeases(deps),
-		pruned: await pruneProviderEvents(deps),
+		// Provider events and abandoned Connect authorization states are both "rows that were
+		// only ever needed briefly". A vendor who opens the Stripe screens and wanders off
+		// leaves a state behind, so without this the table only grows.
+		pruned: (await pruneProviderEvents(deps)) + (await pruneConnectStates(deps)),
 	};
 }

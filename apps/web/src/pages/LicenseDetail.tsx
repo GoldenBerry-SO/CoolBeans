@@ -93,8 +93,11 @@ export function LicenseDetailPage() {
 				</div>
 			</div>
 
-			<Card className="mb-4 grid grid-cols-2 overflow-hidden sm:grid-cols-4">
+			<Card className="mb-4 grid grid-cols-2 overflow-hidden sm:grid-cols-5">
 				<Fact label="Kind" value={license.kind} />
+				{/* The vendor's own label for what was sold ("Pro monthly"). Several plans can share
+				    one kind, so without this the console cannot tell two subscriptions apart. */}
+				<Fact label="Plan" value={license.plan ?? '—'} />
 				<Fact label="Product" value={license.product} />
 				<Fact
 					label="Expires"

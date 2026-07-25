@@ -144,6 +144,14 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			const email = pickString(resource, ['subscriber', 'email_address']) ?? '';
 			let expiresAt: string | null = null;
 			if (deps.paypal) expiresAt = await deps.paypal.subscriptionNextBilling(subId);
+			// Same rule as Stripe: a subscription with no expiry is a key that never expires, so
+			// a subscriber who stops paying keeps working software and the SDK grants offline
+			// grace forever. Throw so PayPal retries once the next billing date is readable.
+			if (!expiresAt) {
+				throw new Error(
+					`PayPal subscription ${subId} has no next billing date yet; refusing to issue a never-expiring key.`,
+				);
+			}
 			await ensureLicense(deps, {
 				product,
 				provider: 'paypal',

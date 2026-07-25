@@ -141,6 +141,12 @@ describe('PayPal webhook', () => {
 	});
 
 	it('parks a cancellation that arrives before subscription activation', async () => {
+		// An activated PayPal subscription carries a next billing date, and issuance now insists
+		// on one: a subscription licence with no expiry would never expire.
+		h.deps.paypal = fakePayPalGateway({
+			verified: true,
+			nextBilling: { sub_early: '2027-01-01T00:00:00.000Z' },
+		});
 		await webhook(h.app, {
 			id: 'wh_early_cancel',
 			event_type: 'BILLING.SUBSCRIPTION.CANCELLED',

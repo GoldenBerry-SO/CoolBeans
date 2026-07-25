@@ -24,6 +24,9 @@ export const licenses = pgTable(
 		// vendor's own label (e.g. "Pro monthly") is the free-form, display-only `plan`.
 		kind: text('kind', { enum: ['perpetual', 'subscription', 'trial'] }).notNull(),
 		plan: text('plan'),
+		// Snapshotted from the grant at issuance so a later re-price never silently changes what
+		// somebody already bought. NULL inherits the product's limit.
+		activationLimit: integer('activation_limit'),
 		// The grant that issued this licence (null for trials and manual issues, which have
 		// no Stripe price behind them). Immutable provenance: answers "which rule made this key".
 		issuedGrantId: integer('issued_grant_id').references(() => licenseGrants.id),
@@ -41,6 +44,7 @@ export const licenses = pgTable(
 	(t) => [
 		check('ck_licenses_kind', sql`${t.kind} IN ('perpetual','subscription','trial')`),
 		check('ck_licenses_status', sql`${t.status} IN ('active','disabled')`),
+		check('ck_licenses_seats', sql`${t.activationLimit} IS NULL OR ${t.activationLimit} > 0`),
 		// The kind decides whether an expiry exists, so the database says so too. A subscription
 		// or trial row with a NULL expiry never expires, which hands a monthly customer a
 		// perpetual key and lets the SDK grant offline grace forever; a perpetual row WITH an

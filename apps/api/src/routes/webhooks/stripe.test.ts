@@ -885,3 +885,78 @@ describe('a subscription must never issue without an expiry', () => {
 		expect(await keysForEmail(h, 'buyer@example.com')).toHaveLength(0);
 	});
 });
+
+describe('a grant’s seat count follows the licence it issues', () => {
+	it('a Pro sale gets Pro seats while a Basic sale on the same product gets Basic seats', async () => {
+		const product = await createProduct(h.app, {
+			slug: 'tiered',
+			name: 'Tiered',
+			key_prefix: 'TIER',
+			email_from: 'k@tiered.test',
+			activation_limit: 3, // the product default, which neither grant should use
+		});
+		await seedGrant(h.deps, {
+			productId: product.id as number,
+			priceId: 'price_tierBasic',
+			kind: 'perpetual',
+			plan: 'Basic',
+			activationLimit: 1,
+		});
+		await seedGrant(h.deps, {
+			productId: product.id as number,
+			priceId: 'price_tierPro',
+			kind: 'perpetual',
+			plan: 'Pro',
+			activationLimit: 4,
+		});
+		h.deps.stripe = fakeStripeGateway(
+			{},
+			{ cs_basic: ['price_tierBasic'], cs_pro: ['price_tierPro'] },
+		);
+		for (const [session, email] of [
+			['cs_basic', 'basic@buyer.test'],
+			['cs_pro', 'pro@buyer.test'],
+		]) {
+			await webhook(h.app, {
+				id: `evt_${session}`,
+				type: 'checkout.session.completed',
+				data: {
+					object: {
+						id: session,
+						mode: 'payment',
+						payment_status: 'paid',
+						payment_intent: `pi_${session}`,
+						customer_email: email,
+					},
+				},
+			});
+		}
+		const res = await h.app.request('/admin/products/tiered/keys', { headers: h.adminHeaders });
+		const rows = ((await res.json()) as { keys: Array<Record<string, unknown>> }).keys;
+		const basic = rows.find((k) => k.customer_email === 'basic@buyer.test');
+		const pro = rows.find((k) => k.customer_email === 'pro@buyer.test');
+		expect(basic?.activation_limit).toBe(1);
+		expect(pro?.activation_limit).toBe(4);
+
+		// And the limit is actually enforced per licence, not per product.
+		const basicKey = basic?.key as string;
+		expect(
+			(
+				await h.app.request('/v1/activate', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ license_key: basicKey, instance_name: 'one' }),
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await h.app.request('/v1/activate', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ license_key: basicKey, instance_name: 'two' }),
+				})
+			).status,
+		).toBe(409); // Basic bought one seat, even though the product default is three
+	});
+});

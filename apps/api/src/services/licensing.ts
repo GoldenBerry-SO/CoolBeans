@@ -21,6 +21,17 @@ import { assertKeyNotThrottled, clearKeyFailures, recordKeyFailure } from './key
 import { mintToken } from './signing.js';
 import { recordValidation } from './validation-stats.js';
 
+/**
+ * Seats this licence gets: its own snapshot if it has one, otherwise the product's limit.
+ *
+ * A grant can price seats (Basic 3, Pro 10 on one product), and issuance snapshots that onto the
+ * licence so re-pricing later never changes what somebody already bought. Both values are read
+ * from rows the caller already holds, so the guarded seat statements stay single-statement atomic.
+ */
+export function seatLimit(license: Pick<License, 'activationLimit'>, product: Product): number {
+	return license.activationLimit ?? product.activationLimit;
+}
+
 export interface ResolvedLicense {
 	license: License;
 	product: Product;
@@ -166,10 +177,10 @@ export async function activate(
 							SELECT COUNT(*) FROM activations
 							WHERE license_id = ${license.id} AND id != ${existing.id}
 								AND ${liveSeatCondition(product, nowIso)}
-						) < ${product.activationLimit}
+						) < ${seatLimit(license, product)}
 						RETURNING id
 					`);
-					if (!applied(renewed)) throw activationLimitReached(product.activationLimit);
+					if (!applied(renewed)) throw activationLimitReached(seatLimit(license, product));
 					existing.leaseExpiresAt = leaseExpiresAt;
 				}
 				return existing;
@@ -184,16 +195,16 @@ export async function activate(
 			WHERE (
 				SELECT COUNT(*) FROM activations
 				WHERE license_id = ${license.id} AND ${liveSeatCondition(product, nowIso)}
-			) < ${product.activationLimit}
+			) < ${seatLimit(license, product)}
 			RETURNING id
 		`);
-		if (!applied(result)) throw activationLimitReached(product.activationLimit);
+		if (!applied(result)) throw activationLimitReached(seatLimit(license, product));
 		const [created] = await tx
 			.select()
 			.from(activations)
 			.where(eq(activations.instanceId, instanceId))
 			.limit(1);
-		if (!created) throw activationLimitReached(product.activationLimit);
+		if (!created) throw activationLimitReached(seatLimit(license, product));
 		return created;
 	});
 
@@ -353,7 +364,7 @@ export async function heartbeat(
 						AND others.instance_id != ${instanceId}
 						AND others.deactivated_at IS NULL
 						AND others.lease_expires_at > ${nowIso}
-				) < ${product.activationLimit}
+				) < ${seatLimit(license, product)}
 			RETURNING id
 		`);
 		// No row: unknown/deactivated instance, or a lapsed lease with no free seat.

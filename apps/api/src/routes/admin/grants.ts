@@ -17,6 +17,9 @@ const grantBody = z.object({
 	kind: z.enum(['perpetual', 'subscription']),
 	// Free-form vendor label (e.g. "Pro monthly"), snapshotted onto issued licences. Display only.
 	plan: z.string().min(1).optional(),
+	// Seats this price buys. Omit to inherit the product's limit, which is what every grant did
+	// before seats could be priced.
+	activation_limit: z.number().int().positive().optional(),
 });
 
 export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): void {
@@ -33,6 +36,7 @@ export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): voi
 			priceId: body.stripe_price_id,
 			kind: body.kind,
 			plan: body.plan ?? null,
+			activationLimit: body.activation_limit ?? null,
 			actor: auditActor(c),
 		});
 		return c.json({ ok: true, grant });

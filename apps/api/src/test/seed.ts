@@ -21,6 +21,8 @@ export async function seedGrant(
 		accountId?: number;
 		/** Defaults to the self-host connection; a cloud isolation test passes its own. */
 		connectionId?: number;
+		/** Seats this price buys; null inherits the product's limit. */
+		activationLimit?: number | null;
 	},
 ): Promise<void> {
 	await deps.db.insert(licenseGrants).values({
@@ -30,6 +32,7 @@ export async function seedGrant(
 		productId: args.productId,
 		kind: args.kind,
 		plan: args.plan ?? null,
+		activationLimit: args.activationLimit ?? null,
 		status: 'active',
 	});
 }

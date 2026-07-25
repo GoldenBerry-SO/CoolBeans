@@ -30,6 +30,7 @@ export interface EnsureArgs {
 	kind: Kind;
 	plan?: string | null;
 	issuedGrantId?: number | null;
+	activationLimit?: number | null;
 	stripeConnectionId?: number | null;
 	email: string;
 	expiresAt?: string | null;
@@ -134,6 +135,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 					kind: args.kind,
 					plan: args.plan,
 					issuedGrantId: args.issuedGrantId,
+					activationLimit: args.activationLimit,
 					expiresAt: args.expiresAt,
 					actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
 				});

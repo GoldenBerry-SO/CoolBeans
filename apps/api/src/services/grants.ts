@@ -19,6 +19,8 @@ export interface CreateGrantArgs {
 	kind: 'perpetual' | 'subscription';
 	/** The vendor's free-form plan label, snapshotted onto every licence this grant issues. */
 	plan?: string | null;
+	/** Seats this price buys. Null inherits the product's limit. */
+	activationLimit?: number | null;
 	actor: string;
 }
 
@@ -79,6 +81,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			productId: args.product.id,
 			kind: args.kind,
 			plan: args.plan ?? null,
+			activationLimit: args.activationLimit ?? null,
 			status: 'active',
 		})
 		.onConflictDoUpdate({
@@ -87,6 +90,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 				productId: args.product.id,
 				kind: args.kind,
 				plan: args.plan ?? null,
+				activationLimit: args.activationLimit ?? null,
 				status: 'active',
 				retiredAt: null,
 			},
@@ -97,7 +101,12 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 		actor: args.actor,
 		accountId: args.product.accountId,
 		productId: args.product.id,
-		detail: { price: args.priceId, kind: args.kind, plan: args.plan ?? null },
+		detail: {
+			price: args.priceId,
+			kind: args.kind,
+			plan: args.plan ?? null,
+			seats: args.activationLimit ?? null,
+		},
 	});
 	return grant;
 }

@@ -319,3 +319,39 @@ describe('seats priced per grant', () => {
 		expect(zero.status).toBe(422);
 	});
 });
+
+describe('re-mapping a price does not quietly change what it grants', () => {
+	it('keeps the priced seats when a re-map does not mention them', async () => {
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_keepSeats',
+			kind: 'perpetual',
+			plan: 'Pro',
+			activation_limit: 9,
+		});
+		// Re-mapped to fix the label only. Silently resetting Pro's nine seats to the product
+		// default would change what every future Pro licence is worth.
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_keepSeats',
+			kind: 'perpetual',
+			plan: 'Pro annual',
+		});
+		const g = (await grants()).find((x) => x.stripePriceId === 'price_keepSeats');
+		expect(g?.plan).toBe('Pro annual');
+		expect(g?.activationLimit).toBe(9);
+	});
+
+	it('still applies a seat count that IS given', async () => {
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_raiseSeats',
+			kind: 'perpetual',
+			activation_limit: 2,
+		});
+		await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_raiseSeats',
+			kind: 'perpetual',
+			activation_limit: 7,
+		});
+		const g = (await grants()).find((x) => x.stripePriceId === 'price_raiseSeats');
+		expect(g?.activationLimit).toBe(7);
+	});
+});

@@ -84,7 +84,7 @@ console.log('\nJourney 1 — a customer buys a lifetime licence and runs it on t
 // ---------------------------------------------------------------------------
 await clearInbox();
 
-await step('the merchant onboards the product with its Stripe price ids', async () => {
+await step('the merchant onboards the product and maps its Stripe prices to grants', async () => {
 	const res = await api('POST', '/admin/products', {
 		slug: 'clementine',
 		name: 'Clementine',
@@ -92,15 +92,21 @@ await step('the merchant onboards the product with its Stripe price ids', async 
 		email_from: 'Clementine <receipts@clementine.email>',
 		activation_limit: 3,
 		download_url: 'https://clementine.email/download',
-		stripe_price_lifetime: 'price_clem_lifetime',
-		stripe_price_yearly: 'price_clem_yearly',
 	});
 	assert.ok([200, 409].includes(res.status), `product setup: ${res.status}`);
+	// Pricing lives in Stripe now: connect maps the one-time and annual prices to a perpetual
+	// and a subscription grant, which is what resolves each checkout to this product.
+	const connected = await api('POST', '/admin/products/clementine/stripe/connect', {
+		webhook_url: `${API}/v1/stripe/webhook`,
+		lifetime_price_id: 'price_clemLifetime',
+		yearly_price_id: 'price_clemYearly',
+	});
+	assert.equal(connected.status, 200, `connect: ${connected.status} ${JSON.stringify(connected.body)}`);
 })();
 
 const sessionId = `cs_life_${unique}`;
 await step('Stripe delivers a signature-valid checkout.session.completed', async () => {
-	await seedStripe({ sessions: { [sessionId]: { price_id: 'price_clem_lifetime' } } });
+	await seedStripe({ sessions: { [sessionId]: { price_id: 'price_clemLifetime' } } });
 	const res = await sendStripeWebhook(API, SECRET, {
 		id: `evt_life_${unique}`,
 		type: 'checkout.session.completed',
@@ -154,7 +160,7 @@ await step(
 await step('the key resolves to a paid lifetime licence for that buyer', async () => {
 	const res = await api('GET', '/admin/products/clementine/keys');
 	const row = res.body.keys.find((k) => k.key === licenseKey);
-	assert.equal(row.tier, 'lifetime');
+	assert.equal(row.kind, 'perpetual');
 	assert.equal(row.status, 'active');
 	assert.equal(row.customer_email, 'buyer@example.com');
 })();
@@ -283,7 +289,7 @@ let yearlyKey;
 
 await step('a subscription checkout issues a yearly key dated to the period end', async () => {
 	await seedStripe({
-		sessions: { [subSession]: { price_id: 'price_clem_yearly' } },
+		sessions: { [subSession]: { price_id: 'price_clemYearly' } },
 		subscriptions: { [subId]: { current_period_end: seconds('2027-07-18T00:00:00Z') } },
 	});
 	await sendStripeWebhook(API, SECRET, {
@@ -303,7 +309,7 @@ await step('a subscription checkout issues a yearly key dated to the period end'
 	const row = (await api('GET', '/admin/products/clementine/keys')).body.keys.find(
 		(k) => k.customer_email === 'subscriber@example.com',
 	);
-	assert.equal(row.tier, 'yearly');
+	assert.equal(row.kind, 'subscription');
 	assert.equal(row.expires_at, '2027-07-18T00:00:00.000Z');
 	yearlyKey = row.key;
 })();
@@ -385,7 +391,7 @@ let dunKey;
 
 await step('a subscriber who falls behind and then pays up gets their access back', async () => {
 	await seedStripe({
-		sessions: { [dunSession]: { price_id: 'price_clem_yearly' } },
+		sessions: { [dunSession]: { price_id: 'price_clemYearly' } },
 		subscriptions: { [dunSub]: { current_period_end: seconds('2027-07-18T00:00:00Z') } },
 	});
 	await sendStripeWebhook(API, SECRET, {
@@ -450,7 +456,7 @@ await step('a refund that arrives BEFORE its checkout still revokes the key', as
 	// we have never seen; the checkout behind it must not hand out a working key.
 	const oooSession = `cs_ooo_${unique}`;
 	const oooPi = `pi_ooo_${unique}`;
-	await seedStripe({ sessions: { [oooSession]: { price_id: 'price_clem_lifetime' } } });
+	await seedStripe({ sessions: { [oooSession]: { price_id: 'price_clemLifetime' } } });
 	await sendStripeWebhook(API, SECRET, {
 		id: `evt_ooorefund_${unique}`,
 		type: 'charge.refunded',

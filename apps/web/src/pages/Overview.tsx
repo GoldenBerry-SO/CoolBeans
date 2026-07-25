@@ -2,7 +2,7 @@
 // ABOUTME: Stats from GET /admin/stats; chart from /admin/validations; licences from /admin/licenses.
 
 import { Link } from '@tanstack/react-router';
-import { Card, EmptyState, TierText } from '../components/ui.js';
+import { Card, EmptyState, KindText } from '../components/ui.js';
 import { actionVerb, detailHighlight } from '../lib/audit-format.js';
 import {
 	useAudit,
@@ -152,7 +152,7 @@ export function OverviewPage() {
 								{l.customer_email ?? 'no buyer on record'}
 							</span>
 							<span className="text-[11.5px]">
-								<TierText tier={l.tier} />
+								<KindText kind={l.kind} />
 							</span>
 							<span className="truncate text-right font-mono text-[11px] text-ink-faint">
 								{l.created_at.slice(0, 16).replace('T', ' ')}

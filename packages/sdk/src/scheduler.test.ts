@@ -26,7 +26,8 @@ function countingFetch(behaviour: { failVerify?: boolean } = {}) {
 					license: {
 						key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
 						status: 'active',
-						tier: 'yearly',
+						kind: 'subscription',
+						plan: null,
 						product: 'clementine',
 						expires_at: null,
 					},
@@ -58,7 +59,8 @@ async function signOffline(overrides: Record<string, unknown> = {}) {
 	const payload = {
 		key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
 		status: 'active',
-		tier: 'lifetime',
+		kind: 'perpetual',
+		plan: null,
 		product: 'clementine',
 		expires_at: null,
 		instance_id: 'machine-1',

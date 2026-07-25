@@ -122,9 +122,9 @@ export function rowsOf<T = Record<string, unknown>>(result: unknown): T[] {
  * Boot no longer migrates: with N replicas plus a worker plus the migration Job, boot-time
  * DDL is a race. This is what boot does instead — it compares the migrations the database
  * has actually applied against the journal this build shipped with, and throws with the
- * counts when they disagree. The migration Job (migrate-cli.ts) is the only writer;
- * MIGRATE_ON_BOOT=true restores the old single-container behaviour for self-hosters who
- * genuinely run one process.
+ * counts when they disagree in EITHER direction. The migration Job (migrate-cli.ts) is the
+ * only writer; MIGRATE_ON_BOOT=true restores the old single-container behaviour for
+ * self-hosters who genuinely run one process.
  */
 export async function assertSchemaCurrent(db: CoolBeansDb): Promise<void> {
 	const { readFileSync } = await import('node:fs');
@@ -152,6 +152,18 @@ export async function assertSchemaCurrent(db: CoolBeansDb): Promise<void> {
 		const missing = journal.entries.slice(appliedCount).map((e) => e.tag);
 		throw new Error(
 			`Database schema is behind this build: ${appliedCount}/${expected} migrations applied, missing ${missing.join(', ')}. Run the migration job (db:migrate) first.`,
+		);
+	}
+	// More applied than this build ships is not "ahead and therefore fine": it means the
+	// database was built from a different migration lineage. The pricing redesign is exactly
+	// that case — it replaced the original migrations rather than adding to them, so a
+	// database created before it reports more migrations than the journal lists while lacking
+	// license_grants, stripe_connections and licenses.kind entirely. Counting alone would call
+	// that current, boot happily, and then fail on every request that touches a grant. Refuse
+	// instead, and say what to do about it.
+	if (appliedCount > expected) {
+		throw new Error(
+			`This database was built from a different migration lineage than this build: ${appliedCount} migrations applied, ${expected} expected. It cannot be upgraded in place. Restore it from a build that matches, or reset it and re-run the migration job (db:migrate).`,
 		);
 	}
 }

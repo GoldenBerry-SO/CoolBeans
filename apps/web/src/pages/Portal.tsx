@@ -14,7 +14,8 @@ interface LookupResult {
 	license: {
 		key: string;
 		status: 'active' | 'disabled';
-		tier: string;
+		kind: string;
+		plan: string | null;
 		product: string;
 		expires_at: string | null;
 	};
@@ -151,7 +152,7 @@ export function PortalPage() {
 							<div>
 								<div className="font-semibold text-[17px] capitalize">{result.license.product}</div>
 								<div className="text-[12.5px] text-ink-muted capitalize">
-									{result.license.tier}
+									{result.license.plan ?? result.license.kind}
 									{result.license.expires_at
 										? ` · renews ${result.license.expires_at.slice(0, 10)}`
 										: ''}
@@ -179,7 +180,7 @@ export function PortalPage() {
 									Download
 								</a>
 							) : null}
-							{result.license.tier === 'yearly' ? (
+							{result.license.kind === 'subscription' ? (
 								<SecondaryButton onClick={manageBilling}>Manage billing</SecondaryButton>
 							) : null}
 						</div>

@@ -13,7 +13,14 @@ const state = {
 	subscriptions: new Map(),
 	invoices: new Map(),
 	charges: new Map(),
+	// Seed { recurring: { interval: 'month' } } to state a price's cadence outright; without
+	// a seed the id names it (…month…, …year…), which keeps most tests to one line.
+	prices: new Map(),
 };
+
+// connect stores this on the connection; the journey signs its webhooks with the same value,
+// so deliveries keep verifying after onboarding. Matches run.mjs's default.
+const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_journey';
 
 function json(res, body, status = 200) {
 	const payload = JSON.stringify(body);
@@ -43,8 +50,45 @@ const server = createServer((req, res) => {
 		return;
 	}
 
-	// GET /v1/checkout/sessions/:id/line_items — drives product+tier resolution (§13).
-	let m = path.match(/^\/v1\/checkout\/sessions\/([^/]+)\/line_items$/);
+	// Connect onboarding: register the webhook endpoint and hand back a signing secret.
+	if (path === '/v1/webhook_endpoints') {
+		if (req.method === 'GET') {
+			// Idempotency probe: no existing endpoint, so connect creates one.
+			return json(res, { object: 'list', data: [], has_more: false });
+		}
+		if (req.method === 'POST') {
+			req.on('data', () => {});
+			req.on('end', () => {
+				json(res, {
+					id: 'we_journey',
+					object: 'webhook_endpoint',
+					status: 'enabled',
+					secret: WEBHOOK_SECRET,
+				});
+			});
+			return;
+		}
+	}
+
+	// GET /v1/prices/:id — a grant confirms the price exists and its billing mode before it
+	// is mapped. The cadence comes from the id so a test can ask for any of them: pricing is
+	// the vendor's, and a monthly price is as valid as an annual one.
+	let m = path.match(/^\/v1\/prices\/([^/]+)$/);
+	if (m && req.method === 'GET') {
+		const seeded = state.prices.get(m[1]);
+		if (seeded) return json(res, { id: m[1], object: 'price', active: true, ...seeded });
+		const id = m[1].toLowerCase();
+		const interval = ['day', 'week', 'month', 'year'].find((unit) => id.includes(unit));
+		return json(res, {
+			id: m[1],
+			object: 'price',
+			active: true,
+			recurring: interval ? { interval } : null,
+		});
+	}
+
+	// GET /v1/checkout/sessions/:id/line_items — drives product+kind resolution (§13).
+	m = path.match(/^\/v1\/checkout\/sessions\/([^/]+)\/line_items$/);
 	if (m) {
 		const session = state.sessions.get(m[1]);
 		const priceId = session?.price_id;

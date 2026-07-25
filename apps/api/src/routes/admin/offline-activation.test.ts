@@ -22,7 +22,7 @@ async function seeded(config: Partial<Config> = {}) {
 	const key = await issueKey(h.app, {
 		product: 'clementine',
 		email: 'buyer@example.com',
-		tier: 'lifetime',
+		kind: 'perpetual',
 	});
 	return { h, key };
 }
@@ -40,7 +40,7 @@ function payloadOf(token: string) {
 	return JSON.parse(Buffer.from(part, 'base64url').toString('utf8')) as {
 		product: string;
 		instance_id: string;
-		tier: string;
+		kind: string;
 		expires_at: string | null;
 		exp: number;
 		status: string;
@@ -153,7 +153,7 @@ describe('the long TTL an air-gapped machine needs', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 			expires_at: expiresAt,
 		});
 		const body = (await (await mint(h, key)).json()) as { token: string };
@@ -197,7 +197,7 @@ describe('tenancy', () => {
 		);
 		const alphaKey = await issueKey(
 			h.app,
-			{ product: 'alpha-app', email: 'buyer@alpha.test', tier: 'lifetime' },
+			{ product: 'alpha-app', email: 'buyer@alpha.test', kind: 'perpetual' },
 			alice,
 		);
 		const res = await h.app.request(
@@ -251,7 +251,7 @@ describe('findings from the Codex review', () => {
 		const key = await issueKey(h.app, {
 			product: 'floaty',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		const res = await h.app.request(`/admin/keys/${encodeURIComponent(key)}/offline-activation`, {
 			method: 'POST',
@@ -279,7 +279,7 @@ describe('findings from the Codex review', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 			expires_at: expiresAt,
 		});
 		const body = (await (await mint(h, key)).json()) as { token: string };
@@ -314,7 +314,7 @@ describe('findings from the Codex review', () => {
 		const key2 = await issueKey(h.app, {
 			product: 'second',
 			email: 'b@c.io',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		const res = await h.app.request(`/admin/keys/${encodeURIComponent(key2)}/offline-activation`, {
 			method: 'POST',

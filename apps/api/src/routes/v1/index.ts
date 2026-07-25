@@ -14,6 +14,8 @@ import { ensureLicenseForOrder } from '../../services/paypal.js';
 import { productForToken } from '../../services/product-tokens.js';
 import { publicKeysFor } from '../../services/signing.js';
 import { ensureLicenseForSession } from '../../services/stripe.js';
+import { gatewayForConnection } from '../../services/stripe-connection.js';
+import { getActiveConnectionForAccount, getConnection } from '../../store/grants.js';
 import { getProductBySlugGlobal } from '../../store/products.js';
 import { registerLemonSqueezyRoutes } from './ls.js';
 import { registerPortalRoutes } from './portal.js';
@@ -127,9 +129,24 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		if (!found && deps.stripe) {
 			// Success-page race: the webhook hasn't landed yet. Retrieve the paid session
 			// from Stripe and issue through the same idempotent path (PRD §13/§14).
-			const session = await deps.stripe.getCheckoutSession(sessionId);
+			//
+			// The session lives in the Stripe account that took the money. A product token
+			// names the product, which names the account and so the connection to read it
+			// through; without one this is an instance-level lookup on the default connection,
+			// which is the only connection a self-host has.
+			const connection = tokenProduct
+				? await getActiveConnectionForAccount(deps.db, tokenProduct.accountId)
+				: await getConnection(deps.db);
+			const stripe = connection ? gatewayForConnection(deps, connection) : deps.stripe;
+			const session = await stripe.getCheckoutSession(sessionId);
 			if (session) {
-				const ensured = await ensureLicenseForSession(deps, session, `lookup:${sessionId}`);
+				const scoped = { ...deps, stripe };
+				const ensured = await ensureLicenseForSession(
+					scoped,
+					session,
+					`lookup:${sessionId}`,
+					connection?.id,
+				);
 				if (ensured) found = await findByCheckoutId(deps, sessionId);
 			}
 		}

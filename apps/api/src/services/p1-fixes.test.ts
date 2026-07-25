@@ -5,20 +5,22 @@ import { purchases } from '@coolbeans/db';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../test/harness.js';
 import { rawExec } from '../test/pg.js';
-import { createProduct, issueKey, post } from '../test/seed.js';
+import { createProduct, issueKey, post, seedGrant } from '../test/seed.js';
 import { drainOutbox } from './outbox.js';
 import { claimEvent } from './payments.js';
 
 let h: TestHarness;
+let clementineId: number;
 
 beforeEach(async () => {
 	h = await makeHarness();
-	await createProduct(h.app, {
+	const clementine = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
 		email_from: 'r@clementine.email',
 	});
+	clementineId = clementine.id as number;
 });
 
 describe('a live claim must not swallow the provider retry', () => {
@@ -71,11 +73,9 @@ describe('archiving a product must not lose a paid checkout', () => {
 	it('still issues for a payment that arrives after archiving, and says so loudly', async () => {
 		h.deps.config.stripe = { secretKey: 'sk_test', webhookSecret: 'whsec_test' };
 		h.deps.stripe = fakeStripeGateway({}, { cs_late: ['price_late'] });
-		await h.app.request('/admin/products/clementine', {
-			method: 'PATCH',
-			headers: h.adminHeaders,
-			body: JSON.stringify({ stripe_price_lifetime: 'price_late' }),
-		});
+		// The grant maps the price to the product independently of archived state, so the
+		// checkout still resolves after the product is archived below.
+		await seedGrant(h.deps, { productId: clementineId, priceId: 'price_late', kind: 'perpetual' });
 		await h.app.request('/admin/products/clementine', {
 			method: 'DELETE',
 			headers: h.adminHeaders,
@@ -134,7 +134,7 @@ describe('manual issuance durability', () => {
 				body: JSON.stringify({
 					product: 'clementine',
 					email: 'buyer@example.com',
-					tier: 'lifetime',
+					kind: 'perpetual',
 				}),
 			});
 			expect(res.status).toBe(500);
@@ -158,7 +158,7 @@ describe('manual issuance durability', () => {
 			body: JSON.stringify({
 				product: 'clementine',
 				email: 'buyer@example.com',
-				tier: 'lifetime',
+				kind: 'perpetual',
 			}),
 		});
 		const body = (await issued.json()) as { key: string };
@@ -208,7 +208,7 @@ describe('the per-key throttle covers every public lookup', () => {
 		const good = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		for (let i = 0; i < 12; i++) {
 			await post(h.app, '/v1/validate', {

@@ -104,7 +104,7 @@ describe('per-key throttle (issue #39)', () => {
 		const good = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		for (let i = 0; i < 12; i++) {
 			await h.app.request('/v1/activate', {

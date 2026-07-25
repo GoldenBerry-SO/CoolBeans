@@ -94,27 +94,5 @@ export async function listPrefixes(db: Database): Promise<string[]> {
 	return rows.map((r) => r.prefix);
 }
 
-export interface PriceMatch {
-	product: Product;
-	tier: 'lifetime' | 'yearly';
-}
-
-/** Resolve a product (and its tier) from a Stripe price id (PRD §13). */
-export async function getProductByStripePrice(
-	db: Database,
-	priceId: string,
-): Promise<PriceMatch | undefined> {
-	const [lifetime] = await db
-		.select()
-		.from(products)
-		.where(eq(products.stripePriceLifetime, priceId))
-		.limit(1);
-	if (lifetime) return { product: lifetime, tier: 'lifetime' };
-	const [yearly] = await db
-		.select()
-		.from(products)
-		.where(eq(products.stripePriceYearly, priceId))
-		.limit(1);
-	if (yearly) return { product: yearly, tier: 'yearly' };
-	return undefined;
-}
+// Price -> product resolution moved to store/grants.ts (getGrantByPrice): a Stripe price now
+// maps to a license_grant on a connection, which names the product, kind, and plan.

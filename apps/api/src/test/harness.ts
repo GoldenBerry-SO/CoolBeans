@@ -16,7 +16,11 @@ export interface FakeClock {
 	set(date: Date): void;
 }
 
-export function fakeClock(start = '2026-07-17T09:00:00.000Z'): FakeClock {
+// Keep this start date in the future relative to the real wall clock. The offline e2e mints a
+// normal 7-day token on this fake clock, but the SDK verifies its `exp` against the real
+// Date.now(); once the real calendar passes `start + 7 days`, that token reads as past-TTL and
+// offlineState flips valid -> grace. Bump this forward (and only forward) before then.
+export function fakeClock(start = '2027-01-01T09:00:00.000Z'): FakeClock {
 	let current = new Date(start).getTime();
 	return {
 		now: () => new Date(current),
@@ -84,7 +88,12 @@ export function fakeStripeGateway(
 		prices?: Record<string, { recurring: boolean; interval?: string }>;
 	} = {},
 ) {
-	return {
+	const gateway = {
+		// The fake serves what the test seeded regardless of account, so a scoped gateway is
+		// just itself. Production scopes reads with a Stripe-Account header; that seam is real.
+		forAccount() {
+			return gateway;
+		},
 		constructEvent(rawBody: string, signature: string, _secret: string) {
 			if (signature !== 'valid') throw new Error('Invalid signature');
 			return JSON.parse(rawBody);
@@ -127,6 +136,7 @@ export function fakeStripeGateway(
 			};
 		},
 	};
+	return gateway;
 }
 
 /**

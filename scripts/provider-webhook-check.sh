@@ -56,7 +56,7 @@ echo
 say "PayPal"
 echo "PayPal has no local trigger CLI. Use the sandbox webhook simulator:"
 echo "  https://developer.paypal.com/dashboard/webhooksSimulator"
-echo "Send PAYMENT.CAPTURE.COMPLETED to ${BASE_URL}/v1/paypal/webhook with custom_id '${PRODUCT}:lifetime'."
+echo "Send PAYMENT.CAPTURE.COMPLETED to ${BASE_URL}/v1/paypal/webhook with custom_id '${PRODUCT}:perpetual'."
 echo "Signature verification calls PayPal, so PAYPAL_CLIENT_ID/SECRET/WEBHOOK_ID must be set."
 
 say "Done. Events are visible at ${BASE_URL}/admin/events"

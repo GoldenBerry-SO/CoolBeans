@@ -20,7 +20,7 @@ beforeEach(async () => {
 	key = await issueKey(h.app, {
 		product: 'clementine',
 		email: 'buyer@example.com',
-		tier: 'yearly',
+		kind: 'subscription',
 	});
 });
 
@@ -34,7 +34,7 @@ describe('POST /v1/activate', () => {
 		expect(body.ok).toBe(true);
 		const license = body.license as Record<string, unknown>;
 		expect(license.status).toBe('active');
-		expect(license.tier).toBe('yearly');
+		expect(license.kind).toBe('subscription');
 		expect(license.product).toBe('clementine');
 		expect((body.instance as Record<string, unknown>).id).toBeTruthy();
 	});
@@ -165,7 +165,7 @@ describe('trial expiry (lazy)', () => {
 		const trialKey = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'trial@example.com',
-			tier: 'trial',
+			kind: 'trial',
 			trial_days: 7,
 		});
 		const act = await post(h.app, '/v1/activate', { license_key: trialKey, instance_name: 'Mac' });
@@ -189,7 +189,7 @@ describe('trial expiry (lazy)', () => {
 		const trialKey = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'trial2@example.com',
-			tier: 'trial',
+			kind: 'trial',
 			trial_days: 2, // shorter than the 7-day token TTL
 		});
 		const act = await post(h.app, '/v1/activate', { license_key: trialKey, instance_name: 'Mac' });

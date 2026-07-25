@@ -86,7 +86,24 @@ CREATE TABLE "provider_events" (
 	"type" text NOT NULL,
 	"status" text DEFAULT 'done' NOT NULL,
 	"claimed_at" text,
+	"claim_token" text,
 	"received_at" text DEFAULT to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "license_grants" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"account_id" integer NOT NULL,
+	"stripe_connection_id" integer NOT NULL,
+	"stripe_price_id" text NOT NULL,
+	"product_id" integer NOT NULL,
+	"kind" text NOT NULL,
+	"plan" text,
+	"status" text DEFAULT 'active' NOT NULL,
+	"retired_at" text,
+	"created_at" text DEFAULT to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL,
+	CONSTRAINT "uq_license_grants_connection_price" UNIQUE("stripe_connection_id","stripe_price_id"),
+	CONSTRAINT "ck_license_grants_kind" CHECK ("license_grants"."kind" IN ('perpetual','subscription')),
+	CONSTRAINT "ck_license_grants_status" CHECK ("license_grants"."status" IN ('active','retired'))
 );
 --> statement-breakpoint
 CREATE TABLE "license_revocations" (
@@ -103,7 +120,9 @@ CREATE TABLE "licenses" (
 	"product_id" integer NOT NULL,
 	"purchase_id" integer NOT NULL,
 	"key" text NOT NULL,
-	"tier" text NOT NULL,
+	"kind" text NOT NULL,
+	"plan" text,
+	"issued_grant_id" integer,
 	"status" text DEFAULT 'active' NOT NULL,
 	"expires_at" text,
 	"disabled_at" text,
@@ -111,8 +130,24 @@ CREATE TABLE "licenses" (
 	"email_sent_at" text,
 	"created_at" text DEFAULT to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL,
 	CONSTRAINT "licenses_key_unique" UNIQUE("key"),
-	CONSTRAINT "ck_licenses_tier" CHECK ("licenses"."tier" IN ('lifetime','yearly','trial')),
+	CONSTRAINT "ck_licenses_kind" CHECK ("licenses"."kind" IN ('perpetual','subscription','trial')),
 	CONSTRAINT "ck_licenses_status" CHECK ("licenses"."status" IN ('active','disabled'))
+);
+--> statement-breakpoint
+CREATE TABLE "stripe_connections" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"account_id" integer NOT NULL,
+	"provider" text DEFAULT 'stripe' NOT NULL,
+	"mode" text NOT NULL,
+	"stripe_account_id" text NOT NULL,
+	"livemode" boolean DEFAULT false NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"webhook_secret" text,
+	"created_at" text DEFAULT to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL,
+	CONSTRAINT "uq_stripe_connections_account" UNIQUE("stripe_account_id"),
+	CONSTRAINT "uq_stripe_connections_tenant" UNIQUE("account_id","id"),
+	CONSTRAINT "ck_stripe_connections_mode" CHECK ("stripe_connections"."mode" IN ('cloud_connect','self_host_default')),
+	CONSTRAINT "ck_stripe_connections_status" CHECK ("stripe_connections"."status" IN ('active','disconnected','disabled'))
 );
 --> statement-breakpoint
 CREATE TABLE "metrics" (
@@ -171,9 +206,6 @@ CREATE TABLE "products" (
 	"floating_lease_minutes" integer DEFAULT 30 NOT NULL,
 	"email_from" text NOT NULL,
 	"download_url" text,
-	"stripe_price_lifetime" text,
-	"stripe_price_yearly" text,
-	"stripe_webhook_secret" text,
 	"paypal_plan_yearly" text,
 	"paypal_sku_lifetime" text,
 	"product_token_hash" text,
@@ -181,12 +213,14 @@ CREATE TABLE "products" (
 	"created_at" text DEFAULT to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') NOT NULL,
 	CONSTRAINT "products_slug_unique" UNIQUE("slug"),
 	CONSTRAINT "products_key_prefix_unique" UNIQUE("key_prefix"),
+	CONSTRAINT "uq_products_tenant" UNIQUE("account_id","id"),
 	CONSTRAINT "ck_products_activation_model" CHECK ("products"."activation_model" IN ('node_locked','floating'))
 );
 --> statement-breakpoint
 CREATE TABLE "purchases" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"product_id" integer NOT NULL,
+	"stripe_connection_id" integer,
 	"provider" text DEFAULT 'stripe' NOT NULL,
 	"provider_checkout_id" text,
 	"provider_customer_id" text,
@@ -225,20 +259,27 @@ ALTER TABLE "admin_sessions" ADD CONSTRAINT "admin_sessions_admin_user_id_admin_
 ALTER TABLE "admin_users" ADD CONSTRAINT "admin_users_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "audit_log" ADD CONSTRAINT "audit_log_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "provider_events" ADD CONSTRAINT "provider_events_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "license_grants" ADD CONSTRAINT "license_grants_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "license_grants" ADD CONSTRAINT "fk_license_grants_connection" FOREIGN KEY ("account_id","stripe_connection_id") REFERENCES "public"."stripe_connections"("account_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "license_grants" ADD CONSTRAINT "fk_license_grants_product" FOREIGN KEY ("account_id","product_id") REFERENCES "public"."products"("account_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "license_revocations" ADD CONSTRAINT "license_revocations_license_id_licenses_id_fk" FOREIGN KEY ("license_id") REFERENCES "public"."licenses"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "licenses" ADD CONSTRAINT "licenses_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "licenses" ADD CONSTRAINT "licenses_purchase_id_purchases_id_fk" FOREIGN KEY ("purchase_id") REFERENCES "public"."purchases"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "licenses" ADD CONSTRAINT "licenses_issued_grant_id_license_grants_id_fk" FOREIGN KEY ("issued_grant_id") REFERENCES "public"."license_grants"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stripe_connections" ADD CONSTRAINT "stripe_connections_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "metrics" ADD CONSTRAINT "metrics_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "usage_counters" ADD CONSTRAINT "usage_counters_license_id_licenses_id_fk" FOREIGN KEY ("license_id") REFERENCES "public"."licenses"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "usage_counters" ADD CONSTRAINT "usage_counters_metric_id_metrics_id_fk" FOREIGN KEY ("metric_id") REFERENCES "public"."metrics"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "products" ADD CONSTRAINT "products_account_id_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "purchases" ADD CONSTRAINT "purchases_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "purchases" ADD CONSTRAINT "purchases_stripe_connection_id_stripe_connections_id_fk" FOREIGN KEY ("stripe_connection_id") REFERENCES "public"."stripe_connections"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "signing_keys" ADD CONSTRAINT "signing_keys_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "validation_counters" ADD CONSTRAINT "validation_counters_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "idx_activations_live" ON "activations" USING btree ("license_id") WHERE "activations"."deactivated_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "idx_admin_sessions_user" ON "admin_sessions" USING btree ("admin_user_id");--> statement-breakpoint
 CREATE INDEX "idx_auth_codes_email" ON "auth_codes" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "idx_audit_account" ON "audit_log" USING btree ("account_id","id");--> statement-breakpoint
+CREATE INDEX "idx_license_grants_product_status" ON "license_grants" USING btree ("product_id","status");--> statement-breakpoint
 CREATE INDEX "idx_license_revocations_open" ON "license_revocations" USING btree ("license_id","cleared_at");--> statement-breakpoint
 CREATE INDEX "idx_licenses_product_status" ON "licenses" USING btree ("product_id","status");--> statement-breakpoint
 CREATE INDEX "idx_outbox_pending" ON "outbox" USING btree ("status","run_after");--> statement-breakpoint
@@ -247,12 +288,15 @@ CREATE INDEX "idx_products_account" ON "products" USING btree ("account_id");-->
 CREATE INDEX "idx_purchases_subscription" ON "purchases" USING btree ("provider_subscription_id");--> statement-breakpoint
 CREATE INDEX "idx_purchases_payment" ON "purchases" USING btree ("provider_payment_id");--> statement-breakpoint
 -- The single account a self-host runs as, and the one every admin test assumes exists.
--- Seeded here rather than at boot so the database is never briefly without it, and so a
--- fresh cloud instance and a fresh self-host start from exactly the same state.
--- Pro because self-host is unlimited; billing being configured is the only thing that
--- makes an instance "cloud", and limitsFor() reads this row.
+-- Pro because self-host is unlimited; billing being configured is what makes an instance
+-- "cloud". limitsFor() reads this row.
 INSERT INTO "accounts" ("id", "name", "plan") VALUES (1, 'Default account', 'pro')
 	ON CONFLICT ("id") DO NOTHING;--> statement-breakpoint
--- serial does not know about an explicitly-inserted id, so without this the very next
--- signup tries to reuse id 1 and fails on the primary key.
-SELECT setval('accounts_id_seq', (SELECT MAX("id") FROM "accounts"), true);
+SELECT setval('accounts_id_seq', (SELECT MAX("id") FROM "accounts"), true);--> statement-breakpoint
+-- The default self-host Stripe connection. A self-host instance rebinds its stripe_account_id
+-- from STRIPE_SECRET_KEY at boot; cloud vendors create their own connections via Stripe Connect
+-- and never use this one. Seeded so grants and the webhook path have a connection to hang off.
+INSERT INTO "stripe_connections" ("id", "account_id", "provider", "mode", "stripe_account_id", "livemode", "status")
+	VALUES (1, 1, 'stripe', 'self_host_default', 'acct_self_host', false, 'active')
+	ON CONFLICT ("id") DO NOTHING;--> statement-breakpoint
+SELECT setval('stripe_connections_id_seq', (SELECT MAX("id") FROM "stripe_connections"), true);

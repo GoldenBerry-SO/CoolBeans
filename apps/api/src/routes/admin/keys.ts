@@ -18,7 +18,7 @@ import {
 } from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
-import { issueManual, trialExpiry, yearlyExpiry } from '../../services/issuance.js';
+import { issueManual, subscriptionExpiry, trialExpiry } from '../../services/issuance.js';
 import { disableLicense, enableLicense } from '../../services/lifecycle.js';
 import { issueOfflineActivation } from '../../services/offline-activation.js';
 import { enqueue } from '../../services/outbox.js';
@@ -41,7 +41,8 @@ const offlineActivationBody = z.object({
 const issueBody = z.object({
 	product: z.string().min(1),
 	email: z.string().email(),
-	tier: z.enum(['lifetime', 'yearly', 'trial']),
+	kind: z.enum(['perpetual', 'subscription', 'trial']),
+	plan: z.string().max(120).optional(),
 	expires_at: z.string().datetime().optional(),
 	trial_days: z.number().int().positive().optional(),
 	note: z.string().optional(),
@@ -113,13 +114,13 @@ export async function adminLicenseView(deps: AppDeps, license: License, product:
 export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void {
 	admin.post('/keys', async (c) => {
 		const body = await readBody(c, issueBody);
-		if (body.tier === 'lifetime' && body.expires_at !== undefined) {
-			throw validationError('expires_at must be omitted for a lifetime license.');
+		if (body.kind === 'perpetual' && body.expires_at !== undefined) {
+			throw validationError('expires_at must be omitted for a perpetual license.');
 		}
-		if (body.tier !== 'trial' && body.trial_days !== undefined) {
+		if (body.kind !== 'trial' && body.trial_days !== undefined) {
 			throw validationError('trial_days is only valid for a trial license.');
 		}
-		if (body.tier === 'trial' && body.expires_at !== undefined && body.trial_days !== undefined) {
+		if (body.kind === 'trial' && body.expires_at !== undefined && body.trial_days !== undefined) {
 			throw validationError('Provide expires_at or trial_days for a trial license, not both.');
 		}
 		const product = await requireProduct(c, deps, body.product);
@@ -136,16 +137,17 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			);
 		}
 		let expiresAt = body.expires_at ?? null;
-		if (body.tier === 'yearly' && !expiresAt) {
-			expiresAt = yearlyExpiry(deps);
+		if (body.kind === 'subscription' && !expiresAt) {
+			expiresAt = subscriptionExpiry(deps);
 		}
-		if (body.tier === 'trial' && !expiresAt) {
+		if (body.kind === 'trial' && !expiresAt) {
 			expiresAt = trialExpiry(deps, body.trial_days ?? 14);
 		}
 		const license = await issueManual(deps, {
 			product,
 			email: body.email,
-			tier: body.tier,
+			kind: body.kind,
+			plan: body.plan,
 			expiresAt,
 			note: body.note,
 			actor: auditActor(c),

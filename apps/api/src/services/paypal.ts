@@ -99,18 +99,18 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 			// Order approval is NOT payment: only a COMPLETED capture issues a key.
 			const captureStatus = pickString(resource, ['status']);
 			if (captureStatus && captureStatus !== 'COMPLETED') break;
-			// custom_id carries the product slug + tier set at checkout creation.
+			// custom_id carries the product slug + kind set at checkout creation.
 			const custom =
 				pickString(resource, ['custom_id']) ??
 				pickString(resource, ['purchase_units', '0', 'custom_id']);
-			const [slug, tierRaw] = (custom ?? '').split(':');
+			const [slug, kindRaw] = (custom ?? '').split(':');
 			const product = slug ? await getProductBySlugGlobal(deps.db, slug) : undefined;
 			if (!product) {
 				deps.logger.error('PayPal capture for unknown product', { custom, event: event.id });
 				break;
 			}
 			await attributeTo(product.id);
-			const tier = tierRaw === 'yearly' ? 'yearly' : 'lifetime';
+			const kind = kindRaw === 'subscription' ? 'subscription' : 'perpetual';
 			const email =
 				pickString(resource, ['payer', 'email_address']) ??
 				pickString(resource, ['subscriber', 'email_address']) ??
@@ -125,7 +125,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 				provider: 'paypal',
 				eventId: event.id,
 				checkoutId: orderId ?? event.id,
-				tier,
+				kind,
 				email,
 				subscriptionId: pickString(resource, ['billing_agreement_id']),
 				paymentId: captureId,
@@ -149,7 +149,7 @@ async function processPayPalEvent(deps: AppDeps, event: PayPalEvent): Promise<vo
 				provider: 'paypal',
 				eventId: event.id,
 				checkoutId: subId,
-				tier: 'yearly',
+				kind: 'subscription',
 				email,
 				expiresAt,
 				subscriptionId: subId,
@@ -264,7 +264,7 @@ export async function ensureLicenseForOrder(
 
 	const custom =
 		pickString(order, ['purchase_units', '0', 'custom_id']) ?? pickString(order, ['custom_id']);
-	const [slug, tierRaw] = (custom ?? '').split(':');
+	const [slug, kindRaw] = (custom ?? '').split(':');
 	const product = slug ? await getProductBySlugGlobal(deps.db, slug) : undefined;
 	if (!product) {
 		deps.logger.error('PayPal order resolves to no product', { custom, order: orderId });
@@ -285,7 +285,7 @@ export async function ensureLicenseForOrder(
 		product,
 		provider: 'paypal',
 		checkoutId: orderId,
-		tier: tierRaw === 'yearly' ? 'yearly' : 'lifetime',
+		kind: kindRaw === 'subscription' ? 'subscription' : 'perpetual',
 		email,
 		paymentId: captureId,
 	});

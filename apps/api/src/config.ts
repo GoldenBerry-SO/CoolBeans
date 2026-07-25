@@ -55,6 +55,20 @@ export interface Config {
 		/** Journey tests only, same seam as stripe.apiBase. Unset in production. */
 		apiBase?: string;
 	};
+	/**
+	 * Stripe Connect for cloud multi-vendor: the platform credential that makes scoped calls
+	 * on behalf of each connected account (Stripe-Account header) and verifies the single
+	 * platform Connect webhook. Its presence is what enables cloud vendor onboarding. Separate
+	 * from `stripe` (self-host, one account) and `billing` (us charging customers).
+	 */
+	connect?: {
+		secretKey: string;
+		/** The Connect OAuth client id (ca_...), for building the vendor authorization URL. */
+		clientId?: string;
+		webhookSecret?: string;
+		/** Journey/tests only, same seam as stripe.apiBase. Unset in production. */
+		apiBase?: string;
+	};
 	paypal?: { clientId: string; secret: string; webhookId: string };
 	email?:
 		| {
@@ -165,6 +179,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 			secretKey: env.STRIPE_SECRET_KEY,
 			webhookSecret: env.STRIPE_WEBHOOK_SECRET,
 			...(env.STRIPE_API_BASE ? { apiBase: env.STRIPE_API_BASE } : {}),
+		};
+	}
+	if (env.CONNECT_STRIPE_SECRET_KEY) {
+		// Cloud multi-vendor: the platform Connect credential. Vendors authorize their own
+		// Stripe account through Connect, and all their events arrive on ONE platform endpoint
+		// keyed by event.account. Separate namespace from STRIPE_* (self-host, one account) and
+		// BILLING_STRIPE_* (us charging customers), so the three can never be confused.
+		if (env.NODE_ENV === 'production' && !env.CONNECT_STRIPE_WEBHOOK_SECRET) {
+			throw new ConfigError(
+				'CONNECT_STRIPE_SECRET_KEY is set without CONNECT_STRIPE_WEBHOOK_SECRET: connected-account events would arrive and none could be verified, so no cloud vendor could ever be paid.',
+			);
+		}
+		config.connect = {
+			secretKey: env.CONNECT_STRIPE_SECRET_KEY,
+			...(env.CONNECT_STRIPE_CLIENT_ID ? { clientId: env.CONNECT_STRIPE_CLIENT_ID } : {}),
+			...(env.CONNECT_STRIPE_WEBHOOK_SECRET
+				? { webhookSecret: env.CONNECT_STRIPE_WEBHOOK_SECRET }
+				: {}),
+			...(env.CONNECT_STRIPE_API_BASE ? { apiBase: env.CONNECT_STRIPE_API_BASE } : {}),
 		};
 	}
 	if (env.BILLING_STRIPE_SECRET_KEY) {

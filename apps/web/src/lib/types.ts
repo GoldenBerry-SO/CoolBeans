@@ -9,8 +9,8 @@ export interface Product {
 	activationLimit: number;
 	activationModel: 'node_locked' | 'floating';
 	emailFrom: string;
-	stripePriceLifetime: string | null;
-	stripePriceYearly: string | null;
+	/** True once at least one Stripe price maps to this product (a license grant). */
+	connected: boolean;
 	keysTotal: number;
 	keysActive: number;
 }
@@ -18,7 +18,8 @@ export interface Product {
 export interface LicenseRow {
 	key: string;
 	status: 'active' | 'disabled';
-	tier: 'lifetime' | 'yearly' | 'trial';
+	kind: 'perpetual' | 'subscription' | 'trial';
+	plan: string | null;
 	product: string;
 	expires_at: string | null;
 	id: number;

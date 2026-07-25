@@ -105,8 +105,10 @@ POST /v1/deactivate  { license_key, instance_id }          -> { ok }
 GET  /v1/pubkey?product=<slug>                             -> { ok, algorithm: "ed25519", keys }
 \`\`\`
 
-\`license\` is \`{ key, status, tier, product, expires_at }\`; \`instance\` is \`{ id, name }\`.
-\`status\` is \`"active"\` or \`"disabled"\`. \`token\` is a signed offline token; cache it.
+\`license\` is \`{ key, status, kind, plan, product, expires_at }\`; \`instance\` is \`{ id, name }\`.
+\`status\` is \`"active"\` or \`"disabled"\`. \`kind\` is \`perpetual|subscription|trial\` and \`plan\` is a
+vendor label — both are display only, never branch app logic on them. \`token\` is a signed offline
+token; cache it.
 
 ## Offline verification and embedded keys
 

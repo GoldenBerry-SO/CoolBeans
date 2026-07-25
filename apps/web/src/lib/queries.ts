@@ -241,7 +241,8 @@ export function usePurchasesByEmail(email: string) {
 export interface IssueKeyInput {
 	product: string;
 	email: string;
-	tier: string;
+	kind: string;
+	plan?: string;
 	trial_days?: number;
 }
 
@@ -319,7 +320,7 @@ export interface ConnectStripeInput {
 }
 
 export interface ConnectStripeResult {
-	/** Where to point Stripe: the signing secret is per product. */
+	/** Where to point Stripe: one connection-level endpoint for every product. */
 	webhook_path: string;
 	secret_rotated: boolean;
 	dunning: { setting: string; note: string };
@@ -330,7 +331,63 @@ export function useConnectStripe() {
 	return useMutation({
 		mutationFn: ({ slug, ...input }: ConnectStripeInput) =>
 			api<ConnectStripeResult>('POST', `/admin/products/${slug}/stripe/connect`, input),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+		onSuccess: (_data, { slug }) => {
+			qc.invalidateQueries({ queryKey: ['products'] });
+			qc.invalidateQueries({ queryKey: ['grants', slug] });
+		},
+	});
+}
+
+export interface Grant {
+	id: number;
+	stripePriceId: string;
+	kind: 'perpetual' | 'subscription';
+	plan: string | null;
+	status: 'active' | 'retired';
+	createdAt: string;
+}
+
+/** The active price -> product mappings for one product. */
+export function useGrants(slug: string) {
+	return useQuery({
+		queryKey: ['grants', slug],
+		queryFn: () =>
+			api<{ grants: Grant[] }>('GET', `/admin/products/${slug}/grants`).then((r) => r.grants),
+	});
+}
+
+export interface CreateGrantInput {
+	slug: string;
+	stripe_price_id: string;
+	kind: 'perpetual' | 'subscription';
+	plan?: string;
+}
+
+export function useCreateGrant() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ slug, ...input }: CreateGrantInput) =>
+			api<{ grant: Grant }>('POST', `/admin/products/${slug}/grants`, input),
+		onSuccess: (_data, { slug }) => {
+			qc.invalidateQueries({ queryKey: ['grants', slug] });
+			qc.invalidateQueries({ queryKey: ['products'] });
+			toast.success('Price mapped');
+		},
+		onError: (err) => toast.error('Could not map that price', { description: message(err) }),
+	});
+}
+
+export function useRetireGrant() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ slug, id }: { slug: string; id: number }) =>
+			api('POST', `/admin/products/${slug}/grants/${id}/retire`),
+		onSuccess: (_data, { slug }) => {
+			qc.invalidateQueries({ queryKey: ['grants', slug] });
+			qc.invalidateQueries({ queryKey: ['products'] });
+			toast.success('Price retired', { description: 'Existing licences keep working.' });
+		},
+		onError: (err) => toast.error('Could not retire that price', { description: message(err) }),
 	});
 }
 

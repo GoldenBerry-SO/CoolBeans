@@ -16,8 +16,11 @@ import {
 	useArchiveProduct,
 	useBilling,
 	useConnectStripe,
+	useCreateGrant,
 	useCreateProduct,
+	useGrants,
 	useProducts,
+	useRetireGrant,
 	useUpdateProduct,
 } from '../lib/queries.js';
 import { productColor } from '../lib/scope.js';
@@ -48,6 +51,7 @@ export function ProductsPage() {
 	const [showNew, setShowNew] = useState(false);
 	const [editing, setEditing] = useState<Product | null>(null);
 	const [connecting, setConnecting] = useState<Product | null>(null);
+	const [managing, setManaging] = useState<Product | null>(null);
 	const [archiving, setArchiving] = useState<Product | null>(null);
 
 	// Surface the cap where it actually bites, rather than letting the create dialog 409.
@@ -79,7 +83,7 @@ export function ProductsPage() {
 			{products.data?.length ? (
 				<div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
 					{products.data.map((p, i) => {
-						const connected = Boolean(p.stripePriceLifetime || p.stripePriceYearly);
+						const connected = p.connected;
 						return (
 							<Card key={p.slug} className="p-4 sm:p-5">
 								<div className="mb-4 flex items-center gap-3">
@@ -122,9 +126,13 @@ export function ProductsPage() {
 										Integration
 									</Link>
 									{connected ? (
-										<span className="rounded-[8px] border border-positive-border bg-positive-tint px-3 py-[7px] font-medium text-[12.5px] text-positive-deep">
-											Stripe connected
-										</span>
+										<button
+											type="button"
+											onClick={() => setManaging(p)}
+											className="cursor-pointer rounded-[8px] border border-positive-border bg-positive-tint px-3 py-[7px] font-medium text-[12.5px] text-positive-deep"
+										>
+											Stripe prices
+										</button>
 									) : (
 										<button
 											type="button"
@@ -157,6 +165,7 @@ export function ProductsPage() {
 			{connecting ? (
 				<ConnectStripeDialog product={connecting} onClose={() => setConnecting(null)} />
 			) : null}
+			{managing ? <GrantsDialog product={managing} onClose={() => setManaging(null)} /> : null}
 			{archiving ? <ArchiveDialog product={archiving} onClose={() => setArchiving(null)} /> : null}
 		</div>
 	);
@@ -284,11 +293,102 @@ export function ProductDialog({ product, onClose }: { product?: Product; onClose
 	);
 }
 
+function GrantsDialog({ product, onClose }: { product: Product; onClose: () => void }) {
+	const grants = useGrants(product.slug);
+	const create = useCreateGrant();
+	const retire = useRetireGrant();
+	const [priceId, setPriceId] = useState('');
+	const [kind, setKind] = useState<'perpetual' | 'subscription'>('perpetual');
+	const [plan, setPlan] = useState('');
+	// The same shape the API enforces, so a fat-fingered id is caught before the round trip.
+	const canAdd = /^price_[A-Za-z0-9]+$/.test(priceId);
+
+	return (
+		<Dialog
+			title="Stripe prices"
+			lede={`${product.name} · map each Stripe price to what it grants`}
+			onClose={onClose}
+			footer={<SecondaryButton onClick={onClose}>Done</SecondaryButton>}
+		>
+			<div className="flex flex-col gap-2">
+				{grants.data?.length ? (
+					grants.data.map((g) => (
+						<div
+							key={g.id}
+							className="flex items-center gap-2 rounded-[8px] border border-ink/8 bg-fill-soft px-3 py-2"
+						>
+							<span className="font-mono text-[12px]">{g.stripePriceId}</span>
+							<span className="rounded-[6px] border border-ink/10 px-2 py-[2px] text-[11px] text-ink-secondary">
+								{g.kind === 'perpetual' ? 'Perpetual' : 'Subscription'}
+							</span>
+							{g.plan ? <span className="text-[11.5px] text-ink-muted">{g.plan}</span> : null}
+							<div className="flex-1" />
+							<button
+								type="button"
+								onClick={() => retire.mutate({ slug: product.slug, id: g.id })}
+								className="cursor-pointer rounded-[7px] border border-ink/12 px-2 py-[4px] text-[11.5px] text-ink-secondary hover:border-danger hover:text-danger"
+							>
+								Retire
+							</button>
+						</div>
+					))
+				) : (
+					<p className="m-0 text-[12.5px] text-ink-muted">
+						No prices mapped yet. Add one below, or use Connect Stripe to wire the webhook first.
+					</p>
+				)}
+			</div>
+
+			<Field label="Add a price mapping">
+				<input
+					className={inputClass}
+					placeholder="price_1QabcXYZ"
+					value={priceId}
+					onChange={(e) => setPriceId(e.target.value)}
+				/>
+			</Field>
+			<div className="flex gap-2">
+				<select
+					className={inputClass}
+					value={kind}
+					onChange={(e) => setKind(e.target.value as 'perpetual' | 'subscription')}
+				>
+					<option value="perpetual">Perpetual (one-time price)</option>
+					<option value="subscription">Subscription (recurring price)</option>
+				</select>
+				<input
+					className={inputClass}
+					placeholder="Plan label (optional)"
+					value={plan}
+					onChange={(e) => setPlan(e.target.value)}
+				/>
+			</div>
+			<AccentButton
+				disabled={!canAdd || create.isPending}
+				onClick={() =>
+					create.mutate(
+						{ slug: product.slug, stripe_price_id: priceId, kind, plan: plan || undefined },
+						{
+							onSuccess: () => {
+								setPriceId('');
+								setPlan('');
+							},
+						},
+					)
+				}
+			>
+				Map price
+			</AccentButton>
+			{create.error ? (
+				<p className="m-0 text-[12.5px] text-danger">{create.error.message}</p>
+			) : null}
+		</Dialog>
+	);
+}
+
 function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: () => void }) {
-	// The signing secret is stored per product, so only the per-product route can verify
-	// those deliveries. Recommending the global path here wired people up to an endpoint
-	// that rejected every event.
-	const suggestedPath = `/v1/stripe/webhook/${product.slug}`;
+	// One webhook endpoint per connection: every product shares it and its one signing secret.
+	const suggestedPath = '/v1/stripe/webhook';
 	const [webhookUrl, setWebhookUrl] = useState('');
 	const [lifetime, setLifetime] = useState('');
 	const [yearly, setYearly] = useState('');

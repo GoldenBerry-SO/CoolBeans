@@ -28,7 +28,7 @@ async function accountAtCap() {
 		product,
 		provider: 'stripe',
 		checkoutId: 'cs_first',
-		tier: 'lifetime',
+		kind: 'perpetual',
 		email: 'first@buyer.io',
 	});
 	return { ...h, product };
@@ -41,7 +41,7 @@ describe('webhook issuance past the licence cap', () => {
 			product,
 			provider: 'stripe',
 			checkoutId: 'cs_second',
-			tier: 'lifetime',
+			kind: 'perpetual',
 			email: 'second@buyer.io',
 		});
 		// The buyer paid our customer. Withholding this key would break their business.
@@ -55,7 +55,7 @@ describe('webhook issuance past the licence cap', () => {
 			product,
 			provider: 'stripe',
 			checkoutId: 'cs_second',
-			tier: 'lifetime',
+			kind: 'perpetual',
 			email: 'second@buyer.io',
 		});
 		const line = logger.lines.find((l) => l.message.includes('past the plan limit'));
@@ -69,7 +69,7 @@ describe('webhook issuance past the licence cap', () => {
 			product,
 			provider: 'stripe',
 			checkoutId: 'cs_second',
-			tier: 'lifetime',
+			kind: 'perpetual',
 			email: 'second@buyer.io',
 		});
 		const [row] = await rawQuery<{ account_id: number; detail: string }>(
@@ -85,7 +85,7 @@ describe('webhook issuance past the licence cap', () => {
 			product,
 			provider: 'stripe',
 			checkoutId: 'cs_second',
-			tier: 'lifetime',
+			kind: 'perpetual',
 			email: 'second@buyer.io',
 		});
 		const first = (
@@ -100,7 +100,7 @@ describe('webhook issuance past the licence cap', () => {
 			product,
 			provider: 'stripe',
 			checkoutId: 'cs_third',
-			tier: 'lifetime',
+			kind: 'perpetual',
 			email: 'third@buyer.io',
 		});
 		const after = (
@@ -127,7 +127,7 @@ describe('webhook issuance past the licence cap', () => {
 				product,
 				provider: 'stripe',
 				checkoutId: id,
-				tier: 'lifetime',
+				kind: 'perpetual',
 				email: `${id}@buyer.io`,
 			});
 		}

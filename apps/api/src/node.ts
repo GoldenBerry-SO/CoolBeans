@@ -96,6 +96,9 @@ const deps: AppDeps = {
 	stripe: config.stripe
 		? createStripeGateway(config.stripe.secretKey, config.stripe.apiBase)
 		: undefined,
+	connect: config.connect
+		? createStripeGateway(config.connect.secretKey, config.connect.apiBase)
+		: undefined,
 	billing: config.billing
 		? createBillingGateway(config.billing.stripeSecretKey, config.billing.apiBase)
 		: undefined,

@@ -86,15 +86,15 @@ export async function sendKeyEmail(
 ): Promise<boolean> {
 	if (!deps.email) return false;
 	const displayKey = toDisplayKey(args.license.key, args.product.keyPrefix);
-	const isYearly = args.license.tier === 'yearly';
+	const isSubscription = args.license.kind === 'subscription';
 	const html = await render(
 		LicenseKeyEmail({
 			productName: args.product.name,
 			licenseKey: displayKey,
 			downloadUrl: args.product.downloadUrl ?? undefined,
 			renewalDate:
-				isYearly && args.license.expiresAt ? args.license.expiresAt.slice(0, 10) : undefined,
-			portalUrl: isYearly ? `${deps.config.publicUrl}/portal` : undefined,
+				isSubscription && args.license.expiresAt ? args.license.expiresAt.slice(0, 10) : undefined,
+			portalUrl: isSubscription ? `${deps.config.publicUrl}/portal` : undefined,
 			logoUrl: `${deps.config.publicUrl}/logo.png`,
 		}),
 	);

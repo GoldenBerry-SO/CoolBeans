@@ -37,7 +37,7 @@ describe('issuance is atomic', () => {
 				provider: 'stripe',
 				checkoutId: 'cs_rollback_1',
 				email: 'buyer@example.com',
-				tier: 'lifetime',
+				kind: 'perpetual',
 			}),
 		).rejects.toThrow('outbox unavailable');
 
@@ -56,7 +56,7 @@ describe('issuance is atomic', () => {
 			provider: 'stripe',
 			checkoutId: 'cs_rollback_1',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		expect(retried.created).toBe(true);
 		expect(retried.license.status).toBe('active');

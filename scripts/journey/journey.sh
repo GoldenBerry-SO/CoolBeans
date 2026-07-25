@@ -50,8 +50,11 @@ docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
 docker run -d --rm --name "$PG_NAME" \
   -e POSTGRES_PASSWORD=beans -e POSTGRES_DB=coolbeans \
   -p "${PG_PORT}:5432" postgres:16-alpine >/dev/null
+# postgres:alpine runs initdb then restarts once, and pg_isready can pass on the pre-restart
+# instance — the API then races in and hits "the database system is starting up". A real
+# SELECT that succeeds proves the server is actually accepting queries, not just up.
 for _ in $(seq 1 60); do
-  docker exec "$PG_NAME" pg_isready -q >/dev/null 2>&1 && break
+  docker exec "$PG_NAME" psql -U postgres -d coolbeans -c 'SELECT 1' >/dev/null 2>&1 && break
   sleep 1
 done
 sleep 1

@@ -41,7 +41,7 @@ describe('GET /admin/validations', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
 		const activated = await publicPost('/v1/activate', {
 			license_key: key,

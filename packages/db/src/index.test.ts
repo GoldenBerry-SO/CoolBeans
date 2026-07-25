@@ -196,3 +196,32 @@ describe('applied()/affected()', () => {
 		expect(affected({ rows: [], affectedRows: 7 })).toBe(0);
 	});
 });
+
+describe('assertSchemaCurrent', () => {
+	it('accepts a database migrated by this build', async () => {
+		const { assertSchemaCurrent } = await import('./index.js');
+		const fresh = await freshDb();
+		await expect(assertSchemaCurrent(fresh.db)).resolves.toBeUndefined();
+	});
+
+	it('refuses a database built from a different migration lineage', async () => {
+		// The pricing redesign replaced the original migrations rather than adding to them, so
+		// a database created before it reports MORE applied migrations than this build ships
+		// while lacking license_grants, stripe_connections and licenses.kind. Counting only
+		// "behind" would call that current, boot, and then fail on every grant query. It has
+		// to refuse instead.
+		const { assertSchemaCurrent } = await import('./index.js');
+		const fresh = await freshDb();
+		await fresh.client.exec(
+			`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('older-lineage', 1)`,
+		);
+		await expect(assertSchemaCurrent(fresh.db)).rejects.toThrow(/different migration lineage/);
+	});
+
+	it('still refuses a database that is simply behind', async () => {
+		const { assertSchemaCurrent } = await import('./index.js');
+		const client = new PGlite();
+		const bare = drizzle(client, { schema });
+		await expect(assertSchemaCurrent(bare)).rejects.toThrow(/no migrations applied/);
+	});
+});

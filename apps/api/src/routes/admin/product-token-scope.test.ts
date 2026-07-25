@@ -36,12 +36,12 @@ beforeEach(async () => {
 		email_from: 'r@hexis.app',
 	});
 	clemToken = await rotateToken('clementine');
-	hexKey = await issueKey(h.app, { product: 'hexis', email: 'h@x.io', tier: 'lifetime' });
+	hexKey = await issueKey(h.app, { product: 'hexis', email: 'h@x.io', kind: 'perpetual' });
 });
 
 describe('a product token reaches its own product', () => {
 	it('lists its own keys', async () => {
-		await issueKey(h.app, { product: 'clementine', email: 'c@x.io', tier: 'lifetime' });
+		await issueKey(h.app, { product: 'clementine', email: 'c@x.io', kind: 'perpetual' });
 		const res = await h.app.request('/admin/products/clementine/keys', {
 			headers: scoped(clemToken),
 		});
@@ -53,7 +53,7 @@ describe('a product token reaches its own product', () => {
 		const res = await h.app.request('/admin/keys', {
 			method: 'POST',
 			headers: scoped(clemToken),
-			body: JSON.stringify({ product: 'clementine', email: 'buyer@x.io', tier: 'lifetime' }),
+			body: JSON.stringify({ product: 'clementine', email: 'buyer@x.io', kind: 'perpetual' }),
 		});
 		expect(res.status).toBe(200);
 	});
@@ -76,7 +76,7 @@ describe('a product token cannot reach another product', () => {
 		const res = await h.app.request('/admin/keys', {
 			method: 'POST',
 			headers: scoped(clemToken),
-			body: JSON.stringify({ product: 'hexis', email: 'buyer@x.io', tier: 'lifetime' }),
+			body: JSON.stringify({ product: 'hexis', email: 'buyer@x.io', kind: 'perpetual' }),
 		});
 		expect(res.status).toBe(403);
 	});

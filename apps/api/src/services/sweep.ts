@@ -16,7 +16,7 @@ export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 		.from(licenses)
 		.where(
 			and(
-				eq(licenses.tier, 'trial'),
+				eq(licenses.kind, 'trial'),
 				eq(licenses.status, 'active'),
 				isNotNull(licenses.expiresAt),
 				lte(licenses.expiresAt, nowIso),

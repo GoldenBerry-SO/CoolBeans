@@ -29,7 +29,7 @@ async function seedNodeLocked(slug: string, prefix: string, activationLimit: num
 		// biome-ignore lint/suspicious/noExplicitAny: raw row into the Product shape the service reads.
 		product: camel(product) as any,
 		email: 'race@example.com',
-		tier: 'lifetime',
+		kind: 'perpetual',
 		actor: 'race-test',
 	});
 	return { key: toDisplayKey(license.key, prefix), licenseId: license.id };

@@ -3,15 +3,24 @@
 
 const licenseSchema = {
 	type: 'object',
-	required: ['key', 'status', 'tier', 'product', 'expires_at'],
+	required: ['key', 'status', 'kind', 'plan', 'product', 'expires_at'],
 	properties: {
 		key: { type: 'string', example: 'CLEM-A2B3-C4D5-E6F7-H8JK' },
 		status: { type: 'string', enum: ['active', 'disabled'] },
-		tier: { type: 'string', enum: ['lifetime', 'yearly', 'trial'] },
+		kind: {
+			type: 'string',
+			enum: ['perpetual', 'subscription', 'trial'],
+			description: 'Entitlement lifecycle, not pricing. Do not branch app logic on it.',
+		},
+		plan: {
+			type: ['string', 'null'],
+			description: "The vendor's free-form plan label (display only), or null.",
+		},
 		product: { type: 'string', example: 'clementine' },
 		expires_at: {
 			type: ['string', 'null'],
-			description: 'ISO 8601, or null for lifetime. Advisory for yearly; enforced for trial.',
+			description:
+				'ISO 8601, or null for perpetual. Advisory for subscription; enforced for trial.',
 		},
 	},
 } as const;

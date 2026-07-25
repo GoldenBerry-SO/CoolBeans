@@ -34,15 +34,15 @@ export function StatusPill({ status }: { status: 'active' | 'disabled' }) {
 	);
 }
 
-export function TierText({ tier }: { tier: 'lifetime' | 'yearly' | 'trial' }) {
-	const label = { lifetime: 'Lifetime', yearly: 'Yearly', trial: 'Trial' }[tier];
+export function KindText({ kind }: { kind: 'perpetual' | 'subscription' | 'trial' }) {
+	const label = { perpetual: 'Perpetual', subscription: 'Subscription', trial: 'Trial' }[kind];
 	return (
 		<span
 			className={clsx(
 				'font-medium text-[12.5px]',
-				tier === 'lifetime' && 'text-tier-lifetime',
-				tier === 'yearly' && 'text-ink-secondary',
-				tier === 'trial' && 'text-warn',
+				kind === 'perpetual' && 'text-tier-lifetime',
+				kind === 'subscription' && 'text-ink-secondary',
+				kind === 'trial' && 'text-warn',
 			)}
 		>
 			{label}

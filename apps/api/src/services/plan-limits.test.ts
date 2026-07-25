@@ -134,13 +134,13 @@ describe('usage counting', () => {
 			.values({ productId: product.id, provider: 'manual', email: 'b@example.com' })
 			.returning();
 		await deps.db.insert(licenses).values([
-			{ productId: product.id, purchaseId: purchase.id, key: 'ALPHA1', tier: 'lifetime' },
-			{ productId: product.id, purchaseId: purchase.id, key: 'ALPHA2', tier: 'lifetime' },
+			{ productId: product.id, purchaseId: purchase.id, key: 'ALPHA1', kind: 'perpetual' },
+			{ productId: product.id, purchaseId: purchase.id, key: 'ALPHA2', kind: 'perpetual' },
 			{
 				productId: product.id,
 				purchaseId: purchase.id,
 				key: 'ALPHA3',
-				tier: 'lifetime',
+				kind: 'perpetual',
 				status: 'disabled',
 			},
 		]);

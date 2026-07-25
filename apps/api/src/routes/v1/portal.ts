@@ -13,6 +13,8 @@ import { ApiError, badRequest } from '../../http/errors.js';
 import { serializeLicense } from '../../http/serializers.js';
 import { resolveEmailIdentity } from '../../services/email.js';
 import { resolveLicense } from '../../services/licensing.js';
+import { gatewayForConnection } from '../../services/stripe-connection.js';
+import { getConnection } from '../../store/grants.js';
 
 const lookupBody = z.object({ license_key: z.string() });
 const recoverBody = z.object({ email: z.string().email() });
@@ -141,7 +143,7 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		// enough: without a subscription there is genuinely nothing to manage, and sending
 		// them to a billing portal would be a dead end.
 		const hasSubscription =
-			Boolean(purchase?.providerSubscriptionId) || resolved.license.tier === 'yearly';
+			Boolean(purchase?.providerSubscriptionId) || resolved.license.kind === 'subscription';
 		if (
 			!purchase ||
 			!customerId ||
@@ -156,7 +158,14 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 				'There is no subscription to manage for this license.',
 			);
 		}
-		const url = await deps.stripe.billingPortalSession(
+		// The customer lives in the Stripe account that took the money, which the purchase
+		// records. Using the platform gateway would look a cloud vendor's customer up in the
+		// wrong account and strand a paying subscriber with no way to manage or cancel.
+		const connection = purchase.stripeConnectionId
+			? await getConnection(deps.db, purchase.stripeConnectionId)
+			: undefined;
+		const stripe = connection ? gatewayForConnection(deps, connection) : deps.stripe;
+		const url = await stripe.billingPortalSession(
 			customerId,
 			body.return_url ?? deps.config.publicUrl,
 		);

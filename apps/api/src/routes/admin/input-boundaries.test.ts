@@ -50,10 +50,10 @@ describe('POST /admin/keys expiry options', () => {
 	}
 
 	it.each([
-		{ tier: 'lifetime', expires_at: '2027-01-01T00:00:00.000Z' },
-		{ tier: 'lifetime', trial_days: 7 },
-		{ tier: 'yearly', trial_days: 7 },
-		{ tier: 'trial', trial_days: 7, expires_at: '2027-01-01T00:00:00.000Z' },
+		{ kind: 'perpetual', expires_at: '2027-01-01T00:00:00.000Z' },
+		{ kind: 'perpetual', trial_days: 7 },
+		{ kind: 'subscription', trial_days: 7 },
+		{ kind: 'trial', trial_days: 7, expires_at: '2027-01-01T00:00:00.000Z' },
 	])('rejects contradictory expiry input %#', async (body) => {
 		const res = await issue(body);
 		expect(res.status).toBe(422);
@@ -62,10 +62,10 @@ describe('POST /admin/keys expiry options', () => {
 	});
 
 	it('still accepts an advisory yearly expiry', async () => {
-		const res = await issue({ tier: 'yearly', expires_at: '2027-01-01T00:00:00.000Z' });
+		const res = await issue({ kind: 'subscription', expires_at: '2027-01-01T00:00:00.000Z' });
 		expect(res.status).toBe(200);
 		expect(await res.json()).toMatchObject({
-			license: { tier: 'yearly', expires_at: '2027-01-01T00:00:00.000Z' },
+			license: { kind: 'subscription', expires_at: '2027-01-01T00:00:00.000Z' },
 		});
 	});
 
@@ -73,7 +73,7 @@ describe('POST /admin/keys expiry options', () => {
 		// A yearly licence with no expiry never lapses: the sweep only disables trials and
 		// validate only expires trials lazily, so it is a lifetime key issued by accident.
 		// The console has no expiry field, so every yearly comp went out that way.
-		const res = await issue({ tier: 'yearly' });
+		const res = await issue({ kind: 'subscription' });
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { license: { expires_at: string | null } };
 		expect(body.license.expires_at).not.toBeNull();
@@ -86,8 +86,8 @@ describe('POST /admin/keys expiry options', () => {
 	});
 
 	it('leaves a lifetime key with no expiry', async () => {
-		const res = await issue({ tier: 'lifetime' });
+		const res = await issue({ kind: 'perpetual' });
 		expect(res.status).toBe(200);
-		expect(await res.json()).toMatchObject({ license: { tier: 'lifetime', expires_at: null } });
+		expect(await res.json()).toMatchObject({ license: { kind: 'perpetual', expires_at: null } });
 	});
 });

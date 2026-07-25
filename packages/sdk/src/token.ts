@@ -4,7 +4,8 @@
 export interface TokenPayload {
 	key: string;
 	status: 'active' | 'disabled';
-	tier: 'lifetime' | 'yearly' | 'trial';
+	kind: 'perpetual' | 'subscription' | 'trial';
+	plan: string | null;
 	product: string;
 	expires_at: string | null;
 	/**

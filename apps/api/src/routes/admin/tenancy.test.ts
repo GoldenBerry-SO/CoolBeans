@@ -32,12 +32,12 @@ async function twoAccounts() {
 	);
 	const alphaKey = await issueKey(
 		h.app,
-		{ product: 'alpha-app', email: 'buyer@alpha.test', tier: 'lifetime' },
+		{ product: 'alpha-app', email: 'buyer@alpha.test', kind: 'perpetual' },
 		alice,
 	);
 	const betaKey = await issueKey(
 		h.app,
-		{ product: 'beta-app', email: 'buyer@beta.test', tier: 'lifetime' },
+		{ product: 'beta-app', email: 'buyer@beta.test', kind: 'perpetual' },
 		bob,
 	);
 	return { ...h, alice, bob, alphaKey, betaKey };
@@ -87,6 +87,9 @@ describe('cross-account reads', () => {
 		['POST', '/admin/products/alpha-app/signing-keys/rotate'],
 		['POST', '/admin/products/alpha-app/token/rotate'],
 		['POST', '/admin/products/alpha-app/stripe/connect'],
+		['GET', '/admin/products/alpha-app/grants'],
+		['POST', '/admin/products/alpha-app/grants'],
+		['POST', '/admin/products/alpha-app/grants/1/retire'],
 	])('%s %s is not reachable from another account', async (method, path) => {
 		const { app, bob } = await twoAccounts();
 		const res = await app.request(path, {
@@ -114,7 +117,7 @@ describe('cross-account reads', () => {
 		const res = await app.request('/admin/keys', {
 			method: 'POST',
 			headers: bob,
-			body: JSON.stringify({ product: 'alpha-app', email: 'x@beta.test', tier: 'lifetime' }),
+			body: JSON.stringify({ product: 'alpha-app', email: 'x@beta.test', kind: 'perpetual' }),
 		});
 		expect(res.status).toBe(404);
 	});
@@ -333,6 +336,9 @@ const COVERED = new Set([
 	'POST /admin/products/:slug/signing-keys/rotate',
 	'POST /admin/products/:slug/token/rotate',
 	'POST /admin/products/:slug/stripe/connect',
+	'GET /admin/products/:slug/grants',
+	'POST /admin/products/:slug/grants',
+	'POST /admin/products/:slug/grants/:id/retire',
 	'POST /admin/keys',
 	'GET /admin/keys/:key',
 	// Cross-account case lives in recent-licenses.test.ts: another account sees an empty list.

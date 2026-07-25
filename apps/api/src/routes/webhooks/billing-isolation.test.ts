@@ -6,9 +6,11 @@ import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { Config } from '../../config.js';
 import { fakeBillingGateway, fakeStripeGateway, makeHarness } from '../../test/harness.js';
-import { createProduct } from '../../test/seed.js';
+import { createProduct, seedGrant } from '../../test/seed.js';
 
-const PRO_PRICE = 'price_coolbeans_pro';
+// No underscores past the prefix: connect validates price ids against /^price_[A-Za-z0-9]+$/,
+// and the reserved-price guard only fires once a well-formed id gets that far.
+const PRO_PRICE = 'price_coolbeansPro';
 const PRODUCT_PRICE = 'price_customers_own_app';
 
 /** Both integrations configured at once, which is the situation that has to be safe. */
@@ -47,12 +49,18 @@ const planOf = async (h: Awaited<ReturnType<typeof harness>>) => {
 describe('a platform subscription event cannot issue a licence key', () => {
 	it('is not matched to any product by the product webhook', async () => {
 		const h = await harness();
-		await createProduct(h.app, {
+		// A genuinely configured product: its own price maps to a grant. The Pro price still
+		// resolves to nothing, so a Pro payment cannot borrow this product's issuance.
+		const clementine = await createProduct(h.app, {
 			slug: 'clementine',
 			name: 'Clementine',
 			key_prefix: 'CLEM',
 			email_from: 'r@c.io',
-			stripe_price_lifetime: PRODUCT_PRICE,
+		});
+		await seedGrant(h.deps, {
+			productId: clementine.id as number,
+			priceId: PRODUCT_PRICE,
+			kind: 'perpetual',
 		});
 
 		// Somebody paying Goldenberry for Pro, delivered to the customer-product endpoint.
@@ -144,26 +152,31 @@ describe('the two webhook URLs are distinct routes', () => {
 });
 
 describe('the reverse guard on product prices', () => {
-	it('refuses to store the Pro price as a product price at creation', async () => {
-		// Without this, getProductByStripePrice would match a Cool Beans Pro purchase and
-		// issue somebody a licence key for it.
+	it('refuses to connect a product to the Pro price (perpetual slot)', async () => {
+		// A grant on the Pro price would resolve a Cool Beans Pro purchase to a product and
+		// issue somebody a licence key for it. Connect is where prices get mapped now, so
+		// that is where the guard lives.
 		const h = await harness();
-		const res = await h.app.request('/admin/products', {
+		await createProduct(h.app, {
+			slug: 'sneaky',
+			name: 'Sneaky',
+			key_prefix: 'SNEAK',
+			email_from: 'r@c.io',
+		});
+		const res = await h.app.request('/admin/products/sneaky/stripe/connect', {
 			method: 'POST',
 			headers: h.adminHeaders,
 			body: JSON.stringify({
-				slug: 'sneaky',
-				name: 'Sneaky',
-				key_prefix: 'SNEAK',
-				email_from: 'r@c.io',
-				stripe_price_lifetime: PRO_PRICE,
+				webhook_url: 'https://sneaky.example/webhook',
+				lifetime_price_id: PRO_PRICE,
+				yearly_price_id: 'price_sneakyYear',
 			}),
 		});
 		expect(res.status).toBe(409);
 		expect((await res.json()) as { error: string }).toMatchObject({ error: 'reserved_price' });
 	});
 
-	it('refuses to patch a product onto the Pro price', async () => {
+	it('refuses the Pro price in the subscription slot too', async () => {
 		const h = await harness();
 		await createProduct(h.app, {
 			slug: 'clementine',
@@ -171,10 +184,14 @@ describe('the reverse guard on product prices', () => {
 			key_prefix: 'CLEM',
 			email_from: 'r@c.io',
 		});
-		const res = await h.app.request('/admin/products/clementine', {
-			method: 'PATCH',
+		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
+			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({ stripe_price_yearly: PRO_PRICE }),
+			body: JSON.stringify({
+				webhook_url: 'https://clementine.example/webhook',
+				lifetime_price_id: 'price_clemLife',
+				yearly_price_id: PRO_PRICE,
+			}),
 		});
 		expect(res.status).toBe(409);
 		expect((await res.json()) as { error: string }).toMatchObject({ error: 'reserved_price' });

@@ -3,15 +3,16 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { makeHarness, type TestHarness } from '../test/harness.js';
-import { createProduct, issueKey, post } from '../test/seed.js';
+import { createProduct, issueKey, post, seedGrant } from '../test/seed.js';
 import { drainOutbox } from './outbox.js';
 import { reapFloatingLeases, sweepExpiredTrials } from './sweep.js';
 
 let h: TestHarness;
+let clementine: Record<string, unknown>;
 
 beforeEach(async () => {
 	h = await makeHarness();
-	await createProduct(h.app, {
+	clementine = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
@@ -24,7 +25,7 @@ describe('sweeps', () => {
 		const trialKey = await issueKey(h.app, {
 			product: 'clementine',
 			email: 't@example.com',
-			tier: 'trial',
+			kind: 'trial',
 			trial_days: 1,
 		});
 		h.clock.advance(2 * 86_400_000);
@@ -40,7 +41,7 @@ describe('sweeps', () => {
 		await issueKey(h.app, {
 			product: 'clementine',
 			email: 'boundary@example.com',
-			tier: 'trial',
+			kind: 'trial',
 			expires_at: expiresAt.toISOString(),
 		});
 		h.clock.set(expiresAt);
@@ -56,7 +57,7 @@ describe('sweeps', () => {
 			activation_model: 'floating',
 			floating_lease_minutes: 30,
 		});
-		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', tier: 'yearly' });
+		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', kind: 'subscription' });
 		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'a' });
 		h.clock.advance(31 * 60_000);
 		expect(await reapFloatingLeases(h.deps)).toBe(1);
@@ -74,7 +75,7 @@ describe('sweeps', () => {
 		const key = await issueKey(h.app, {
 			product: 'boundary-floating',
 			email: 'boundary@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		await post(h.app, '/v1/activate', {
 			license_key: key,
@@ -89,7 +90,12 @@ describe('outbox backstop', () => {
 	it('resends the key email when inline send failed, and is idempotent', async () => {
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
 		const { fakeStripeGateway } = await import('../test/harness.js');
-		h.deps.stripe = fakeStripeGateway();
+		h.deps.stripe = fakeStripeGateway({}, { cs_1: ['price_clem_life'] });
+		await seedGrant(h.deps, {
+			productId: clementine.id as number,
+			priceId: 'price_clem_life',
+			kind: 'perpetual',
+		});
 		h.email.failNext = true;
 		// Inline send fails -> 500, but a backstop job was enqueued and license issued.
 		await h.app.request('/v1/stripe/webhook', {

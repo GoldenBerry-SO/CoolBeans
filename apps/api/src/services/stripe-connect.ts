@@ -2,12 +2,16 @@
 // ABOUTME: The five-minute job: one call leaves a product fully wired, no manual dashboard steps.
 
 import type { Product } from '@coolbeans/db';
-import { products } from '@coolbeans/db';
-import { eq } from 'drizzle-orm';
+import { licenseGrants, stripeConnections } from '@coolbeans/db';
+import { and, eq } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
+import { nowDate } from '../deps.js';
 import { badRequest } from '../http/errors.js';
 import { writeAudit } from '../store/audit.js';
+import { getActiveConnectionForAccount } from '../store/grants.js';
 import { assertDistinctTierPrices, assertNotBillingPrice } from './billing.js';
+import { gatewayForConnection } from './stripe-connection.js';
+import type { StripeGateway } from './stripe-gateway.js';
 
 export interface ConnectArgs {
 	actor?: string;
@@ -22,7 +26,7 @@ export interface ConnectArgs {
 export interface ConnectResult {
 	lifetimePriceId: string;
 	yearlyPriceId: string;
-	/** Where to point Stripe: the secret is per product, so the global route cannot verify it. */
+	/** Where to point Stripe: the connection-level endpoint, one per connection. */
 	webhookPath: string;
 	/** False when Stripe reused an endpoint and returned no secret (the stored one was kept). */
 	secretRotated: boolean;
@@ -55,12 +59,12 @@ export const DUNNING_REQUIREMENT: DunningRequirement = {
  * checkout and silently issue no key to a paying buyer. Fail loudly here instead.
  */
 async function assertTierPriceModes(
-	deps: AppDeps,
+	// The gateway bound to the connection being wired, NOT deps.stripe: a cloud vendor's
+	// prices live in their connected account and the platform key cannot see them.
+	stripe: StripeGateway,
 	lifetimePriceId: string,
 	yearlyPriceId: string,
 ): Promise<void> {
-	const stripe = deps.stripe;
-	if (!stripe) throw new Error('Stripe is not configured on this server.');
 	const [lifetime, yearly] = await Promise.all([
 		stripe.getPrice(lifetimePriceId),
 		stripe.getPrice(yearlyPriceId),
@@ -94,44 +98,113 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	// Validate everything before any side effect (webhook registration, DB write), so a bad
 	// configuration fails clean and leaves nothing half-wired.
 	//
-	// The two tiers must differ: price resolution checks the lifetime column first, so a
-	// shared id would issue every sale for it — a yearly subscription included — as lifetime.
+	// The two prices must differ: connect writes one grant per (connection, price), so a
+	// shared id would collide on that key and leave a single grant, issuing a yearly
+	// subscription as a non-expiring perpetual licence.
 	assertDistinctTierPrices(args.lifetimePriceId, args.yearlyPriceId);
 	// The vendor pastes their own price ids, so a shared Stripe account (which config refuses
 	// in production) is the only way one could be our platform Pro price. Assert it anyway:
 	// the failure it prevents is a Pro payment issuing somebody a licence key.
 	assertNotBillingPrice(deps, args.lifetimePriceId, args.yearlyPriceId);
-	await assertTierPriceModes(deps, args.lifetimePriceId, args.yearlyPriceId);
 
+	// Grants and the webhook secret hang off the account's own active connection (self-host
+	// default, or a cloud vendor's Connect connection), whose composite tenant FK matches the
+	// product's account. A product on an account with no connection fails clean here instead of
+	// hitting a foreign-key violation. Resolved before the prices are checked, because which
+	// Stripe account holds them is the connection's to say.
+	const connection = await getActiveConnectionForAccount(deps.db, args.product.accountId);
+	if (!connection) {
+		throw badRequest('Stripe is not connected for this account yet.');
+	}
+	// This flow registers a webhook endpoint and stores its signing secret, which is the
+	// self-host shape. A Connect vendor's events already arrive on the platform endpoint and
+	// are verified with the platform secret, so minting them a second endpoint would leave a
+	// secret nothing verifies against. They map prices through the grants API instead.
+	if (connection.mode === 'cloud_connect') {
+		throw badRequest(
+			'This account sells through Stripe Connect, so its events already reach us. Map prices with the grants API instead of connect.',
+		);
+	}
+	await assertTierPriceModes(
+		gatewayForConnection(deps, connection),
+		args.lifetimePriceId,
+		args.yearlyPriceId,
+	);
+
+	// One endpoint per connection: register the connection-level path regardless of the URL the
+	// caller passed. Two products registering two per-product URLs would make Stripe mint two
+	// endpoints with two secrets, and only the last would be stored — every later delivery for
+	// the first product would then fail signature verification.
+	const webhookUrl = new URL('/v1/stripe/webhook', args.webhookUrl).toString();
 	const result = await deps.stripe.connect({
 		productSlug: args.product.slug,
-		webhookUrl: args.webhookUrl,
+		webhookUrl,
 		lifetimePriceId: args.lifetimePriceId,
 		yearlyPriceId: args.yearlyPriceId,
 	});
-	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running
-	// connect against an existing one returns nothing, so writing it through would
-	// blank the stored secret and every later webhook would fail verification.
-	await deps.db
-		.update(products)
-		.set({
-			stripePriceLifetime: result.lifetimePriceId,
-			stripePriceYearly: result.yearlyPriceId,
-			...(result.webhookSecret ? { stripeWebhookSecret: result.webhookSecret } : {}),
-		})
-		.where(eq(products.id, args.product.id));
+	// Map the two prices to grants on the connection: the one-time price grants a perpetual
+	// licence, the recurring one a subscription.
+	const mappings = [
+		{ priceId: result.lifetimePriceId, kind: 'perpetual' as const },
+		{ priceId: result.yearlyPriceId, kind: 'subscription' as const },
+	];
+	const keep = new Set(mappings.map((m) => m.priceId));
+	await deps.db.transaction(async (tx) => {
+		// Retire any active grant on this product the new mapping no longer includes, so a
+		// checkout link for a price the vendor rewired away stops issuing. Grants are
+		// retire-and-recreate, never edited, so an old link leaves an audit trail.
+		const active = await tx
+			.select()
+			.from(licenseGrants)
+			.where(and(eq(licenseGrants.productId, args.product.id), eq(licenseGrants.status, 'active')));
+		for (const g of active) {
+			if (keep.has(g.stripePriceId)) continue;
+			await tx
+				.update(licenseGrants)
+				.set({ status: 'retired', retiredAt: nowDate(deps).toISOString() })
+				.where(eq(licenseGrants.id, g.id));
+		}
+		// Upsert by (connection, price) so re-running connect is idempotent and re-wiring an
+		// existing price just refreshes it (and un-retires it if it was retired before).
+		for (const m of mappings) {
+			await tx
+				.insert(licenseGrants)
+				.values({
+					accountId: connection.accountId,
+					stripeConnectionId: connection.id,
+					stripePriceId: m.priceId,
+					productId: args.product.id,
+					kind: m.kind,
+					status: 'active',
+				})
+				.onConflictDoUpdate({
+					target: [licenseGrants.stripeConnectionId, licenseGrants.stripePriceId],
+					set: { productId: args.product.id, kind: m.kind, status: 'active', retiredAt: null },
+				});
+		}
+	});
+	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running connect
+	// against an existing one returns nothing, so writing it through would blank the stored
+	// secret and every later webhook would fail verification. The secret lives on the
+	// connection now, not the product.
+	if (result.webhookSecret) {
+		await deps.db
+			.update(stripeConnections)
+			.set({ webhookSecret: result.webhookSecret })
+			.where(eq(stripeConnections.id, connection.id));
+	}
 	await writeAudit(deps.db, {
 		action: 'product.stripe_connected',
 		actor: args.actor ?? 'admin',
 		productId: args.product.id,
-		detail: { lifetime: result.lifetimePriceId, yearly: result.yearlyPriceId },
+		detail: { perpetual: result.lifetimePriceId, subscription: result.yearlyPriceId },
 	});
 	return {
 		lifetimePriceId: result.lifetimePriceId,
 		yearlyPriceId: result.yearlyPriceId,
-		// The secret is stored per product, so only the per-product route can verify
-		// these deliveries. Point Stripe here, not at the global endpoint.
-		webhookPath: `/v1/stripe/webhook/${args.product.slug}`,
+		// One connection, one endpoint: point Stripe at the connection-level path. Every
+		// product on this connection is verified by the one secret stored above.
+		webhookPath: '/v1/stripe/webhook',
 		secretRotated: Boolean(result.webhookSecret),
 		dunning: DUNNING_REQUIREMENT,
 	};

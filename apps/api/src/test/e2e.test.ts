@@ -4,9 +4,13 @@
 import { CoolBeans } from '@coolbeans/sdk';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from './harness.js';
-import { createProduct, defineMetric, issueKey, post } from './seed.js';
+import { createProduct, defineMetric, issueKey, post, seedGrant } from './seed.js';
 
 let h: TestHarness;
+// Clementine's two Stripe prices, mapped to grants in beforeEach. A checkout resolves to a
+// product only through its line-item price now, so the Stripe flows below ride on these.
+const PERPETUAL_PRICE = 'price_clemLife';
+const SUBSCRIPTION_PRICE = 'price_clemYear';
 
 /** Route the SDK's absolute-URL fetch into the in-process app (no socket needed). */
 function appFetch(app: TestHarness['app']): typeof fetch {
@@ -38,12 +42,22 @@ function sdk(product: string) {
 
 beforeEach(async () => {
 	h = await makeHarness();
-	await createProduct(h.app, {
+	const product = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
 		email_from: 'r@clementine.email',
 		activation_limit: 3,
+	});
+	await seedGrant(h.deps, {
+		productId: product.id as number,
+		priceId: PERPETUAL_PRICE,
+		kind: 'perpetual',
+	});
+	await seedGrant(h.deps, {
+		productId: product.id as number,
+		priceId: SUBSCRIPTION_PRICE,
+		kind: 'subscription',
 	});
 });
 
@@ -52,7 +66,7 @@ describe('E2E: desktop app lifecycle', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
-			tier: 'yearly',
+			kind: 'subscription',
 		});
 		const cb = sdk('clementine');
 
@@ -78,7 +92,11 @@ describe('E2E: desktop app lifecycle', () => {
 
 describe('E2E: seat exhaustion and recovery', () => {
 	it('N+1 is refused, portal deactivate frees a seat, retry succeeds', async () => {
-		const key = await issueKey(h.app, { product: 'clementine', email: 'b@x.io', tier: 'lifetime' });
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'b@x.io',
+			kind: 'perpetual',
+		});
 		const ids: string[] = [];
 		for (let i = 0; i < 3; i++) {
 			const r = await post(h.app, '/v1/activate', { license_key: key, instance_name: `dev-${i}` });
@@ -94,7 +112,11 @@ describe('E2E: seat exhaustion and recovery', () => {
 	});
 
 	it('same device reactivation reuses the instance without burning a seat', async () => {
-		const key = await issueKey(h.app, { product: 'clementine', email: 'b@x.io', tier: 'lifetime' });
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'b@x.io',
+			kind: 'perpetual',
+		});
 		const first = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Mac' });
 		const again = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Mac' });
 		expect((first.body.instance as { id: string }).id).toBe(
@@ -106,7 +128,7 @@ describe('E2E: seat exhaustion and recovery', () => {
 describe('E2E: disabled key is the definitive revocation signal', () => {
 	it('refund disables; validate returns disabled, activate fails closed, unknown stays 404', async () => {
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
-		h.deps.stripe = fakeStripeGateway();
+		h.deps.stripe = fakeStripeGateway({}, { cs_1: [PERPETUAL_PRICE] });
 		// Buy via Stripe.
 		await h.app.request('/v1/stripe/webhook', {
 			method: 'POST',
@@ -172,7 +194,7 @@ describe('E2E: trial lifecycle', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 't@x.io',
-			tier: 'trial',
+			kind: 'trial',
 			trial_days: 7,
 		});
 		const cb = sdk('clementine');
@@ -196,7 +218,7 @@ describe('E2E: floating app', () => {
 			activation_model: 'floating',
 			floating_lease_minutes: 30,
 		});
-		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', tier: 'yearly' });
+		const key = await issueKey(h.app, { product: 'hexis', email: 'b@x.io', kind: 'subscription' });
 		const a = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'a' });
 		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'b' });
 		expect(
@@ -223,7 +245,11 @@ describe('E2E: metered app', () => {
 			default_limit: 5,
 			reset_period: 'daily',
 		});
-		const key = await issueKey(h.app, { product: 'clementine', email: 'm@x.io', tier: 'yearly' });
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'm@x.io',
+			kind: 'subscription',
+		});
 		// Metering is bound to a live seat (§9), so the app activates before counting.
 		const act = await post(h.app, '/v1/activate', { license_key: key, instance_name: 'e2e app' });
 		const instanceId = (act.body.instance as { id: string }).id;
@@ -266,7 +292,7 @@ describe('E2E: metered app', () => {
 describe('E2E: Stripe lifetime purchase lifecycle (gateway faked at the seam)', () => {
 	it('checkout -> email -> SDK activates + verifies offline -> refund -> definitive lockout', async () => {
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
-		h.deps.stripe = fakeStripeGateway();
+		h.deps.stripe = fakeStripeGateway({}, { cs_life: [PERPETUAL_PRICE] });
 
 		// 1. The customer buys: Stripe delivers checkout.session.completed (paid).
 		await stripeWebhook('evt_buy', 'checkout.session.completed', {
@@ -310,7 +336,10 @@ describe('E2E: Stripe yearly subscription lifecycle (gateway faked at the seam)'
 	it('subscribe -> renewal advances expiry -> lapse disables', async () => {
 		const firstPeriodEnd = '2027-07-17T00:00:00.000Z';
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
-		h.deps.stripe = fakeStripeGateway({ sub_year: firstPeriodEnd });
+		h.deps.stripe = fakeStripeGateway(
+			{ sub_year: firstPeriodEnd },
+			{ cs_year: [SUBSCRIPTION_PRICE] },
+		);
 
 		await stripeWebhook('evt_sub', 'checkout.session.completed', {
 			id: 'cs_year',
@@ -321,7 +350,7 @@ describe('E2E: Stripe yearly subscription lifecycle (gateway faked at the seam)'
 			metadata: { product: 'clementine' },
 		});
 		let keys = await adminKeys('yearly@example.com');
-		expect(keys[0]?.tier).toBe('yearly');
+		expect(keys[0]?.kind).toBe('subscription');
 		expect(keys[0]?.expires_at).toBe(firstPeriodEnd);
 
 		// A year later Stripe renews: subscription.updated advances the renewal date.
@@ -351,7 +380,7 @@ describe('E2E: Stripe yearly subscription lifecycle (gateway faked at the seam)'
 		h.deps.config.stripe = { secretKey: 'sk', webhookSecret: 'wh' };
 		h.deps.stripe = fakeStripeGateway(
 			{},
-			{},
+			{ cs_race2: [PERPETUAL_PRICE] },
 			{
 				sessions: {
 					cs_race2: {
@@ -403,7 +432,11 @@ async function adminKeys(email: string) {
 
 describe('E2E: Lemon Squeezy client via alias routes', () => {
 	it('an LS-shaped client activates/validates/deactivates through /v1/licenses/*', async () => {
-		const key = await issueKey(h.app, { product: 'clementine', email: 'ls@x.io', tier: 'yearly' });
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'ls@x.io',
+			kind: 'subscription',
+		});
 		const activate = await post(h.app, '/v1/licenses/activate', {
 			license_key: key,
 			instance_name: 'Mac',

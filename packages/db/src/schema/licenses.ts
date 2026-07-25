@@ -4,6 +4,7 @@
 import { sql } from 'drizzle-orm';
 import { check, index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
 import { isoNow } from './columns.js';
+import { licenseGrants } from './license-grants.js';
 import { products } from './products.js';
 import { purchases } from './purchases.js';
 
@@ -18,7 +19,14 @@ export const licenses = pgTable(
 			.notNull()
 			.references(() => purchases.id),
 		key: text('key').notNull().unique(),
-		tier: text('tier', { enum: ['lifetime', 'yearly', 'trial'] }).notNull(),
+		// The lifecycle shape of the entitlement, not the vendor's pricing. 'perpetual' never
+		// expires, 'subscription' tracks a Stripe period end, 'trial' is a fixed window. The
+		// vendor's own label (e.g. "Pro monthly") is the free-form, display-only `plan`.
+		kind: text('kind', { enum: ['perpetual', 'subscription', 'trial'] }).notNull(),
+		plan: text('plan'),
+		// The grant that issued this licence (null for trials and manual issues, which have
+		// no Stripe price behind them). Immutable provenance: answers "which rule made this key".
+		issuedGrantId: integer('issued_grant_id').references(() => licenseGrants.id),
 		status: text('status', { enum: ['active', 'disabled'] })
 			.notNull()
 			.default('active'),
@@ -31,7 +39,7 @@ export const licenses = pgTable(
 		createdAt: text('created_at').notNull().default(isoNow),
 	},
 	(t) => [
-		check('ck_licenses_tier', sql`${t.tier} IN ('lifetime','yearly','trial')`),
+		check('ck_licenses_kind', sql`${t.kind} IN ('perpetual','subscription','trial')`),
 		check('ck_licenses_status', sql`${t.status} IN ('active','disabled')`),
 		// The active-licence count behind the plan cap reads exactly this pair.
 		index('idx_licenses_product_status').on(t.productId, t.status),

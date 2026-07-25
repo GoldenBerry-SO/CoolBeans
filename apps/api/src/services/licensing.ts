@@ -98,7 +98,7 @@ export async function resolveLicenseUnthrottled(
 }
 
 function isTrialExpired(license: License, now: Date): boolean {
-	if (license.tier !== 'trial' || !license.expiresAt) return false;
+	if (license.kind !== 'trial' || !license.expiresAt) return false;
 	return new Date(license.expiresAt).getTime() <= now.getTime();
 }
 

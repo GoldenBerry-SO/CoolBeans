@@ -3,23 +3,25 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { makeHarness, type TestHarness } from '../../test/harness.js';
-import { createProduct, issueKey } from '../../test/seed.js';
+import { createProduct, issueKey, seedGrant } from '../../test/seed.js';
 
 let h: TestHarness;
+let clementineId: number;
 
 beforeEach(async () => {
 	h = await makeHarness();
-	await createProduct(h.app, {
+	const product = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
 		email_from: 'r@clementine.email',
 	});
+	clementineId = product.id as number;
 });
 
 describe('GET /admin/products/:slug/keys', () => {
 	it('includes the customer email on each row', async () => {
-		await issueKey(h.app, { product: 'clementine', email: 'buyer@example.com', tier: 'lifetime' });
+		await issueKey(h.app, { product: 'clementine', email: 'buyer@example.com', kind: 'perpetual' });
 		const res = await h.app.request('/admin/products/clementine/keys', {
 			headers: h.adminHeaders,
 		});
@@ -35,9 +37,13 @@ describe('GET /admin/products', () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'one@example.com',
-			tier: 'lifetime',
+			kind: 'perpetual',
 		});
-		await issueKey(h.app, { product: 'clementine', email: 'two@example.com', tier: 'yearly' });
+		await issueKey(h.app, {
+			product: 'clementine',
+			email: 'two@example.com',
+			kind: 'subscription',
+		});
 		await h.app.request(`/admin/keys/${encodeURIComponent(key)}/disable`, {
 			method: 'POST',
 			headers: h.adminHeaders,
@@ -51,6 +57,22 @@ describe('GET /admin/products', () => {
 		const clem = body.products.find((p) => p.slug === 'clementine');
 		expect(clem?.keysTotal).toBe(2);
 		expect(clem?.keysActive).toBe(1);
+	});
+
+	it('marks a product connected once a price maps to it', async () => {
+		const connectedOf = async () => {
+			const res = await h.app.request('/admin/products', { headers: h.adminHeaders });
+			const body = (await res.json()) as { products: { slug: string; connected: boolean }[] };
+			return body.products.find((p) => p.slug === 'clementine')?.connected;
+		};
+		// No grant yet: the card shows "not connected".
+		expect(await connectedOf()).toBe(false);
+		await seedGrant(h.deps, {
+			productId: clementineId,
+			priceId: 'price_clemLife',
+			kind: 'perpetual',
+		});
+		expect(await connectedOf()).toBe(true);
 	});
 
 	it('never ships webhook secrets or token hashes in the list', async () => {
@@ -96,7 +118,7 @@ describe('key prefix bounds (PRD §9/§10)', () => {
 		const issued = await h.app.request('/admin/keys', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({ product: 'shortpfx', email: 'b@example.com', tier: 'lifetime' }),
+			body: JSON.stringify({ product: 'shortpfx', email: 'b@example.com', kind: 'perpetual' }),
 		});
 		const key = ((await issued.json()) as { key: string }).key;
 		const act = await h.app.request('/v1/activate', {

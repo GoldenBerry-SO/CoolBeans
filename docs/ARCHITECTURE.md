@@ -178,6 +178,12 @@ limits hang off it. Decisions worth knowing before changing any of it:
   (rebuild the table) is unsafe here because six tables reference `products`.
   `assertAccountsResolve` runs at boot in the constraint's place. A Postgres port would fix
   this properly.
+- **Grants and connections are tenant-locked by composite foreign key.** Pricing lives in
+  `license_grants` (one Stripe price mapped to a product, `kind` = perpetual or subscription,
+  plus a display-only `plan` label) hanging off a `stripe_connections` row. A grant references
+  both `(account_id, stripe_connection_id)` and `(account_id, product_id)`, so it can only ever
+  wire a connection and a product that belong to the same account. A grant crossing tenants is
+  impossible at the database layer, not merely checked in application code.
 - **`slug` and `key_prefix` stay globally unique.** Both appear in public URLs
   (`/v1/pubkey?product=`, `/v1/stripe/webhook/:product`) and the prefix is how the public
   path resolves a key with no account in hand. Making them per-account later would break

@@ -3,7 +3,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import type { StripeConnection } from '@coolbeans/db';
-import { applied, stripeConnectStates } from '@coolbeans/db';
+import { applied, rowsOf, stripeConnectStates } from '@coolbeans/db';
 import { and, isNull, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
@@ -16,6 +16,18 @@ const STATE_TTL_MS = 15 * 60_000;
 /** The state travels through Stripe and back, so only its hash is stored (§19). */
 function hashState(state: string): string {
 	return createHash('sha256').update(state).digest('hex');
+}
+
+/**
+ * Join a path onto PUBLIC_URL without ever producing a double slash.
+ *
+ * PUBLIC_URL is taken from the environment as written, so it may or may not end in a slash.
+ * Stripe requires the redirect_uri on the token exchange to EXACTLY match one of the values
+ * registered on the Connect application, so `https://host//v1/...` from a naive template is
+ * onboarding that fails for a reason nobody would guess from the error.
+ */
+export function publicUrlFor(deps: AppDeps, path: string): string {
+	return new URL(path, deps.config.publicUrl).toString();
 }
 
 /**
@@ -44,7 +56,7 @@ export async function startConnectAuthorization(
 	// what the licensing flow needs. We never move money: no application fee, no transfers.
 	url.searchParams.set('scope', 'read_write');
 	url.searchParams.set('state', state);
-	url.searchParams.set('redirect_uri', `${deps.config.publicUrl}/v1/connect/stripe/callback`);
+	url.searchParams.set('redirect_uri', publicUrlFor(deps, '/v1/connect/stripe/callback'));
 	return { url: url.toString(), state };
 }
 
@@ -75,10 +87,9 @@ export async function completeConnectAuthorization(
 		// Unknown, already spent, or stale. All three are "this callback proves nothing".
 		throw badRequest('That Stripe authorization link is no longer valid. Start again.');
 	}
-	const rows = claimed as unknown as { rows?: Array<{ account_id: number }> };
-	const accountId = Array.isArray(claimed)
-		? (claimed as Array<{ account_id: number }>)[0]?.account_id
-		: rows.rows?.[0]?.account_id;
+	// rowsOf, not a hand-rolled shape check: a raw execute is an array on postgres-js and an
+	// object on PGlite, and reading the wrong one is a 500 that only shows up on one driver.
+	const accountId = rowsOf<{ account_id: number }>(claimed)[0]?.account_id;
 	if (accountId === undefined) throw new Error('Claimed a connect state with no account id.');
 
 	const account = await deps.connect.exchangeConnectCode(args.code);
@@ -93,16 +104,22 @@ export async function completeConnectAuthorization(
 	});
 }
 
-/** Drop states that were never used, so the table does not grow without bound. */
-export async function pruneConnectStates(deps: AppDeps): Promise<void> {
-	await deps.db
+/**
+ * Drop states that expired without being used, so the table does not grow without bound.
+ * Spent ones stay: they are the record that an authorization actually happened. Returns how
+ * many went, so the sweep can report it.
+ */
+export async function pruneConnectStates(deps: AppDeps): Promise<number> {
+	const gone = await deps.db
 		.delete(stripeConnectStates)
 		.where(
 			and(
 				isNull(stripeConnectStates.consumedAt),
 				sql`${stripeConnectStates.expiresAt} < ${nowDate(deps).toISOString()}`,
 			),
-		);
+		)
+		.returning({ id: stripeConnectStates.id });
+	return gone.length;
 }
 
 export { hashState as connectStateHash };

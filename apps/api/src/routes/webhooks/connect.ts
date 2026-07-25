@@ -5,7 +5,7 @@ import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppDeps } from '../../deps.js';
 import { handleStripeEvent } from '../../services/stripe.js';
 import { disconnectConnection } from '../../services/stripe-connection.js';
-import { completeConnectAuthorization } from '../../services/stripe-onboarding.js';
+import { completeConnectAuthorization, publicUrlFor } from '../../services/stripe-onboarding.js';
 import { writeAudit } from '../../store/audit.js';
 import { getConnectionByStripeAccount } from '../../store/grants.js';
 
@@ -23,7 +23,9 @@ export function registerConnectWebhook(app: OpenAPIHono, deps: AppDeps): void {
 		const code = c.req.query('code');
 		const state = c.req.query('state');
 		const error = c.req.query('error');
-		const console_ = `${deps.config.publicUrl}/products`;
+		// Normalized, so a PUBLIC_URL with a trailing slash does not send the vendor to a
+		// double-slash URL after they have already authorized.
+		const console_ = publicUrlFor(deps, '/products');
 		if (error) {
 			// The vendor pressed cancel on Stripe's screen. Not a failure, just a no.
 			return c.redirect(`${console_}?stripe=cancelled`);

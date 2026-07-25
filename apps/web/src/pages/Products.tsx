@@ -106,13 +106,20 @@ export function ProductsPage() {
 			{products.data?.length ? (
 				<div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
 					{products.data.map((p, i) => {
-						// Which button to show depends on whether STRIPE is authorized, not on
-						// whether prices happen to be mapped yet. On cloud those are two steps,
-						// so keying this off grants alone sent a vendor who had just authorized
-						// straight back through OAuth and never let them map a first price.
+						// Mapping prices and wiring Stripe are two independent things, and making
+						// them one either/or button stranded somebody either way round. Keying it
+						// off grants meant a cloud vendor who had just authorized was sent back
+						// through OAuth forever; keying it off the connection meant a self-hoster,
+						// whose connection row is seeded empty, could never reach the dialog that
+						// registers the webhook. So offer each when it applies.
+						//
+						// Mapping needs a connection to hang grants off, which self-host always has.
 						const canMapPrices = p.stripeConnected;
-						// Whether this product actually sells anything yet, for the label.
+						// Whether this product sells anything yet, which is only the label.
 						const hasPrices = p.connected;
+						// Self-host wires its own webhook through the dialog, and re-running it is
+						// how a secret gets rotated, so that stays available. Cloud authorizes once.
+						const showConnect = isCloud ? !p.stripeConnected : true;
 						return (
 							<Card key={p.slug} className="p-4 sm:p-5">
 								<div className="mb-4 flex items-center gap-3">
@@ -162,7 +169,8 @@ export function ProductsPage() {
 										>
 											{hasPrices ? 'Stripe prices' : 'Map prices'}
 										</button>
-									) : (
+									) : null}
+									{showConnect ? (
 										<button
 											type="button"
 											disabled={startConnect.isPending}
@@ -171,7 +179,7 @@ export function ProductsPage() {
 										>
 											{startConnect.isPending ? 'Opening Stripe…' : 'Connect Stripe'}
 										</button>
-									)}
+									) : null}
 									<div className="flex-1" />
 									<SecondaryButton
 										destructive

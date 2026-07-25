@@ -13,6 +13,9 @@ const state = {
 	subscriptions: new Map(),
 	invoices: new Map(),
 	charges: new Map(),
+	// Seed { recurring: { interval: 'month' } } to state a price's cadence outright; without
+	// a seed the id names it (…month…, …year…), which keeps most tests to one line.
+	prices: new Map(),
 };
 
 // connect stores this on the connection; the journey signs its webhooks with the same value,
@@ -67,16 +70,20 @@ const server = createServer((req, res) => {
 		}
 	}
 
-	// GET /v1/prices/:id — connect confirms each referenced price exists and its billing mode.
-	// A yearly id is recurring (annual); anything else is a one-time price.
+	// GET /v1/prices/:id — a grant confirms the price exists and its billing mode before it
+	// is mapped. The cadence comes from the id so a test can ask for any of them: pricing is
+	// the vendor's, and a monthly price is as valid as an annual one.
 	let m = path.match(/^\/v1\/prices\/([^/]+)$/);
 	if (m && req.method === 'GET') {
-		const yearly = m[1].toLowerCase().includes('year');
+		const seeded = state.prices.get(m[1]);
+		if (seeded) return json(res, { id: m[1], object: 'price', active: true, ...seeded });
+		const id = m[1].toLowerCase();
+		const interval = ['day', 'week', 'month', 'year'].find((unit) => id.includes(unit));
 		return json(res, {
 			id: m[1],
 			object: 'price',
 			active: true,
-			recurring: yearly ? { interval: 'year' } : null,
+			recurring: interval ? { interval } : null,
 		});
 	}
 

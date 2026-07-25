@@ -19,15 +19,18 @@ function hashState(state: string): string {
 }
 
 /**
- * Join a path onto PUBLIC_URL without ever producing a double slash.
+ * Join a path onto PUBLIC_URL, keeping whatever prefix it carries and never doubling a slash.
  *
- * PUBLIC_URL is taken from the environment as written, so it may or may not end in a slash.
- * Stripe requires the redirect_uri on the token exchange to EXACTLY match one of the values
- * registered on the Connect application, so `https://host//v1/...` from a naive template is
- * onboarding that fails for a reason nobody would guess from the error.
+ * Both halves matter, because Stripe matches redirect_uri EXACTLY against the values
+ * registered on the Connect application. PUBLIC_URL is taken from the environment as written,
+ * so a trailing slash would give `https://host//v1/...`; and `new URL('/v1/...', base)` is not
+ * the fix, because a leading-slash path REPLACES the base's own path, silently dropping the
+ * prefix of an instance served under one (`https://host/coolbeans` becomes `https://host`).
+ * Either way onboarding fails for a reason nobody would guess from the error, so trim the
+ * trailing slashes and concatenate.
  */
 export function publicUrlFor(deps: AppDeps, path: string): string {
-	return new URL(path, deps.config.publicUrl).toString();
+	return `${deps.config.publicUrl.replace(/\/+$/, '')}${path}`;
 }
 
 /**

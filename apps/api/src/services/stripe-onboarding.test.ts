@@ -78,6 +78,19 @@ describe('starting authorization', () => {
 		expect(redirect).toBe('https://keys.example.com/v1/connect/stripe/callback');
 	});
 
+	it('keeps a PUBLIC_URL path prefix in the redirect_uri', async () => {
+		// new URL('/v1/...', base) would drop the prefix, which is the other way to get a
+		// redirect_uri Stripe has never seen.
+		const prefixed = await makeHarness({
+			config: { ...cloud, publicUrl: 'https://keys.example.com/coolbeans' },
+		});
+		prefixed.deps.connect = fakeStripeGateway();
+		const { url } = await startConnectAuthorization(prefixed.deps, { accountId: 1 });
+		expect(new URL(url).searchParams.get('redirect_uri')).toBe(
+			'https://keys.example.com/coolbeans/v1/connect/stripe/callback',
+		);
+	});
+
 	it('refuses to start when no Connect client id is configured', async () => {
 		const bare = await makeHarness({ config: { stripe: { secretKey: 'sk', webhookSecret: 'w' } } });
 		await expect(startConnectAuthorization(bare.deps, { accountId: 1 })).rejects.toThrow(

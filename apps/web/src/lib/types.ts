@@ -11,6 +11,11 @@ export interface Product {
 	emailFrom: string;
 	/** True once at least one Stripe price maps to this product (a license grant). */
 	connected: boolean;
+	/**
+	 * True once the ACCOUNT has an authorized Stripe connection, whether or not this product
+	 * has prices mapped yet. On cloud the two are separate steps: authorize, then map prices.
+	 */
+	stripeConnected: boolean;
 	keysTotal: number;
 	keysActive: number;
 }

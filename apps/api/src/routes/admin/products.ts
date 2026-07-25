@@ -12,6 +12,7 @@ import { limitsFor } from '../../services/plan-limits.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { writeAudit } from '../../store/audit.js';
 import { isUniqueConstraintError } from '../../store/db-errors.js';
+import { getActiveConnectionForAccount } from '../../store/grants.js';
 import {
 	getAccountProductBySlug,
 	getProductBySlugGlobal,
@@ -183,8 +184,16 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			if (row.status === 'active') entry.active += 1;
 			counts.set(row.productId, entry);
 		}
-		// A product is "connected" to Stripe once at least one price maps to it (a grant).
-		// That replaced the old per-product price columns; the console reads this flag.
+		// Two different facts, and conflating them strands a cloud vendor.
+		//
+		// `connected` is per product: at least one Stripe price maps to it (a grant), which is
+		// what "this product can take money" means. `stripeConnected` is per ACCOUNT: their
+		// Stripe is authorized at all. On self-host the two arrive together because connect
+		// writes grants as it wires the webhook, but on cloud the Connect callback records only
+		// the connection — so a console keying "can I map prices?" off grants alone would send a
+		// freshly authorized vendor back through OAuth forever and never let them map a first
+		// price. It is an account-level fact, repeated on each row so the card can read it
+		// without a second request.
 		const connected = new Set<number>();
 		for (const row of await deps.db
 			.select({ productId: licenseGrants.productId })
@@ -192,6 +201,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			.where(eq(licenseGrants.status, 'active'))) {
 			if (visibleIds.has(row.productId)) connected.add(row.productId);
 		}
+		const stripeConnected = Boolean(await getActiveConnectionForAccount(deps.db, account.id));
 		return c.json({
 			ok: true,
 			products: visible.map(({ productTokenHash: _hash, ...p }) => ({
@@ -199,6 +209,7 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 				keysTotal: counts.get(p.id)?.total ?? 0,
 				keysActive: counts.get(p.id)?.active ?? 0,
 				connected: connected.has(p.id),
+				stripeConnected,
 			})),
 		});
 	});

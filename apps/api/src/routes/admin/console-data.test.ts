@@ -59,6 +59,27 @@ describe('GET /admin/products', () => {
 		expect(clem?.keysActive).toBe(1);
 	});
 
+	it('reports Stripe authorized separately from prices being mapped', async () => {
+		// Two facts, and the console needs both: on cloud a vendor authorizes Stripe first and
+		// maps prices second, so keying "can I map prices?" off grants alone would strand them.
+		const read = async () => {
+			const res = await h.app.request('/admin/products', { headers: h.adminHeaders });
+			const body = (await res.json()) as {
+				products: { slug: string; connected: boolean; stripeConnected: boolean }[];
+			};
+			return body.products.find((p) => p.slug === 'clementine');
+		};
+		// The self-host connection is seeded, so Stripe is authorized from the start, but this
+		// product sells nothing yet.
+		expect(await read()).toMatchObject({ stripeConnected: true, connected: false });
+		await seedGrant(h.deps, {
+			productId: clementineId,
+			priceId: 'price_bothFlags',
+			kind: 'perpetual',
+		});
+		expect(await read()).toMatchObject({ stripeConnected: true, connected: true });
+	});
+
 	it('marks a product connected once a price maps to it', async () => {
 		const connectedOf = async () => {
 			const res = await h.app.request('/admin/products', { headers: h.adminHeaders });

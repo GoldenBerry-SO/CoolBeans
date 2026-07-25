@@ -8,6 +8,7 @@ import type { Config } from '../config.js';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../test/harness.js';
 import { rawQuery } from '../test/pg.js';
 import { signUp } from '../test/seed.js';
+import { disconnectConnection } from './stripe-connection.js';
 import {
 	completeConnectAuthorization,
 	connectStateHash,
@@ -167,5 +168,52 @@ describe('housekeeping', () => {
 		await pruneConnectStates(h.deps);
 		const left = await rawQuery<{ n: number }>('SELECT count(*)::int n FROM stripe_connect_states');
 		expect(left[0]?.n).toBe(1);
+	});
+});
+
+describe('one Stripe account, one tenant', () => {
+	it('refuses to bind a Stripe account another tenant already holds', async () => {
+		// Otherwise the upsert leaves the connection under the first tenant and tells the
+		// second one it succeeded, so their grants then fail with "not connected" forever.
+		const first = await startConnectAuthorization(h.deps, { accountId: aliceId });
+		await completeConnectAuthorization(h.deps, { code: 'ac_alice', state: first.state });
+		const second = await startConnectAuthorization(h.deps, { accountId: bobId });
+		await expect(
+			completeConnectAuthorization(h.deps, { code: 'ac_alice', state: second.state }),
+		).rejects.toThrow(/already connected to a different/i);
+	});
+
+	it("does not let another tenant's authorization revive a disconnected connection", async () => {
+		const first = await startConnectAuthorization(h.deps, { accountId: aliceId });
+		const conn = await completeConnectAuthorization(h.deps, {
+			code: 'ac_alice',
+			state: first.state,
+		});
+		await disconnectConnection(h.deps, { stripeAccountId: 'acct_alice', actor: 'test' });
+		const second = await startConnectAuthorization(h.deps, { accountId: bobId });
+		await expect(
+			completeConnectAuthorization(h.deps, { code: 'ac_alice', state: second.state }),
+		).rejects.toThrow(/already connected to a different/i);
+		const [row] = await rawQuery<{ status: string; account_id: number }>(
+			`SELECT status, account_id FROM stripe_connections WHERE id = ${conn.id}`,
+		);
+		expect(row?.status).toBe('disconnected');
+		expect(row?.account_id).toBe(aliceId);
+	});
+
+	it('the owning tenant can still re-authorize and come back', async () => {
+		const first = await startConnectAuthorization(h.deps, { accountId: aliceId });
+		const conn = await completeConnectAuthorization(h.deps, {
+			code: 'ac_alice',
+			state: first.state,
+		});
+		await disconnectConnection(h.deps, { stripeAccountId: 'acct_alice', actor: 'test' });
+		const again = await startConnectAuthorization(h.deps, { accountId: aliceId });
+		const back = await completeConnectAuthorization(h.deps, {
+			code: 'ac_alice',
+			state: again.state,
+		});
+		expect(back.id).toBe(conn.id);
+		expect(back.status).toBe('active');
 	});
 });

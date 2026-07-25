@@ -165,10 +165,12 @@ export function createStripeGateway(
 			}
 		},
 		async billingPortalSession(customerId, returnUrl) {
-			const session = await stripe.billingPortal.sessions.create({
-				customer: customerId,
-				return_url: returnUrl,
-			});
+			// Scoped like every other call: a Connect vendor's customer lives in THEIR account,
+			// so a portal session created on the platform account would find no such customer.
+			const session = await stripe.billingPortal.sessions.create(
+				{ customer: customerId, return_url: returnUrl },
+				req,
+			);
 			return session.url;
 		},
 		async getPrice(priceId) {

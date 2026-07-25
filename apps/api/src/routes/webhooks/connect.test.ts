@@ -152,3 +152,31 @@ describe('Stripe Connect webhook routing', () => {
 		expect(await keyCount('alice-app', alice)).toBe(0);
 	});
 });
+
+describe('the per-product webhook alias on a cloud tenant', () => {
+	it('resolves grants on the PRODUCT OWNER’S connection, not the instance default', async () => {
+		// The alias takes the account from the product. Taking the connection from the instance
+		// default instead would attribute the delivery to the right tenant and then look their
+		// grants up on somebody else's connection, find none, and issue nothing at all.
+		h.deps.stripe = fakeStripeGateway({}, { cs_alias: [SHARED_PRICE] });
+		const res = await h.app.request('/v1/stripe/webhook/alice-app', {
+			method: 'POST',
+			headers: { 'stripe-signature': 'valid', 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				id: 'evt_alias',
+				type: 'checkout.session.completed',
+				data: {
+					object: {
+						id: 'cs_alias',
+						mode: 'payment',
+						payment_status: 'paid',
+						customer_email: 'alias@alpha-customer.test',
+					},
+				},
+			}),
+		});
+		expect(res.status).toBe(200);
+		expect(await keyCount('alice-app', alice)).toBe(1);
+		expect(await keyCount('bob-app', bob)).toBe(0);
+	});
+});

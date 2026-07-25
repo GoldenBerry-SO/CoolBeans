@@ -4,7 +4,7 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { AppDeps } from '../../deps.js';
 import { handleStripeEvent } from '../../services/stripe.js';
-import { getConnection } from '../../store/grants.js';
+import { getActiveConnectionForAccount, getConnection } from '../../store/grants.js';
 import { getProductBySlugGlobal } from '../../store/products.js';
 
 /** The connection an event runs under: its id scopes grant lookup, its account attributes rows. */
@@ -84,12 +84,19 @@ export function registerStripeWebhook(app: OpenAPIHono, deps: AppDeps): void {
 		return c.json(result.body as object, result.status as never);
 	});
 
-	// Per-product alias: the URL earlier connect flows registered. It runs on the same
-	// connection but attributes the delivery to the named product's account, so a cloud
-	// console shows the row under the right tenant until Connect routes by event.account.
+	// Per-product alias: the URL earlier connect flows registered. The product names the
+	// account, and the account names the connection its grants actually hang off — taking the
+	// account from the product but the connection from the instance default would attribute a
+	// cloud tenant's delivery correctly and then look its grants up on somebody else's
+	// connection, finding none and issuing nothing.
 	app.post('/v1/stripe/webhook/:product', async (c) => {
 		const product = await getProductBySlugGlobal(deps.db, c.req.param('product'));
-		const { connection, secret } = await resolve();
+		const owned = product
+			? await getActiveConnectionForAccount(deps.db, product.accountId)
+			: undefined;
+		const fallback = await resolve();
+		const connection = owned ?? fallback.connection;
+		const secret = connection?.webhookSecret ?? deps.config.stripe?.webhookSecret;
 		const rawBody = await c.req.text();
 		const result = await process(deps, rawBody, c.req.header('stripe-signature'), secret, {
 			connectionId: connection?.id,

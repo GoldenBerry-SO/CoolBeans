@@ -336,6 +336,10 @@ const COVERED = new Set([
 	'POST /admin/products/:slug/signing-keys/rotate',
 	'POST /admin/products/:slug/token/rotate',
 	'POST /admin/products/:slug/stripe/connect',
+	// Acts on accountScope alone and takes no id from the caller, so there is no cross-account
+	// target to aim it at; the state it mints is bound to the caller's own account by
+	// construction. Covered in stripe-onboarding.test.ts.
+	'POST /admin/stripe/connect/authorize',
 	'GET /admin/products/:slug/grants',
 	'POST /admin/products/:slug/grants',
 	'POST /admin/products/:slug/grants/:id/retire',

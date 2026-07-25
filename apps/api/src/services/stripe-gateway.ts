@@ -74,6 +74,20 @@ export interface StripeGateway {
 	 * from another account, which the vendor's key cannot see).
 	 */
 	getPrice(priceId: string): Promise<StripePriceInfo | null>;
+	/**
+	 * Redeem a Stripe Connect authorization code for the account that granted it.
+	 *
+	 * Stripe burns the code on first use, so this is the step that makes a replayed callback
+	 * fail at the source rather than on our side alone. Null when the code is bad, spent or
+	 * for another platform.
+	 */
+	exchangeConnectCode(code: string): Promise<ConnectedAccount | null>;
+}
+
+/** What a completed Connect authorization tells us: whose account, and which mode. */
+export interface ConnectedAccount {
+	stripeAccountId: string;
+	livemode: boolean;
 }
 
 /** Basil moved invoice.subscription under parent.subscription_details. Support both. */
@@ -184,6 +198,19 @@ export function createStripeGateway(
 				return { recurring: Boolean(price.recurring), interval: price.recurring?.interval };
 			} catch {
 				// resource_missing (or any lookup failure): treat as "cannot confirm this price".
+				return null;
+			}
+		},
+		async exchangeConnectCode(code) {
+			try {
+				// Deliberately NOT scoped by stripeAccount: this call IS how we learn which
+				// account it is, and it authenticates as the platform.
+				const token = await stripe.oauth.token({ grant_type: 'authorization_code', code });
+				const account = token.stripe_user_id;
+				if (!account) return null;
+				return { stripeAccountId: account, livemode: Boolean(token.livemode) };
+			} catch {
+				// A spent, forged or foreign code: tell the caller nothing was authorized.
 				return null;
 			}
 		},

@@ -2,7 +2,8 @@
 // ABOUTME: Slug and key prefix are immutable after creation; the edit dialog reflects that.
 
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Dialog, Field, inputClass } from '../components/Dialog.js';
 import {
 	AccentButton,
@@ -21,6 +22,7 @@ import {
 	useGrants,
 	useProducts,
 	useRetireGrant,
+	useStartStripeConnect,
 	useUpdateProduct,
 } from '../lib/queries.js';
 import { productColor } from '../lib/scope.js';
@@ -51,6 +53,25 @@ export function ProductsPage() {
 	const [showNew, setShowNew] = useState(false);
 	const [editing, setEditing] = useState<Product | null>(null);
 	const [connecting, setConnecting] = useState<Product | null>(null);
+	// On cloud a vendor authorizes their own Stripe through Connect, so "Connect Stripe" sends
+	// them to Stripe rather than asking for price ids. Self-host has one Stripe key in its own
+	// env and nothing to authorize, so it keeps the paste-two-prices dialog.
+	const startConnect = useStartStripeConnect();
+	// Stripe sends the vendor back here with the outcome in the URL. Say how it went, then
+	// clean the query so a refresh does not repeat the message.
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		const outcome = params.get('stripe');
+		if (!outcome) return;
+		if (outcome === 'connected') {
+			toast.success('Stripe connected', { description: 'Now map the prices you sell.' });
+		} else if (outcome === 'cancelled') {
+			toast.message('Stripe authorization cancelled');
+		} else {
+			toast.error('Stripe could not be connected', { description: 'Please start again.' });
+		}
+		window.history.replaceState({}, '', window.location.pathname);
+	}, []);
 	const [managing, setManaging] = useState<Product | null>(null);
 	const [archiving, setArchiving] = useState<Product | null>(null);
 
@@ -58,6 +79,8 @@ export function ProductsPage() {
 	// A raced click still reads fine: the 409 flows through the toast path in queries.ts.
 	const billing = useBilling();
 	const productUsage = billing.data?.enabled ? billing.data.usage.products : undefined;
+	// Billing configured is what makes an instance cloud (same rule the server uses).
+	const isCloud = Boolean(billing.data?.enabled);
 	// A null limit means no cap, which is Pro and every self-host instance.
 	const atCap =
 		productUsage !== undefined &&
@@ -136,10 +159,11 @@ export function ProductsPage() {
 									) : (
 										<button
 											type="button"
-											onClick={() => setConnecting(p)}
-											className="cursor-pointer rounded-[8px] border border-stripe bg-stripe px-3 py-[7px] font-semibold text-[12.5px] text-white"
+											disabled={startConnect.isPending}
+											onClick={() => (isCloud ? startConnect.mutate() : setConnecting(p))}
+											className="cursor-pointer rounded-[8px] border border-stripe bg-stripe px-3 py-[7px] font-semibold text-[12.5px] text-white disabled:opacity-60"
 										>
-											Connect Stripe
+											{startConnect.isPending ? 'Opening Stripe…' : 'Connect Stripe'}
 										</button>
 									)}
 									<div className="flex-1" />

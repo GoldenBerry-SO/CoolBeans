@@ -175,7 +175,7 @@ how-to code for every framework; this brief has ${product.name}'s real values to
 - **Base URL:** ${baseUrl}
 - **Product slug:** ${product.slug}
 - **Key prefix:** ${product.keyPrefix} (keys look like ${product.keyPrefix}-XXXX-XXXX-XXXX)
-- **Seat model:** ${seatModelWords(product.activationModel)}, ${product.activationLimit} per key
+- **Seat model:** ${seatModelWords(product.activationModel)}, ${product.activationLimit} per key by default (a price can buy more or fewer, so read the count off the licence, never assume this one)
 - **Heartbeat:** ${floating ? 'yes, at about a third of the lease window (floating seats)' : 'not needed (per-device seats)'}
 
 ## Embedded public keys (ed25519, for offline verification)

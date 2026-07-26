@@ -145,6 +145,7 @@ export async function ensureLicenseForSession(
 		plan: grant.plan,
 		issuedGrantId: grant.id,
 		activationLimit: grant.activationLimit,
+		entitlements: grant.entitlements,
 		stripeConnectionId: grant.stripeConnectionId,
 		email,
 		expiresAt,

@@ -11,6 +11,13 @@ export interface TokenPayload {
 	product: string;
 	expires_at: string | null;
 	/**
+	 * The capabilities this licence carries, e.g. `{ export_4k: true }`. Absent when the licence
+	 * has none — an app reading `entitlements?.x` must not be told there is a capability map the
+	 * vendor never authored. Signed like everything else here, which is the whole point: an app
+	 * may trust these where it must never trust `plan`.
+	 */
+	entitlements?: Record<string, boolean | number | string>;
+	/**
 	 * The device an offline activation was minted for. Present only on that path, and the
 	 * only thing tying a hand-carried blob to one machine — without it a client can merely
 	 * compare the token to the instance id the token itself supplied.

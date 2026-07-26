@@ -170,6 +170,38 @@ describe('open() without being handed the key again', () => {
 	});
 });
 
+describe('open() and signed entitlements (#76)', () => {
+	const PRO = { export_4k: true, batch_limit: 100 };
+
+	it('hands the app what the licence actually buys', async () => {
+		server.cfg.entitlements = PRO;
+		const state = await cb.open(KEY);
+		expect(state.entitlements).toEqual(PRO);
+	});
+
+	it('reads them offline from the signed token, with no call', async () => {
+		server.cfg.entitlements = PRO;
+		await cb.open(KEY);
+		server.cfg.offline = true;
+		const state = await cb.open(KEY);
+		expect(state).toMatchObject({ decision: 'allow', reason: 'cached' });
+		expect(state.entitlements).toEqual(PRO);
+	});
+
+	it('leaves the field absent, not empty, for a licence with none', async () => {
+		// An app writing `state.entitlements?.export_4k` must not be told there is a capability
+		// map when the vendor never authored one. Absent and empty are different facts.
+		const state = await cb.open(KEY);
+		expect('entitlements' in state).toBe(false);
+	});
+
+	it('never invents them for a licence that has none, even offline', async () => {
+		await cb.open(KEY);
+		server.cfg.offline = true;
+		expect('entitlements' in (await cb.open(KEY))).toBe(false);
+	});
+});
+
 describe('open() and a lying clock', () => {
 	it('cannot be given more licence by moving the clock back', async () => {
 		server.cfg.expiresAt = inDays(3);

@@ -48,6 +48,11 @@ export async function fakeServer() {
 		 * what the real route returns for one, and how a client learns the difference.
 		 */
 		leaseMs: null as number | null,
+		/**
+		 * Capabilities signed into the token. Null means the licence has none, and the claim is
+		 * left out entirely rather than sent empty — which is what the real signer does.
+		 */
+		entitlements: null as Record<string, boolean | number | string> | null,
 	};
 	const calls: string[] = [];
 	/** Live seats, so a remotely freed seat behaves the way the real server behaves. */
@@ -70,7 +75,13 @@ export async function fakeServer() {
 		);
 		const body = base64url(
 			new TextEncoder().encode(
-				JSON.stringify({ ...license(), instance_id: instanceId, iat: now, exp: now + cfg.ttlSec }),
+				JSON.stringify({
+					...license(),
+					...(cfg.entitlements ? { entitlements: cfg.entitlements } : {}),
+					instance_id: instanceId,
+					iat: now,
+					exp: now + cfg.ttlSec,
+				}),
 			),
 		);
 		const input = new TextEncoder().encode(`${header}.${body}`);

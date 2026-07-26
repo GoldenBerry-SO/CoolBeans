@@ -92,6 +92,26 @@ nudge them online, \`uninitialized\` means ask for a licence key, \`revoked\` me
 gone. \`license\` is the §9 object for display — show the plan and the renewal date from it, never
 gate a feature on it.
 
+## Gating features: entitlements
+
+Some products sell tiers that differ in what the software does. Those capabilities arrive as
+\`state.entitlements\`, and that is the **only** thing to gate a feature on:
+
+\`\`\`ts
+if (state.entitlements?.export_4k) enableExport4k()
+const batchLimit = Number(state.entitlements?.batch_limit ?? 1)
+\`\`\`
+
+The field is absent when a licence has none, so \`?.\` is not optional politeness — write it.
+
+Why this and not \`plan\`: entitlements are authored on the server and **signed** into the token
+alongside the expiry, so a client can trust them. \`plan\` and \`kind\` are a vendor's own label and
+our lifecycle bookkeeping, they are display only, and \`if (plan === "Pro")\` breaks the day
+somebody renames a tier or adds "Pro annual". Never write that.
+
+Never invent an entitlement name your app checks for and hope the vendor sets it: agree the
+names first. An absent name means the feature stays off.
+
 ## Integrate (Swift, macOS)
 
 The Swift SDK has the activate/verify pair, not \`open()\` yet, so it does the steps by hand:

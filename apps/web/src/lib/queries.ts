@@ -10,6 +10,7 @@ function message(err: unknown): string {
 	return err instanceof Error ? err.message : 'Something went wrong.';
 }
 
+import type { EntitlementMap } from './entitlements.js';
 import type { AuditEntry, Billing, LicenseRow, Product, PurchaseRow } from './types.js';
 
 export function useProducts() {
@@ -360,6 +361,8 @@ export interface Grant {
 	plan: string | null;
 	/** Seats this price buys; null inherits the product's limit. */
 	activationLimit: number | null;
+	/** The capabilities this price buys, signed into every token it issues. Null grants none. */
+	entitlements: EntitlementMap | null;
 	status: 'active' | 'retired';
 	createdAt: string;
 }
@@ -379,6 +382,8 @@ export interface CreateGrantInput {
 	kind: 'perpetual' | 'subscription';
 	plan?: string;
 	activation_limit?: number;
+	/** Omitted keeps whatever the price already grants, rather than clearing it. */
+	entitlements?: EntitlementMap;
 }
 
 export function useCreateGrant() {

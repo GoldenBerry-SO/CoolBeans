@@ -38,6 +38,21 @@ It is a union rather than a boolean on purpose. "We have never established an en
 `license` is the frozen §9 object, read off the cached token, so showing "Pro monthly, renews 12
 Aug" costs no extra call. It is display only — never gate a feature on `plan` or `kind`.
 
+## Gating features: `state.entitlements`
+
+When a vendor prices capabilities, they arrive here, and this is the only thing to gate on:
+
+```ts
+if (state.entitlements?.export_4k) enableExport4k();
+const batchLimit = Number(state.entitlements?.batch_limit ?? 1);
+```
+
+The field is absent when a licence has none, so keep the `?.`.
+
+These are server-authored and signed into the token, which is what makes them safe in client
+code. `license.plan` is a label a vendor types and `license.kind` is our lifecycle bookkeeping:
+both are display only. `if (plan === 'Pro')` breaks the day somebody renames a tier.
+
 ## What `open()` does for you
 
 **Activates on first run, validates after that.** No instance id to hold, no branch to get wrong.

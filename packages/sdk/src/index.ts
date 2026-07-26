@@ -1,7 +1,7 @@
 // ABOUTME: @coolbeans/sdk (PRD §11) — drop-in licensing for Node, Electron, Tauri, and the browser.
 // ABOUTME: The key is the credential; offline-tolerant by contract, only `disabled` revokes access.
 
-import { type TokenPayload, verifyTokenSignature } from './token.js';
+import { decodeToken, type TokenPayload, verifyTokenSignature } from './token.js';
 
 export type { TokenPayload };
 
@@ -83,8 +83,20 @@ export type AccessState =
 			license: LicenseObject | null;
 			/** The licence's own end date, null for perpetual. */
 			expiresAt: string | null;
+			/**
+			 * What this licence buys, when the vendor priced capabilities. Signed, so it is safe
+			 * to gate a feature on — unlike `license.plan`. Absent, not empty, when there are
+			 * none, so `state.entitlements?.export_4k` reads false for a licence without a
+			 * capability map rather than claiming there is one.
+			 */
+			entitlements?: Record<string, boolean | number | string>;
 	  }
-	| { decision: 'deny'; reason: DenyReason; license: LicenseObject | null };
+	| {
+			decision: 'deny';
+			reason: DenyReason;
+			license: LicenseObject | null;
+			entitlements?: Record<string, boolean | number | string>;
+	  };
 
 export interface ActivateResult {
 	license: LicenseObject;
@@ -414,7 +426,20 @@ export class CoolBeans {
 			// the local clock has no penalty to serve.
 			this.storage.setItem(REVOKED_KEY, '');
 			this.storage.setItem(CLOCK_KEY, String(Date.now()));
-			return { decision: 'allow', reason: 'online', license, expiresAt: license.expires_at };
+			// Entitlements ride in the token, not the frozen licence object. Read from storage, so
+			// a 200 that carried no token still reports what the last one said — they are
+			// snapshotted at issuance and never change for a licence, so the cached copy cannot
+			// be stale. Decoding rather than verifying is fine here: it arrived over the same
+			// HTTPS response as the licence beside it. The offline path verifies, because there
+			// the token is all there is.
+			const claims = this.cachedTokenPayload();
+			return {
+				decision: 'allow',
+				reason: 'online',
+				license,
+				expiresAt: license.expires_at,
+				...(claims?.entitlements ? { entitlements: claims.entitlements } : {}),
+			};
 		}
 		// Conclusive, active, still not valid. A past expiry is definitive; anything else
 		// (no free seat, for instance) is not our call to turn into a lockout.
@@ -498,6 +523,7 @@ export class CoolBeans {
 			reason: rolledBack ? 'clock_rollback' : withinTtl ? 'cached' : 'grace',
 			license,
 			expiresAt: license.expires_at,
+			...(payload.entitlements ? { entitlements: payload.entitlements } : {}),
 		};
 	}
 
@@ -765,22 +791,16 @@ export class CoolBeans {
 
 	/** The licence key inside the cached token, so key fetching needs no argument. */
 	private cachedTokenKey(): string | undefined {
+		// Decoded, not verified: this only decides which key to send to a route that will refuse
+		// it if it is wrong. Nothing is unlocked on the strength of it.
+		const key = this.cachedTokenPayload()?.key;
+		return typeof key === 'string' ? key : undefined;
+	}
+
+	/** The cached token's claims, decoded without verifying. Never a basis for unlocking. */
+	private cachedTokenPayload(): TokenPayload | undefined {
 		const token = this.storage.getItem(TOKEN_KEY);
-		if (!token) return undefined;
-		try {
-			const part = token.split('.')[1];
-			if (!part) return undefined;
-			const json = JSON.parse(
-				new TextDecoder().decode(
-					Uint8Array.from(atob(part.replace(/-/g, '+').replace(/_/g, '/')), (ch) =>
-						ch.charCodeAt(0),
-					),
-				),
-			) as { key?: string };
-			return typeof json.key === 'string' ? json.key : undefined;
-		} catch {
-			return undefined;
-		}
+		return token ? decodeToken(token)?.payload : undefined;
 	}
 
 	/**

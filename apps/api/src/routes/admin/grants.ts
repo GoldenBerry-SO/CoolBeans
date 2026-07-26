@@ -20,6 +20,14 @@ const grantBody = z.object({
 	// Seats this price buys. Omit to inherit the product's limit, which is what every grant did
 	// before seats could be priced.
 	activation_limit: z.number().int().positive().optional(),
+	/**
+	 * Capabilities this price buys, e.g. { "export_4k": true, "batch_limit": 100 }. Flat scalars
+	 * only: nested shapes mean nothing to an app and would sign an unbounded blob into every
+	 * token. Omit to keep whatever the price already grants.
+	 */
+	entitlements: z
+		.record(z.string().min(1), z.union([z.boolean(), z.number(), z.string()]))
+		.optional(),
 });
 
 export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): void {
@@ -37,6 +45,7 @@ export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): voi
 			kind: body.kind,
 			plan: body.plan ?? null,
 			activationLimit: body.activation_limit ?? null,
+			entitlements: body.entitlements ?? null,
 			actor: auditActor(c),
 		});
 		return c.json({ ok: true, grant });

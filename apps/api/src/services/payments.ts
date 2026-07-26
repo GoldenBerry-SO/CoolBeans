@@ -31,6 +31,8 @@ export interface EnsureArgs {
 	plan?: string | null;
 	issuedGrantId?: number | null;
 	activationLimit?: number | null;
+	/** Capabilities snapshotted onto the licence, from the grant that issued it. */
+	entitlements?: Record<string, boolean | number | string> | null;
 	stripeConnectionId?: number | null;
 	email: string;
 	expiresAt?: string | null;
@@ -136,6 +138,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 					plan: args.plan,
 					issuedGrantId: args.issuedGrantId,
 					activationLimit: args.activationLimit,
+					entitlements: args.entitlements,
 					expiresAt: args.expiresAt,
 					actor: `${args.provider}:${args.eventId ?? args.checkoutId}`,
 				});

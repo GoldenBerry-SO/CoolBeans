@@ -21,6 +21,12 @@ export interface CreateGrantArgs {
 	plan?: string | null;
 	/** Seats this price buys. Null inherits the product's limit. */
 	activationLimit?: number | null;
+	/**
+	 * The capabilities this price buys, e.g. `{ export_4k: true, batch_limit: 100 }`. Null keeps
+	 * whatever the price already grants. Server-authored and signed into every token, which is
+	 * what makes it safe for an app to gate a feature on, unlike the display-only `plan`.
+	 */
+	entitlements?: Record<string, boolean | number | string> | null;
 	actor: string;
 }
 
@@ -82,6 +88,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			kind: args.kind,
 			plan: args.plan ?? null,
 			activationLimit: args.activationLimit ?? null,
+			entitlements: args.entitlements ?? null,
 			status: 'active',
 		})
 		.onConflictDoUpdate({
@@ -95,6 +102,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 				// Clearing one is deliberate: retire the grant and map the price again.
 				plan: sql`coalesce(${args.plan ?? null}, ${licenseGrants.plan})`,
 				activationLimit: sql`coalesce(${args.activationLimit ?? null}, ${licenseGrants.activationLimit})`,
+				entitlements: sql`coalesce(${args.entitlements ? JSON.stringify(args.entitlements) : null}::jsonb, ${licenseGrants.entitlements})`,
 				status: 'active',
 				retiredAt: null,
 			},
@@ -110,6 +118,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			kind: args.kind,
 			plan: args.plan ?? null,
 			seats: args.activationLimit ?? null,
+			entitlements: args.entitlements ?? null,
 		},
 	});
 	return grant;

@@ -51,6 +51,16 @@ describe('buildAgentGuide', () => {
 		expect(guide).not.toContain('heartbeatMs');
 	});
 
+	it('points feature gating at signed entitlements, never at plan or kind (#76)', () => {
+		expect(guide).toContain('entitlements');
+		const gating = guide.slice(guide.indexOf('entitlements'));
+		// The distinction is the whole safety argument: plan is a label a vendor types, and
+		// entitlements are server-authored and signed. A guide that blurs it teaches an agent to
+		// ship `if (plan === 'Pro')`, which breaks the moment a vendor renames a tier.
+		expect(gating).toMatch(/signed/i);
+		expect(guide).toMatch(/never branch|display only|never gate/i);
+	});
+
 	it('tells a TypeScript app it has no seat scheduling to do (#75)', () => {
 		const floatingAdvice = guide.slice(guide.toLowerCase().indexOf('seat model'));
 		expect(floatingAdvice).toMatch(/the SDK|itself|on its own/i);

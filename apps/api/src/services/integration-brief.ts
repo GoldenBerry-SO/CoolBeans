@@ -49,24 +49,52 @@ If you get this wrong, an outage of ours locks out your paying customers. Do not
 - JavaScript / TypeScript (Node, Electron, Tauri, browser): \`npm i @coolbeans/sdk\`
 - Swift (macOS): add the SwiftPM package \`${SWIFT_PACKAGE_URL}\` from \`0.1.0\`.
 
-## Set up the client (TypeScript)
+## Integrate (TypeScript) — this is the whole thing
 
 \`\`\`ts
 import { CoolBeans } from '@coolbeans/sdk'
 
 const cb = new CoolBeans({
-  product: '<your-product-slug>',
   baseUrl: '<your-base-url>',
   // Bundle the product's public keys so offline verify needs no first-run network call.
-  // The SDK also fetches and caches them from /v1/pubkey when they are missing.
+  // The SDK also fetches and caches them by licence key when they are missing.
   publicKeys: { /* '<kid>': '<key>' */ },
   // Node/Electron/Tauri: pass durable storage, or every restart mints a new device id and
   // burns a seat. The browser uses localStorage automatically.
   // storage: myDurableStorage,
 })
+
+// On launch, and again whenever the user pastes a key. One call.
+const state = await cb.open(licenseKey, {
+  onChange: (next) => { if (next.decision === 'deny') lock(next) },
+})
+if (state.decision === 'deny') lock(state)
+else unlock()
+
+// On shutdown: cb.stop()
 \`\`\`
 
-## Set up the client (Swift, macOS)
+\`open()\` activates on first run, validates after that, refreshes on its own cadence, holds a
+floating seat if the product has them, and falls back to the cached signed token when the
+network is gone. There is no instance id to keep and no interval to choose.
+
+The verdict:
+
+\`\`\`ts
+{ decision: 'allow', reason: 'online' | 'cached' | 'grace' | 'clock_rollback',
+  license: LicenseObject | null, expiresAt: string | null }
+{ decision: 'deny',  reason: 'revoked' | 'expired' | 'uninitialized',
+  license: LicenseObject | null }
+\`\`\`
+
+Branch on \`decision\` and nothing else. \`reason\` is for what you tell the user: \`grace\` means
+nudge them online, \`uninitialized\` means ask for a licence key, \`revoked\` means the licence is
+gone. \`license\` is the §9 object for display — show the plan and the renewal date from it, never
+gate a feature on it.
+
+## Integrate (Swift, macOS)
+
+The Swift SDK has the activate/verify pair, not \`open()\` yet, so it does the steps by hand:
 
 \`\`\`swift
 import CoolBeans
@@ -76,22 +104,29 @@ let cb = CoolBeans(configuration: .init(
   baseURL: URL(string: "<your-base-url>")!,
   publicKeys: ["<kid>": "<key>"]
 ))
+
+// On launch: unlock from the cached token first, then refresh online.
+if try await cb.verifyOffline() { unlock() }
+let result = try await cb.verify(licenseKey: key, instanceId: instanceId)
+// Inconclusive means keep going, never lock out. See the one rule above.
 \`\`\`
 
-## Core calls
+For a **floating** product the Swift app must also hold its own seat, by calling
+\`heartbeat(licenseKey:instanceId:)\` at roughly a third of the lease window it returns.
 
-- \`activate(licenseKey, { name })\` -> \`{ license, instance }\`. Call it when the user enters a key.
-  Store nothing yourself; the SDK keeps the device id and token.
-- \`verify(licenseKey, { instanceId })\` -> a result with \`valid\`, \`license\`, \`inconclusive\`,
-  and \`offline\`. Refreshes the cached token online. On an inconclusive result, fall back to
-  \`verifyOffline()\`.
-- \`verifyOffline()\` -> \`boolean\`. Network-free; unlocks from the cached signed token. Call it
-  on launch for an instant unlock, then refresh online in the background.
-- \`heartbeat(licenseKey, { instanceId })\` -> holds a **floating** seat. Only for concurrent
-  products (see seat models).
-- \`deactivate(licenseKey, { instanceId })\` -> frees the seat so another machine can take it.
-- \`start({ licenseKey, heartbeatMs? })\` -> a background watcher that re-verifies on an interval,
-  and heartbeats too when you pass \`heartbeatMs\` (floating only).
+## The rest of the TypeScript surface
+
+You need \`open()\` and \`stop()\`. These are here for the cases they do not cover:
+
+- \`deactivate(licenseKey, { instanceId })\` -> frees this device's seat so another machine can
+  take it. Call it on sign-out. \`cb.instanceId()\` gives you the id.
+- \`activate(licenseKey, { name })\` -> \`{ license, instance }\`. Use it on a key-entry screen when
+  you want the reason a bad key was refused; \`open()\` deliberately swallows that, because an
+  unknown key must never read as a revocation.
+- \`verify\`, \`verifyOffline\`, \`offlineState\` -> the pieces \`open()\` is built from. Reach for
+  them only if you are doing something \`open()\` cannot, and re-read the one rule above first.
+- \`importActivation(blob)\` -> unlock a machine that will never reach the network, from a
+  vendor-issued signed blob. No request is made.
 
 ## Public HTTP endpoints (if you are not using an SDK)
 
@@ -112,26 +147,30 @@ token; cache it.
 
 ## Offline verification and embedded keys
 
-Offline tokens are ed25519-signed. \`keys\` from \`/v1/pubkey\` is a map of \`kid -> public key\`.
-Embed them (or let the SDK fetch and cache them) so \`verifyOffline()\` works with no network.
-A token past its \`expires_at\` is definitive, so subscriptions get a small server-side grace
-buffer before the raw expiry; trials do not.
+Offline tokens are ed25519-signed. \`keys\` is a map of \`kid -> public key\`: fetch it by licence
+key with \`POST /v1/keyset { license_key }\`, or by slug with \`GET /v1/pubkey?product=<slug>\`.
+Embed them, or let the SDK fetch and cache them. A token past its \`expires_at\` is definitive,
+so subscriptions get a small server-side grace buffer before the raw expiry; trials do not.
 
 ## Seat models
 
-- **Per device (node-locked):** each seat binds to one machine until it is deactivated. No
-  heartbeat.
+- **Per device (node-locked):** each seat binds to one machine until it is deactivated.
 - **Concurrent (floating):** seats are a shared pool. A running machine holds one and releases
-  it when it stops. Heartbeat at roughly a third of the lease window so one dropped request
-  does not cost the user their seat. Use \`start({ heartbeatMs })\` or call \`heartbeat()\`.
+  it when it stops.
+
+**A TypeScript app does nothing differently for either.** The SDK asks the server, hears a
+lease window back, and holds the seat itself on its own cadence. Picking an interval in your
+app is you deciding whether your own users get locked out, which is the wrong place for it.
 
 ## Common patterns
 
-1. **Activate on key entry:** \`await cb.activate(key, { name: deviceName() })\`, then unlock if
-   \`license.status === "active"\`.
-2. **Verify offline on launch:** \`if (await cb.verifyOffline()) unlock()\`, then refresh online.
-3. **Gate a feature:** check the cached license status; treat inconclusive as still entitled.
-4. **Deactivate:** \`await cb.deactivate(key, { instanceId })\` to free a seat on sign-out.
+1. **Launch and key entry:** \`const state = await cb.open(key, { onChange })\`, then
+   \`if (state.decision === 'deny') lock(state)\`.
+2. **Show what they bought:** read \`state.license.plan\` and \`state.license.expires_at\`. Display
+   only.
+3. **Gate a feature:** use \`decision\`. Every inconclusive answer already resolves to \`allow\`,
+   so there is nothing extra to get right.
+4. **Deactivate:** \`await cb.deactivate(key, { instanceId: cb.instanceId() })\` on sign-out.
 `;
 }
 

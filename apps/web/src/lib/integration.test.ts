@@ -71,14 +71,31 @@ describe('buildSnippets', () => {
 		expect(node?.code).not.toContain("''");
 	});
 
-	it('only shows a heartbeat for a floating product', () => {
-		for (const s of buildSnippets(product({ activationModel: 'node_locked' }), BASE, KEYS)) {
-			expect(s.code.toLowerCase(), `node_locked ${s.target}`).not.toContain('heartbeat');
+	it('asks a TypeScript app to do nothing about seats, whatever the model (#75)', () => {
+		// The SDK holds a floating seat itself, on the cadence the server's lease implies. An
+		// app-chosen heartbeat interval is the app deciding whether its own users get locked
+		// out, so the snippet is identical for both models and mentions no cadence at all.
+		for (const model of ['node_locked', 'floating'] as const) {
+			const ts = buildSnippets(product({ activationModel: model }), BASE, KEYS).filter(
+				(s) => s.target !== 'swift',
+			);
+			expect(ts.length).toBeGreaterThan(0);
+			for (const s of ts) {
+				expect(s.code.toLowerCase(), `${model} ${s.target}`).not.toContain('heartbeat');
+				expect(s.code, `${model} ${s.target}`).toContain('cb.open(');
+			}
 		}
-		const floating = buildSnippets(product({ activationModel: 'floating' }), BASE, KEYS);
-		for (const s of floating) {
-			expect(s.code.toLowerCase(), `floating ${s.target}`).toContain('heartbeat');
-		}
+	});
+
+	it('still shows Swift the heartbeat it has to do itself', () => {
+		// The Swift SDK gets the same one-call shape in #77. Until then its snippet must keep
+		// telling a floating app to hold its own seat, because nothing else will.
+		const swift = (model: 'node_locked' | 'floating') =>
+			buildSnippets(product({ activationModel: model }), BASE, KEYS)
+				.find((s) => s.target === 'swift')
+				?.code.toLowerCase();
+		expect(swift('floating')).toContain('heartbeat');
+		expect(swift('node_locked')).not.toContain('heartbeat');
 	});
 
 	it('never leaks a service secret: only the key is the credential', () => {

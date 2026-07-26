@@ -107,29 +107,23 @@ export interface VerifyResult {
 	inconclusive: boolean;
 }
 
-export interface StartOptions {
-	licenseKey: string;
-	/** Defaults to the instance id stored by the last successful activate. */
-	instanceId?: string;
-	/** Defaults to a third of the cached token's lifetime, or 24h if there is none. */
-	intervalMs?: number;
+export interface OpenOptions {
 	/**
-	 * Heartbeat cadence. Provide this ONLY for floating products, at roughly a third of the
-	 * lease window, so one dropped request does not cost the user their seat. Node-locked
-	 * products should leave it unset.
+	 * Called when the verdict changes after `open()` returned — a revocation arriving, the
+	 * network going away, a licence lapsing. Not called for the value `open()` itself
+	 * returned, and not called again while the verdict stays the same.
 	 */
-	heartbeatMs?: number;
+	onChange?: (state: AccessState) => void;
+	/**
+	 * Refresh cadence. Defaults to a third of the cached token's lifetime, so there are two
+	 * or three chances to reconnect before a user drifts into grace. There is rarely a reason
+	 * to set this.
+	 */
+	intervalMs?: number;
 	/** Fraction of the interval to spread randomly, 0 to 1. Defaults to 0.2. */
 	jitter?: number;
-	onResult?: (result: VerifyResult) => void;
-	onError?: (error: unknown) => void;
 	/** Injectable randomness for deterministic tests. */
 	random?: () => number;
-}
-
-export interface LicenseWatcher {
-	/** Cancel all scheduled work. Safe to call more than once. */
-	stop(): void;
 }
 
 const DEFAULT_BASE = 'https://app.coolbeans.tools';
@@ -182,6 +176,20 @@ export class CoolBeans {
 	private readonly storage: Storage;
 	private readonly doFetch: typeof fetch;
 	private readonly embeddedKeys: Record<string, string> | null;
+
+	/** Background upkeep started by `open()` and cancelled by `stop()`. */
+	private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+	private leaseTimer: ReturnType<typeof setTimeout> | undefined;
+	private stopped = true;
+	private refreshing = false;
+	private openKey: string | undefined;
+	private lastState: AccessState | undefined;
+	private onChange: ((state: AccessState) => void) | undefined;
+	/**
+	 * 'unknown' until a heartbeat has answered, 'none' for a node-locked product, otherwise
+	 * the cadence in ms we hold the floating seat at. The app is never asked which it is.
+	 */
+	private lease: 'unknown' | 'none' | number = 'unknown';
 
 	constructor(opts: CoolBeansOptions) {
 		this.product = opts.product;
@@ -238,16 +246,146 @@ export class CoolBeans {
 	 * paying customer. Everything inconclusive (offline, 5xx, timeout, 404, an unknown key)
 	 * keeps the last known-good state. Only a fetched `disabled` or a signed expiry denies.
 	 *
+	 * From here the SDK keeps itself fresh: it re-checks on its own cadence, holds a floating
+	 * seat if the product has them, and reports a changed verdict through `onChange`. Call
+	 * `stop()` on shutdown. Nothing it does in the background throws into your app.
+	 *
 	 * `verify`, `verifyOffline` and `offlineState` remain for apps that want the pieces.
 	 */
-	async open(licenseKey?: string): Promise<AccessState> {
-		// Before anything reads the clock: record how late it has ever been on this install.
-		this.rememberClock();
+	async open(licenseKey?: string, opts: OpenOptions = {}): Promise<AccessState> {
+		// A second open() replaces the first rather than racing it.
+		this.stop();
+		this.stopped = false;
+		this.onChange = opts.onChange;
+		this.lease = 'unknown';
 		// The cached token carries its own licence key, so an app that has opened once need
 		// not store the key anywhere itself.
-		const key = licenseKey ?? this.cachedTokenKey();
+		this.openKey = licenseKey ?? this.cachedTokenKey();
+		const state = await this.evaluate();
+		this.lastState = state;
+		// Take the floating seat before saying yes, so an allow means the seat is actually
+		// held. One probe is also how we learn whether this product has leases at all.
+		if (state.decision === 'allow') await this.holdLease();
+		this.scheduleRefresh(opts);
+		return state;
+	}
+
+	/**
+	 * Cancel the background upkeep `open()` started. Idempotent, and safe to call without
+	 * ever having opened. The cached token is untouched, so a later `open()` still unlocks
+	 * offline; only the timers go away.
+	 */
+	stop(): void {
+		this.stopped = true;
+		if (this.refreshTimer) clearTimeout(this.refreshTimer);
+		if (this.leaseTimer) clearTimeout(this.leaseTimer);
+		this.refreshTimer = undefined;
+		this.leaseTimer = undefined;
+		this.onChange = undefined;
+	}
+
+	/** The current verdict, online where we can reach the server and cached where we cannot. */
+	private async evaluate(): Promise<AccessState> {
+		// Before anything reads the clock: record how late it has ever been on this install.
+		this.rememberClock();
+		const key = this.openKey ?? this.cachedTokenKey();
 		const online = key ? await this.openOnline(key) : null;
 		return online ?? this.offlineVerdict();
+	}
+
+	/**
+	 * Re-check, tell the app if the answer moved, and schedule the next one. Never throws:
+	 * a failed refresh is the inconclusive case, so the last good state stands.
+	 */
+	private async refreshOnce(opts: OpenOptions): Promise<void> {
+		this.refreshTimer = undefined;
+		if (this.stopped) return;
+		// Schedule the next tick before doing any work: a slow or hung request must not stall
+		// the cadence. If the previous check somehow has not finished, skip this one rather
+		// than run two at once.
+		this.scheduleRefresh(opts);
+		if (this.refreshing) return;
+		this.refreshing = true;
+		try {
+			const state = await this.evaluate();
+			if (this.stopped) return;
+			const before = this.lastState;
+			this.lastState = state;
+			if (!before || before.decision !== state.decision || before.reason !== state.reason) {
+				this.onChange?.(state);
+			}
+			// Only when we never got an answer about leases. Once the cadence is known the lease
+			// loop keeps itself going, and a node-locked product is done being asked.
+			if (this.lease === 'unknown' && !this.leaseTimer) await this.holdLease();
+		} catch {
+			// evaluate() resolves network problems itself, so reaching here is something
+			// unexpected. Keeping the last state is still the right answer, and rethrowing from
+			// a timer callback would be an unhandled rejection in the app's process.
+		} finally {
+			this.refreshing = false;
+		}
+	}
+
+	private scheduleRefresh(opts: OpenOptions): void {
+		if (this.stopped) return;
+		const jitter = opts.jitter ?? DEFAULT_JITTER;
+		const random = opts.random ?? Math.random;
+		const base = opts.intervalMs ?? this.defaultInterval();
+		// Spread the delay so many installs of the same app do not all wake on one tick and
+		// hammer a single server.
+		const spread = base * jitter;
+		const delay = Math.max(0, base - spread + random() * spread * 2);
+		this.refreshTimer = this.later(() => void this.refreshOnce(opts), delay);
+	}
+
+	/**
+	 * Hold a floating seat on the cadence the server's own lease implies — about a third of
+	 * the window, so a dropped beat has two more tries before the seat lapses. The app is
+	 * never asked whether its product has leases: a null `lease_expires_at` says so.
+	 *
+	 * Nothing here reaches the app. A missed beat costs a seat, not correctness, and the
+	 * refresh loop is what notices a seat we failed to hold.
+	 */
+	private async holdLease(): Promise<void> {
+		this.leaseTimer = undefined;
+		if (this.stopped) return;
+		const instanceId = this.instanceId();
+		if (!this.openKey || !instanceId) return;
+
+		let lease: string | null | undefined;
+		try {
+			lease = await this.heartbeat(this.openKey, { instanceId });
+		} catch {
+			// A failed beat is not evidence the product stopped having leases, so once we know
+			// the cadence we keep to it. Giving up here would quietly lose the user's seat.
+			lease = undefined;
+		}
+		if (this.stopped) return;
+
+		if (lease === null) {
+			// Definitive: there is nothing to renew. A node-locked product, or a seat we could
+			// not hold — and the refresh loop re-activates for the second case.
+			this.lease = 'none';
+			return;
+		}
+		if (typeof lease === 'string') {
+			const remaining = new Date(lease).getTime() - Date.now();
+			if (Number.isFinite(remaining) && remaining > 0) {
+				this.lease = Math.max(1000, remaining / 3);
+			}
+		}
+		if (typeof this.lease !== 'number') return;
+		this.leaseTimer = this.later(() => void this.holdLease(), this.lease);
+	}
+
+	/**
+	 * setTimeout that does not keep a Node process alive. A CLI that opens, prints and exits
+	 * has to exit, not sit on a twenty-minute timer. No-op in the browser, which has no refs.
+	 */
+	private later(fn: () => void, ms: number): ReturnType<typeof setTimeout> {
+		const handle = setTimeout(fn, ms);
+		(handle as unknown as { unref?: () => void }).unref?.();
+		return handle;
 	}
 
 	/**
@@ -573,77 +711,6 @@ export class CoolBeans {
 		if (!res.ok) throw new CoolBeansError(res.status, await res.json().catch(() => null));
 		const data = (await res.json()) as { ok: boolean; lease_expires_at: string | null };
 		return data.lease_expires_at ?? null;
-	}
-
-	/**
-	 * Run the recommended check cadence for you: verify once now, then refresh on a
-	 * jittered interval, heartbeating too when the product is floating.
-	 *
-	 * Entirely optional — an app that never calls this behaves exactly as before. It exists
-	 * because the cadence is the most consequential runtime decision an integrator makes,
-	 * and leaving it undefined means everyone invents their own, usually badly.
-	 *
-	 * Nothing here throws into your app. A failed refresh is the inconclusive case from §8:
-	 * it is reported through `onResult` and the cached token is left alone, so the app keeps
-	 * working. `onError` only fires for genuinely unexpected failures.
-	 */
-	start(opts: StartOptions): LicenseWatcher {
-		const random = opts.random ?? Math.random;
-		const jitter = opts.jitter ?? DEFAULT_JITTER;
-		const instanceId = opts.instanceId ?? this.instanceId();
-		let stopped = false;
-		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-		let beatTimer: ReturnType<typeof setInterval> | undefined;
-
-		// Spread the delay so many installs of the same app do not all wake together and
-		// hammer one server on the same tick.
-		const nextDelay = (): number => {
-			const base = opts.intervalMs ?? this.defaultInterval();
-			const spread = base * jitter;
-			return Math.max(0, base - spread + random() * spread * 2);
-		};
-
-		const runCheck = async (): Promise<void> => {
-			if (stopped || !instanceId) return;
-			try {
-				const result = await this.verify(opts.licenseKey, { instanceId });
-				opts.onResult?.(result);
-			} catch (err) {
-				// verify() already resolves network problems into an inconclusive result, so
-				// reaching here means something genuinely unexpected. Still never rethrow.
-				opts.onError?.(err);
-			}
-		};
-
-		const scheduleNext = (): void => {
-			if (stopped) return;
-			refreshTimer = setTimeout(() => {
-				void runCheck().finally(scheduleNext);
-			}, nextDelay());
-		};
-
-		// Kick off immediately but asynchronously: an app must not block startup on the
-		// network, and it should not sit on a stale answer for a whole interval either.
-		void runCheck().finally(scheduleNext);
-
-		if (opts.heartbeatMs && instanceId) {
-			beatTimer = setInterval(() => {
-				if (stopped) return;
-				// A missed heartbeat costs a seat, not correctness, so failures are ignored
-				// here and the next tick simply tries again.
-				void this.heartbeat(opts.licenseKey, { instanceId }).catch(() => undefined);
-			}, opts.heartbeatMs);
-		}
-
-		return {
-			stop: () => {
-				stopped = true;
-				if (refreshTimer) clearTimeout(refreshTimer);
-				if (beatTimer) clearInterval(beatTimer);
-				refreshTimer = undefined;
-				beatTimer = undefined;
-			},
-		};
 	}
 
 	/**

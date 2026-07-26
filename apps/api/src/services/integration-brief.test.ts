@@ -40,6 +40,21 @@ describe('buildAgentGuide', () => {
 		expect(guide).toMatch(/per device|node-locked/i);
 		expect(guide).toMatch(/concurrent|floating/i);
 	});
+
+	it('teaches the one-call shape, and nothing that no longer exists (#75)', () => {
+		expect(guide).toContain('open(');
+		expect(guide).toContain('decision');
+		// start({ heartbeatMs }) is gone: the SDK holds a floating seat on the cadence the
+		// server's own lease implies. A guide naming a deleted method sends a coding agent off
+		// to write code that throws, which is worse than saying nothing.
+		expect(guide).not.toContain('cb.start(');
+		expect(guide).not.toContain('heartbeatMs');
+	});
+
+	it('tells a TypeScript app it has no seat scheduling to do (#75)', () => {
+		const floatingAdvice = guide.slice(guide.toLowerCase().indexOf('seat model'));
+		expect(floatingAdvice).toMatch(/the SDK|itself|on its own/i);
+	});
 });
 
 describe('buildProductBrief', () => {

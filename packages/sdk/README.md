@@ -7,53 +7,71 @@ is the credential. Zero dependencies; Ed25519 verification uses WebCrypto.
 import { CoolBeans } from '@coolbeans/sdk';
 
 const cb = new CoolBeans({
-  product: 'clementine',
   publicKeys: { '1': 'BASE64_PUBLIC_KEY' }, // bundle these in your app
 });
 
-// Once, when the user pastes their key
-const { instance } = await cb.activate(licenseKey, { name: 'Chris’s MacBook' });
+// On launch, and again whenever the user pastes a key. This is the whole integration.
+const state = await cb.open(licenseKey, {
+  onChange: (next) => setLicensed(next.decision === 'allow'),
+});
+if (state.decision === 'deny') lockOut(state);
 
-// On every launch
-const ok = await cb.verifyOffline();
+// On shutdown
+cb.stop();
 ```
 
-## Recommended integration
-
-The most consequential runtime decision is **how often you check**, and the SDK deliberately does not
-decide it for you. Here is what to do.
-
-**Verify once on launch, then roughly every TTL/3 to TTL/2.** With the default 7-day token that means
-daily, which gives two or three chances to reconnect before a user drifts into grace. Add jitter, or
-every install of your app wakes on the same tick and stampedes one server.
-
-**Floating products heartbeat at a third of the lease**, so a single dropped request does not cost the
-user their seat. On the 30-minute default that is every 10 minutes. Node-locked products should never
-call `heartbeat` at all.
-
-`start()` does all of that for you, and is optional:
+## The verdict
 
 ```ts
-const watcher = cb.start({
-  licenseKey,
-  onResult: (r) => setLicensed(r.valid || r.inconclusive),
-  // heartbeatMs: 10 * 60_000,  // floating products only
-});
-// later
-watcher.stop();
+{ decision: 'allow', reason: 'online' | 'cached' | 'grace' | 'clock_rollback',
+  license: LicenseObject | null, expiresAt: string | null }
+{ decision: 'deny',  reason: 'revoked' | 'expired' | 'uninitialized',
+  license: LicenseObject | null }
 ```
+
+Branch on `decision`. Nothing else. `reason` is for what you say to the user: `grace` means nudge
+them online, `uninitialized` means ask for a key, `revoked` means the licence is gone.
+
+It is a union rather than a boolean on purpose. "We have never established an entitlement" and
+"you were revoked" both mean locked, but they are different screens, and a boolean loses that.
+
+`license` is the frozen §9 object, read off the cached token, so showing "Pro monthly, renews 12
+Aug" costs no extra call. It is display only — never gate a feature on `plan` or `kind`.
+
+## What `open()` does for you
+
+**Activates on first run, validates after that.** No instance id to hold, no branch to get wrong.
+
+**Refreshes on its own**, at a third of the token's lifetime, jittered so every install of your app
+does not wake on the same tick and stampede one server. A changed verdict arrives via `onChange`;
+it does not fire while the answer stays the same.
+
+**Holds a floating seat itself.** It heartbeats once, reads the lease window off the response, and
+keeps to about a third of it, so one dropped request does not cost the user their seat. A
+node-locked product returns no lease and nothing more is scheduled. Your app does not know or care
+which kind it is.
+
+**Never locks out on an inconclusive answer.** Offline, a 5xx, a timeout, an unknown key: all of it
+keeps the last known-good state. Only a fetched `disabled` or a signed expiry in the past denies.
+
+**Cannot be extended by moving the clock back.** A wall-clock floor is persisted alongside the
+token and expiry is judged against it. A successful validation resets the floor, so a briefly wrong
+clock is not a life sentence.
+
+**Does not keep a CLI alive.** The background timers are unref'd, so a tool that opens, prints and
+exits, exits.
 
 ### Anti-patterns
 
-**Do not verify on every feature use or window focus.** That is what the cached token is for, and it
+**Do not check on every feature use or window focus.** That is what the cached token is for, and it
 turns a momentary network blip into visible flakiness.
 
-**Do not block app startup on `verify()`.** Gate your UI on `verifyOffline()`, which is instant and
-needs no network, and let the online check settle in the background. Otherwise a slow connection makes
-your app feel broken.
+**Do not treat a failed check as a reason to do anything abrupt.** A failure is the inconclusive
+case. `open()` already resolves it to the last good state, and nothing in the background throws
+into your app.
 
-**Do not treat a failed check as a reason to do anything abrupt.** A failure is the inconclusive case:
-carry on with the cached token. Nothing in `start()` throws into your app for this reason.
+**Do not reach for `verify` / `verifyOffline` first.** They still work, and `open()` is built from
+them, but every lockout bug we have seen came from an app wiring those two together itself.
 
 ## Offline behaviour
 

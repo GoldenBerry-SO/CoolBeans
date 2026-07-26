@@ -162,39 +162,27 @@ function tsClient(product: Product, baseUrl: string, publicKeys: Record<string, 
 	].join('\n');
 }
 
-/** activate-on-key-entry, the same for every TS target. */
-const TS_ACTIVATE = [
-	'// When the user pastes their key:',
-	'async function onKeyEntered(key: string) {',
-	'\tconst { license, instance } = await cb.activate(key, { name: deviceName() })',
-	'\treturn license.status === "active"',
+/**
+ * The whole integration, the same for every TS target and every seat model. One call
+ * activates if it needs to, refreshes when it can, falls back to the cached signed token
+ * when it cannot, and holds a floating seat on its own.
+ */
+const TS_OPEN = [
+	'// On launch, and again whenever the user pastes a key:',
+	'async function onLaunch(key: string) {',
+	'\tconst state = await cb.open(key, {',
+	'\t\t// Fires when the verdict changes later, so a revocation reaches a running app.',
+	'\t\tonChange: (next) => { if (next.decision === "deny") lock(next) },',
+	'\t})',
+	'\tif (state.decision === "deny") return lock(state)',
+	'\tunlock()',
+	'\t// For display only: state.license has the plan and the renewal date. Never gate on it.',
+	'\tshowPlan(state.license)',
 	'}',
+	'',
+	'// On shutdown, so nothing is left running:',
+	'// cb.stop()',
 ].join('\n');
-
-/** verify-offline-on-launch, the same for every TS target. */
-const TS_VERIFY = [
-	'// On every launch, unlock instantly from the cached token, then refresh online:',
-	'async function onLaunch() {',
-	'\tif (await cb.verifyOffline()) unlock()',
-	'}',
-].join('\n');
-
-function tsWatcher(product: Product): string {
-	if (!isFloating(product)) {
-		return [
-			'// Per-device: keep the license fresh in the background, no seat to hold.',
-			'cb.start({ licenseKey: key, onResult: (r) => { if (!r.valid && r.license?.status === "disabled") lock() } })',
-		].join('\n');
-	}
-	return [
-		'// Floating: heartbeat to hold the seat while running (about a third of the lease window).',
-		'cb.start({',
-		'\tlicenseKey: key,',
-		'\theartbeatMs: 5 * 60 * 1000,',
-		'\tonResult: (r) => { if (!r.valid && r.license?.status === "disabled") lock() },',
-		'})',
-	].join('\n');
-}
 
 function tsSnippet(
 	target: Extract<SnippetTarget, 'node' | 'electron' | 'tauri' | 'browser'>,
@@ -204,16 +192,7 @@ function tsSnippet(
 	baseUrl: string,
 	publicKeys: Record<string, string>,
 ): Snippet {
-	const code = [
-		storageNote,
-		tsClient(product, baseUrl, publicKeys),
-		'',
-		TS_ACTIVATE,
-		'',
-		TS_VERIFY,
-		'',
-		tsWatcher(product),
-	].join('\n');
+	const code = [storageNote, tsClient(product, baseUrl, publicKeys), '', TS_OPEN].join('\n');
 	return { target, label, language: 'ts', install: 'npm i @coolbeans/sdk', code };
 }
 

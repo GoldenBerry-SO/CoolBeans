@@ -29,9 +29,13 @@ export interface Storage {
 
 export interface CoolBeansOptions {
 	/**
-	 * The product slug. Optional: activate and validate resolve the product from the key's
-	 * prefix, and signing keys are fetched by licence key, so an app no longer has to know it.
-	 * Supplying it adds a belt-and-braces claim check that a token is for the product expected.
+	 * The product slug. Optional: activate and validate resolve the product from the key's prefix,
+	 * and signing keys are fetched by licence key, so an app does not have to know it.
+	 *
+	 * **Pass it if you sell more than one product from one Cool Beans account.** Without it the
+	 * first licence this install activates decides which product the app is bound to, and only
+	 * that first key is unchecked — enough for a single-product vendor, and not enough if a
+	 * customer holding a licence for your other app might paste it here on a fresh install.
 	 */
 	product?: string;
 	/** Base URL of the Cool Beans server. Defaults to the hosted cloud. */
@@ -146,6 +150,7 @@ const TOKEN_KEY = 'coolbeans.token';
 const KEYS_KEY = 'coolbeans.pubkeys';
 const INSTANCE_KEY = 'coolbeans.instance_id';
 const CLOCK_KEY = 'coolbeans.clock_floor';
+const PRODUCT_KEY = 'coolbeans.product';
 const REVOKED_KEY = 'coolbeans.revoked';
 
 /** The §9 licence object is exactly the display half of a token payload. */
@@ -211,6 +216,26 @@ export class CoolBeans {
 		this.embeddedKeys = opts.publicKeys ?? null;
 	}
 
+	/**
+	 * The product this app is allowed to unlock on: the declared slug, or the one the first
+	 * successful activation bound this install to.
+	 *
+	 * Something has to hold this line. Activate and validate resolve a product from the key, so
+	 * without a check a customer's licence for the vendor's *other* app would activate here,
+	 * fetch that product's keyset by licence key, verify, and unlock. Undefined only until the
+	 * first licence lands.
+	 */
+	private expectedProduct(): string | undefined {
+		// `|| undefined`, not `??`: release() writes the key blank rather than deleting it, and an
+		// empty string as the expected product would mismatch every real one and lock the app.
+		return this.product ?? (this.storage.getItem(PRODUCT_KEY) || undefined);
+	}
+
+	/** Bind this install to a product the server has just confirmed. */
+	private rememberProduct(product: string): void {
+		if (this.storage.getItem(PRODUCT_KEY) !== product) this.storage.setItem(PRODUCT_KEY, product);
+	}
+
 	/** A stable per-install device id, persisted in storage. */
 	fingerprint(): string {
 		let id = this.storage.getItem(DEVICE_KEY);
@@ -238,10 +263,15 @@ export class CoolBeans {
 			instance: InstanceObject;
 		};
 		if (!res.ok || !data.ok) throw new CoolBeansError(res.status, data);
-		if (this.product !== undefined && data.license.product !== this.product) {
-			throw new CoolBeansError(res.status, { error: 'product_mismatch' });
+		const expected = this.expectedProduct();
+		if (expected !== undefined && data.license.product !== expected) {
+			throw new CoolBeansError(res.status, {
+				error: 'product_mismatch',
+				message: 'That licence is for a different product.',
+			});
 		}
 		this.storage.setItem(INSTANCE_KEY, data.instance.id);
+		this.rememberProduct(data.license.product);
 		return { license: data.license, instance: data.instance };
 	}
 
@@ -501,7 +531,8 @@ export class CoolBeans {
 		const keys = this.trustedKeys();
 		const payload = keys ? await verifyTokenSignature(token, keys) : null;
 		if (!payload) return nothingKnown();
-		if (this.product !== undefined && payload.product !== this.product) return nothingKnown();
+		const expected = this.expectedProduct();
+		if (expected !== undefined && payload.product !== expected) return nothingKnown();
 		const boundInstance = this.storage.getItem(INSTANCE_KEY);
 		if (boundInstance && payload.instance_id !== boundInstance) return nothingKnown();
 
@@ -584,10 +615,11 @@ export class CoolBeans {
 
 		// 404/422/429/5xx and malformed bodies are inconclusive per the frozen contract.
 		if (res.status !== 200 || !data.ok || !data.license) return inconclusive(false);
-		// A definitive answer about some other product is not an answer about this one.
-		// Only when the app declared a product; the signature is the real binding otherwise.
-		if (this.product !== undefined && data.license.product !== this.product)
-			return inconclusive(false);
+		// A definitive answer about some other product is not an answer about this one. Whether
+		// the app declared the product or the first activation bound it, the check is the same.
+		const expected = this.expectedProduct();
+		if (expected !== undefined && data.license.product !== expected) return inconclusive(false);
+		this.rememberProduct(data.license.product);
 
 		if (data.token) {
 			this.storage.setItem(TOKEN_KEY, data.token);
@@ -639,7 +671,10 @@ export class CoolBeans {
 				message: 'That activation could not be verified. Check it was pasted in full.',
 			});
 		}
-		if (payload.product !== this.product) {
+		// Guarded: an app that declared no slug would otherwise compare a real product to
+		// undefined and refuse every blob, on the one flow that has no other way in.
+		const expected = this.expectedProduct();
+		if (expected !== undefined && payload.product !== expected) {
 			throw new CoolBeansError(0, {
 				error: 'product_mismatch',
 				message: 'That activation is for a different product.',
@@ -670,6 +705,9 @@ export class CoolBeans {
 		// Bind the device before storing the token, so offlineState's instance check has
 		// something to compare against rather than silently passing.
 		this.storage.setItem(INSTANCE_KEY, payload.instance_id);
+		// This is an activation, so it binds the product too: a machine activated for one product
+		// must not later accept a blob for another, and it can never ask us which is right.
+		this.rememberProduct(payload.product);
 		this.storage.setItem(TOKEN_KEY, token);
 	}
 
@@ -694,7 +732,8 @@ export class CoolBeans {
 		// Claim binding: the token must be for this device's instance, and for the product the
 		// app declared IF it declared one. Without a declared product the signature does this
 		// work: a token from elsewhere is signed by a different product's key and will not verify.
-		if (this.product !== undefined && payload.product !== this.product) return 'expired';
+		const expected = this.expectedProduct();
+		if (expected !== undefined && payload.product !== expected) return 'expired';
 		const boundInstance = this.storage.getItem(INSTANCE_KEY);
 		if (boundInstance && payload.instance_id !== boundInstance) return 'expired';
 
@@ -788,6 +827,9 @@ export class CoolBeans {
 		this.storage.setItem(TOKEN_KEY, '');
 		this.storage.setItem(INSTANCE_KEY, '');
 		this.storage.setItem(REVOKED_KEY, '');
+		// Binding is not a life sentence: a signed-out install may take a key for a different
+		// product. A declared slug still holds, because that one is the app's own claim.
+		this.storage.setItem(PRODUCT_KEY, '');
 		this.openKey = undefined;
 		this.lastState = undefined;
 		return true;

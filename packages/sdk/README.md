@@ -8,6 +8,7 @@ import { CoolBeans } from '@coolbeans/sdk';
 
 const cb = new CoolBeans({
   publicKeys: { '1': 'BASE64_PUBLIC_KEY' }, // bundle these in your app
+  // product: 'clementine',  // required only if you sell more than one product — see below
 });
 
 // On launch, and again whenever the user pastes a key. This is the whole integration.
@@ -22,6 +23,14 @@ await cb.release();
 // On shutdown
 cb.stop();
 ```
+
+### Do you need `product`?
+
+Only if you sell more than one product from one Cool Beans account. Without it the first licence an
+install activates binds the app to that product, and every later key is checked against it — but
+that first key is the one nobody checked, so a customer holding a licence for your other app could
+paste it into a fresh install and unlock this one. Pass the slug and a licence for anything else is
+refused outright.
 
 ## The verdict
 

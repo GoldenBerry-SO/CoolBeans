@@ -78,6 +78,12 @@ else unlock()
 floating seat if the product has them, and falls back to the cached signed token when the
 network is gone. There is no instance id to keep and no interval to choose.
 
+**If this vendor sells more than one product, pass \`product: '<slug>'\` too** (the brief has the
+slug). Without it the first licence an install activates decides which product the app is bound
+to, and that first key is the one nobody checked — so a customer holding a licence for the
+vendor's other app could paste it into a fresh install and unlock this one. With it, a licence for
+anything else is refused outright.
+
 The verdict:
 
 \`\`\`ts

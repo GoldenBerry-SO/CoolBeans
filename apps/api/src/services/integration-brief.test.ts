@@ -69,6 +69,15 @@ describe('buildAgentGuide', () => {
 		expect(guide).toContain("state.decision === 'deny'");
 	});
 
+	it('says when the product slug is not optional', () => {
+		// An app that declares no slug is bound by the first licence it activates. For a vendor
+		// selling two products that is one unchecked key: a customer holding a licence for the
+		// other app could paste it into a fresh install and unlock this one.
+		expect(guide).toMatch(/more than one product/i);
+		const rule = guide.slice(guide.search(/more than one product/i));
+		expect(rule.toLowerCase()).toContain('product');
+	});
+
 	it('says seats and capabilities are read off the licence, never assumed (#78)', () => {
 		// A grant can sell three seats or ten from one product, so a hard-coded number in an app
 		// is wrong the day a vendor adds a tier.

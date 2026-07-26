@@ -426,8 +426,11 @@ revoked": one screen asks for a key, the other says the licence is gone.
 - Expiry is judged against a persisted wall-clock floor, so winding the clock back cannot extend a
   licence; a successful validation resets it.
 - Seat counts and capabilities are read off the licence, never assumed from the product.
-- `product` is optional. Signing keys are fetched by licence key (`POST /v1/keyset`), so an app needs no
-  slug; supplying one adds a belt-and-braces claim check.
+- `product` is optional, and required for a **multi-product** vendor. Signing keys are fetched by
+  licence key (`POST /v1/keyset`), so an app needs no slug; without one the first licence an install
+  activates binds it to that product and every later key is checked against it. That first key is
+  unchecked, so a vendor selling two products passes the slug or a customer's licence for the other
+  one unlocks this app on a fresh install.
 - Lower-level `activate`/`verify`/`verifyOffline`/`offlineState`/`heartbeat`/`deactivate` remain, and are
   not the documented path.
 - Framework quickstarts ship in `examples/`: **Electron**, **Tauri**, **plain Node/CLI**, **browser**.

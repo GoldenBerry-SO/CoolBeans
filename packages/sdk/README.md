@@ -100,21 +100,25 @@ into your app.
 **Do not reach for `verify` / `verifyOffline` first.** They still work, and `open()` is built from
 them, but every lockout bug we have seen came from an app wiring those two together itself.
 
-**Do not hard-code a seat count or a feature list.** How many seats a licence gets and which
-capabilities it carries are read off the licence, never assumed from the product: one product can
-sell three seats or ten, and a capability can move between tiers, with no app release.
+**Do not build a seat policy.** Seats are enforced on the server and are deliberately not on the
+verdict: running out reaches you as a `deny` you already handle. Capabilities are the one thing that
+varies per licence, and they come from `state.entitlements`.
 
-## Offline behaviour
+## Storage
 
-`offlineState()` is network-free and returns one of three states:
+**Required outside the browser, and the SDK throws at construction without it.** In-memory storage
+mints a new device id every launch, so every launch takes another activation and a node-locked
+licence is spent in a handful of restarts — on a customer who paid. The browser gets `localStorage`.
 
-| State | Meaning |
-|---|---|
-| `valid` | Cached token verified and inside its TTL |
-| `grace` | Past the TTL but the licence has not expired — **still unlock** |
-| `expired` | No token, bad signature, wrong device or product, disabled, or the licence expired |
+```ts
+const cb = new CoolBeans({ product: 'clementine', storage: myFileBackedStore });
+```
 
-`verifyOffline()` unlocks on `valid` and `grace`.
+Two synchronous methods, `getItem(key)` and `setItem(key, value)`. Back it with a file in the user's
+profile, `electron-store`, the Tauri store plugin, the Keychain — anything that survives a restart.
+`allowEphemeralStorage: true` opts out, for tests and throwaway scripts only.
+
+## Offline behaviour, and the rules behind it
 
 Three rules are worth knowing because they carry product decisions:
 
@@ -127,15 +131,10 @@ issues that date with a buffer, so a subscriber who renews while offline has roo
 
 **Trials get no grace at all**, or blocking the endpoint would be an unlimited trial.
 
-## Storage
-
-Pass a durable `storage` outside the browser. The default falls back to memory and warns loudly,
-because losing the device id on restart mints a new one and consumes another activation seat each
-time.
-
-```ts
-const cb = new CoolBeans({ product: 'clementine', storage: myFileBackedStore });
-```
+`open()` already applies all three. If you want to see them directly, `offlineState()` is
+network-free and returns `valid` (inside the token's TTL), `grace` (past it, licence still good, and
+**still unlocked**) or `expired`; `verifyOffline()` is the boolean form. Neither is the path to
+build on.
 
 ## Errors
 

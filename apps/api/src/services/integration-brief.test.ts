@@ -28,6 +28,17 @@ describe('buildAgentGuide', () => {
 		expect(guide).toMatch(/never lock/i);
 	});
 
+	it('frames the whole thing as the one call, from the first paragraph', () => {
+		// The opening used to say "your app activates a key, then validates it", and the one rule
+		// ended with "fall back to offline verification" — both instructions to do work the SDK now
+		// does. An agent reads the top of a document hardest, so a stale frame there outweighs the
+		// correct code further down, and sends it looking for a method the guide no longer names.
+		const opening = guide.slice(0, guide.indexOf('## Install'));
+		expect(opening).toMatch(/one call|open\(/);
+		expect(opening).toContain('decision');
+		expect(guide).not.toMatch(/fall back to offline|fall back to `?verifyOffline/i);
+	});
+
 	it('documents the public endpoints and both SDK installs', () => {
 		for (const path of ['/v1/activate', '/v1/validate', '/v1/heartbeat', '/v1/pubkey']) {
 			expect(guide, path).toContain(path);
@@ -44,8 +55,10 @@ describe('buildAgentGuide', () => {
 	it('teaches the one call in both languages, not one of them (#77)', () => {
 		const swift = guide.slice(guide.indexOf('```swift'));
 		expect(swift).toContain('cb.open(');
-		expect(swift.toLowerCase()).toContain('holdseat');
 		expect(swift).toContain('decision');
+		// The Swift SDK holds a floating seat itself now, so neither language is told to schedule
+		// anything. An app-side interval was the same footgun in both.
+		expect(guide.toLowerCase()).not.toContain('holdseat');
 	});
 
 	it('teaches the one-call shape, and nothing that no longer exists (#75)', () => {
@@ -56,6 +69,24 @@ describe('buildAgentGuide', () => {
 		// to write code that throws, which is worse than saying nothing.
 		expect(guide).not.toContain('cb.start(');
 		expect(guide).not.toContain('heartbeatMs');
+	});
+
+	it('gives the brief the same one instruction, since that is what an agent follows', () => {
+		// Found by reading the rendered brief rather than the builder: its "Do this" section still
+		// said "activate-on-key-entry, verify-offline-on-launch" — the exact ceremony the guide had
+		// stopped teaching. The brief is the document with the real values in it, so it is the one
+		// an agent acts on.
+		for (const model of ['node_locked', 'floating'] as const) {
+			const brief = buildProductBrief({
+				product: product({ activationModel: model }),
+				baseUrl: BASE,
+				publicKeys: KEYS,
+				guideUrl: GUIDE,
+			});
+			expect(brief, model).toContain('open(');
+			expect(brief, model).toMatch(/decision/);
+			expect(brief, model).not.toMatch(/verify-offline|verifyOffline|activate-on-key-entry/);
+		}
 	});
 
 	it('teaches one path and none of the ceremony that path removed (#78)', () => {
@@ -69,19 +100,39 @@ describe('buildAgentGuide', () => {
 		expect(guide).toContain("state.decision === 'deny'");
 	});
 
-	it('says when the product slug is not optional', () => {
-		// An app that declares no slug is bound by the first licence it activates. For a vendor
-		// selling two products that is one unchecked key: a customer holding a licence for the
-		// other app could paste it into a fresh install and unlock this one.
-		expect(guide).toMatch(/more than one product/i);
-		const rule = guide.slice(guide.search(/more than one product/i));
-		expect(rule.toLowerCase()).toContain('product');
+	it('supplies storage an app can actually paste, not just a warning about it', () => {
+		// The SDK refuses to construct without durable storage outside a browser. An agent given
+		// only a comment writes the throwing version, and the likeliest real-world lockout is a
+		// desktop app that quietly re-activates on every restart until the licence is used up.
+		expect(guide).toMatch(/getItem/);
+		expect(guide).toMatch(/setItem/);
+		expect(guide).toMatch(/writeFileSync|electron-store|readFileSync/);
 	});
 
-	it('says seats and capabilities are read off the licence, never assumed (#78)', () => {
-		// A grant can sell three seats or ten from one product, so a hard-coded number in an app
-		// is wrong the day a vendor adds a tier.
-		expect(guide).toMatch(/read .*off the licence|never assume|from the licence/i);
+	it('does not tell an app to read a seat count that does not exist', () => {
+		// Three separate reviews flagged this: the docs said "read the seat count off the licence"
+		// and there is no seat field on the licence or the verdict. An instruction nobody can
+		// follow gets guessed at, and a guessed seat policy in an app is worse than none.
+		expect(guide).not.toMatch(/seat counts?[^.]*off the licence|read the count off the licence/i);
+		expect(guide).toMatch(/enforced (on the server|server-side)/i);
+	});
+
+	it('tells an app to pass the product slug, and why it matters', () => {
+		// An app that declares no slug is bound by the first licence it activates. For a vendor
+		// selling two products that is one unchecked key: a customer holding a licence for the
+		// other app could paste it into a fresh install and unlock this one. So the guide asks for
+		// it unconditionally and explains the single case where omitting it is safe.
+		expect(guide).toMatch(/always pass `product`/i);
+		expect(guide).toMatch(/exactly one product/i);
+		expect(guide).toContain("product: '<your-product-slug>'");
+	});
+
+	it('puts seats on the server and capabilities on the licence (#78)', () => {
+		// The earlier wording told an app to read a seat count off the licence, which no field
+		// supports. Seats only ever reach an app as a deny it already handles; capabilities are
+		// the thing that genuinely varies per licence.
+		expect(guide).toMatch(/never counts them|enforced on the server/i);
+		expect(guide).toMatch(/state\.entitlements/);
 	});
 
 	it('leaks no pricing or plumbing, in the guide or a brief (#78)', () => {
@@ -141,18 +192,54 @@ describe('buildProductBrief', () => {
 		expect(brief).toContain('MCowBQYDK2VwAyEA_fakekey_');
 	});
 
-	it('falls back to the pubkey fetch note when no keys exist yet', () => {
+	it('names the capabilities this product actually grants, so nobody guesses', () => {
+		// The guide says never invent an entitlement name and hope the vendor set it. That is only
+		// actionable if the brief lists the real ones, and an absent name fails silently: the
+		// feature is simply off, with no error anywhere to notice.
+		const brief = buildProductBrief({
+			product: product(),
+			baseUrl: BASE,
+			publicKeys: KEYS,
+			guideUrl: GUIDE,
+			entitlementNames: ['export_4k', 'batch_limit'],
+		});
+		expect(brief).toContain('export_4k');
+		expect(brief).toContain('batch_limit');
+		expect(brief).toMatch(/state\.entitlements/);
+	});
+
+	it('says plainly when a product grants no capabilities at all', () => {
+		// Silence here reads as "the brief forgot", and an agent then invents a name.
+		const brief = buildProductBrief({
+			product: product(),
+			baseUrl: BASE,
+			publicKeys: KEYS,
+			guideUrl: GUIDE,
+			entitlementNames: [],
+		});
+		expect(brief).toMatch(/no capabilit/i);
+		expect(brief).not.toMatch(/export_4k/);
+	});
+
+	it('explains how keys arrive when none exist yet, so an early integration still works', () => {
+		// Keys are minted on the first token, so a brand-new product has none. The brief has to
+		// say the SDK fetches them itself rather than leaving an empty block that reads broken.
 		const brief = buildProductBrief({
 			product: product(),
 			baseUrl: BASE,
 			publicKeys: {},
 			guideUrl: GUIDE,
 		});
+		expect(brief).toContain('/v1/keyset');
+		expect(brief.toLowerCase()).toContain('first `open()`');
+		// The slug route still gets a mention for an integration that has a slug.
 		expect(brief).toContain('/v1/pubkey?product=acme-app');
-		expect(brief.toLowerCase()).toContain('first verify');
 	});
 
-	it('only mentions the heartbeat for a floating product', () => {
+	it('lists the heartbeat endpoint only for a floating product, and tells nobody to call it', () => {
+		// The endpoint list is for an integration writing raw HTTP, so a floating product needs it
+		// there. A TypeScript app must still be told the SDK holds the seat: the same word means
+		// "here is the route" in one section and "your job" in the other, and only one is true.
 		const locked = buildProductBrief({
 			product: product(),
 			baseUrl: BASE,
@@ -160,7 +247,7 @@ describe('buildProductBrief', () => {
 			guideUrl: GUIDE,
 		});
 		expect(locked.toLowerCase()).not.toContain('/v1/heartbeat');
-		expect(locked).toMatch(/not needed/i);
+		expect(locked).toMatch(/nothing to do/i);
 
 		const floating = buildProductBrief({
 			product: product({ activationModel: 'floating' }),
@@ -169,7 +256,8 @@ describe('buildProductBrief', () => {
 			guideUrl: GUIDE,
 		});
 		expect(floating).toContain('/v1/heartbeat');
-		expect(floating.toLowerCase()).toContain('heartbeat');
+		expect(floating).toMatch(/SDK holds the seat/i);
+		expect(floating).toMatch(/do not write a heartbeat/i);
 	});
 
 	it('never leaks a service secret: only public config appears', () => {

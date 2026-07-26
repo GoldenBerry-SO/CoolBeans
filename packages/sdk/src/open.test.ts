@@ -202,6 +202,38 @@ describe('open() and signed entitlements (#76)', () => {
 	});
 });
 
+describe('open() and the device name', () => {
+	it('activates under the name the app gives it', async () => {
+		// Without this every instance a vendor sees in their console is a raw uuid, which makes
+		// "which of my machines is this seat" unanswerable — and that is the console's job.
+		let sent: string | undefined;
+		const watching = ((url: string | URL | Request, init?: RequestInit) => {
+			if (new URL(String(url)).pathname === '/v1/activate') {
+				sent = (JSON.parse(String(init?.body)) as { instance_name?: string }).instance_name;
+			}
+			return server.doFetch(url, init);
+		}) as typeof fetch;
+		const named = new CoolBeans({ storage, fetch: watching });
+		await named.open(KEY, { deviceName: "Chris's MacBook" });
+		named.stop();
+		expect(sent).toBe("Chris's MacBook");
+	});
+
+	it('falls back to the device fingerprint when the app has no name to give', async () => {
+		let sent: string | undefined;
+		const watching = ((url: string | URL | Request, init?: RequestInit) => {
+			if (new URL(String(url)).pathname === '/v1/activate') {
+				sent = (JSON.parse(String(init?.body)) as { instance_name?: string }).instance_name;
+			}
+			return server.doFetch(url, init);
+		}) as typeof fetch;
+		const unnamed = new CoolBeans({ storage, fetch: watching });
+		await unnamed.open(KEY);
+		unnamed.stop();
+		expect(sent).toBe(unnamed.fingerprint());
+	});
+});
+
 describe('release() (#78)', () => {
 	it('frees the seat with nothing to hand it', async () => {
 		// The last place an app had to keep an instance id was signing out. Now it does not:

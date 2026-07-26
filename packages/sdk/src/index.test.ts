@@ -395,19 +395,53 @@ describe('CoolBeans SDK', () => {
 	});
 });
 
-describe('SDK hardening (issue #45)', () => {
-	it('warns loudly when a non-browser host gets ephemeral storage', () => {
-		const warnings: string[] = [];
-		const original = console.warn;
-		console.warn = (msg: string) => warnings.push(String(msg));
+describe('storage that cannot survive a restart', () => {
+	it('refuses to construct outside a browser with no storage passed', () => {
+		// The likeliest way a real customer gets locked out. In-memory storage mints a new device
+		// id every launch, so every launch takes another activation, and a node-locked licence is
+		// used up in a few restarts. A warning was not enough: it goes to a console nobody reads
+		// during integration, and the damage lands months later on somebody who paid.
+		expect(() => new CoolBeans({ product: 'clementine' })).toThrow(/durable storage/i);
+	});
+
+	it('names the option to pass, because an error nobody can act on is noise', () => {
 		try {
-			// No localStorage and no injected storage: the device id would be reborn on
-			// every restart, silently burning a seat each time.
-			new CoolBeans({ product: 'clementine', baseUrl: 'https://keys.test' });
-		} finally {
-			console.warn = original;
+			new CoolBeans({ product: 'clementine' });
+			expect.unreachable('expected a throw');
+		} catch (err) {
+			const error = err as CoolBeansError;
+			// The sentence has to say what to pass and what happens if you do not, because the
+			// person reading it is integrating and the consequence lands on somebody else later.
+			expect(error.message).toMatch(/storage/);
+			expect(error.message).toMatch(/allowEphemeralStorage/);
+			expect((error.body as { error?: string }).error).toBe('storage_required');
 		}
-		expect(warnings.join(' ')).toMatch(/storage/i);
+	});
+
+	it('allows it deliberately, for tests and throwaway scripts', () => {
+		const cb = new CoolBeans({ product: 'clementine', allowEphemeralStorage: true });
+		expect(cb.fingerprint()).toBeTruthy();
+	});
+
+	it('is happy in a browser, where localStorage is durable', () => {
+		const store = memStorage();
+		(globalThis as { localStorage?: unknown }).localStorage = store;
+		try {
+			expect(() => new CoolBeans({ product: 'clementine' })).not.toThrow();
+		} finally {
+			delete (globalThis as { localStorage?: unknown }).localStorage;
+		}
+	});
+});
+
+describe('SDK hardening (issue #45)', () => {
+	it('refuses ephemeral storage on a non-browser host rather than warning about it', () => {
+		// This started as a console.warn (#45). It became a throw once it was clear the warning
+		// goes to a console nobody reads during integration, while the consequence — a device id
+		// reborn on every restart, burning a seat each time — lands on a paying customer later.
+		expect(() => new CoolBeans({ product: 'clementine', baseUrl: 'https://keys.test' })).toThrow(
+			/durable storage/i,
+		);
 	});
 
 	it('verifyOffline never touches the network', async () => {

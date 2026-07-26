@@ -34,6 +34,22 @@ describe('configFacts', () => {
 		expect(values).toContain(BASE);
 	});
 
+	it('marks the seat count as a product default, not a promise', () => {
+		// A grant can sell three seats or ten from one product, so the number here is a default. It
+		// does not tell an app to read the real one: nothing exposes it, and seats are ours to
+		// enforce, which is why the hint says so instead.
+		const seats = configFacts(product(), BASE).find((f) => f.label === 'Seat model');
+		expect(seats?.hint).toMatch(/default/i);
+		expect(seats?.hint).toMatch(/never counts them|enforced on our side/i);
+	});
+
+	it('does not tell the app to heartbeat, because the SDK does it', () => {
+		const floating = configFacts(product({ activationModel: 'floating' }), BASE).find(
+			(f) => f.label === 'Seat model',
+		);
+		expect(floating?.hint?.toLowerCase()).toContain('sdk');
+	});
+
 	it('describes the seat model in plain words, not the wire value', () => {
 		const nodeLocked = configFacts(product(), BASE).find((f) => f.label === 'Seat model');
 		expect(nodeLocked?.value).toContain('Per device');
@@ -66,8 +82,9 @@ describe('buildSnippets', () => {
 
 	it('still produces a runnable snippet when no keys exist yet', () => {
 		const node = buildSnippets(product(), BASE, {}).find((s) => s.target === 'node');
-		// The SDK fetches and persists keys on first verify, so an empty set is valid.
-		expect(node?.code).toContain('/v1/pubkey');
+		// The SDK fetches and persists keys by licence key on the first open(), so an empty set is
+		// valid. It says so, rather than leaving an empty object with no explanation.
+		expect(node?.code).toMatch(/fetched by licence key/i);
 		expect(node?.code).not.toContain("''");
 	});
 
@@ -87,18 +104,42 @@ describe('buildSnippets', () => {
 		}
 	});
 
-	it('gives Swift the same one call, and the seat it still has to hold itself (#77)', () => {
-		// Swift has open() too now, so the shape matches. What differs is scheduling: the Swift
-		// SDK has no run loop of its own, so a floating app must hold its seat, and a node-locked
-		// one must not be told to.
+	it('gives Swift the same one call and no seat work either (#77)', () => {
+		// The Swift SDK holds the seat itself now, so the snippet is the same for both models —
+		// same as TypeScript. Anything else would be the app choosing whether its users keep a
+		// seat, which is the decision we took away on purpose.
 		const swift = (model: 'node_locked' | 'floating') =>
 			buildSnippets(product({ activationModel: model }), BASE, KEYS).find(
 				(s) => s.target === 'swift',
 			)?.code;
 		expect(swift('floating')).toContain('cb.open(');
 		expect(swift('node_locked')).toContain('cb.open(');
-		expect(swift('floating')?.toLowerCase()).toContain('holdseat');
-		expect(swift('node_locked')?.toLowerCase()).not.toContain('holdseat');
+		expect(swift('floating')?.toLowerCase()).not.toContain('holdseat');
+		expect(swift('floating')).toBe(swift('node_locked'));
+	});
+
+	it('gives every non-browser host storage that actually runs', () => {
+		// The SDK now refuses to construct without durable storage outside a browser, so a snippet
+		// that only comments about it is a snippet that throws when pasted. Each host gets an
+		// adapter, because getting this wrong is what burns a customer's seats one restart at a
+		// time.
+		for (const target of ['node', 'electron', 'tauri'] as const) {
+			const code = buildSnippets(product(), BASE, KEYS).find((s) => s.target === target)?.code;
+			expect(code, target).toContain('storage:');
+			expect(code, target).toMatch(/getItem/);
+			expect(code, target).toMatch(/setItem/);
+		}
+		// The browser has localStorage, so asking for one there is noise.
+		const browser = buildSnippets(product(), BASE, KEYS).find((s) => s.target === 'browser')?.code;
+		expect(browser).not.toContain('storage:');
+	});
+
+	it('constructs with the product slug, since the console knows it', () => {
+		// Optional in the SDK, but a console that has the slug and omits it hands a multi-product
+		// vendor the one configuration where another product's key unlocks this app.
+		for (const s of buildSnippets(product(), BASE, KEYS)) {
+			expect(s.code, s.target).toMatch(/product: ["']acme-app["']/);
+		}
 	});
 
 	it('never leaks a service secret: only the key is the credential', () => {
@@ -125,13 +166,40 @@ describe('agentPrompt', () => {
 		expect(prompt).toContain('acme-app');
 	});
 
-	it('names the seat model in plain words, not the wire value', () => {
-		expect(agentPrompt(product({ activationModel: 'floating' }), BASE)).toContain('concurrent');
-		expect(agentPrompt(product(), BASE)).not.toMatch(/node_locked/);
+	it('carries the rules that matter even if the agent never opens the links', () => {
+		// This block gets pasted into a coding agent. Some of them will write code from the prompt
+		// alone, so the two things that cause real damage have to be in the prompt itself: locking
+		// out a paying user on an inconclusive answer, and gating a feature on a plan label.
+		const prompt = agentPrompt(product(), BASE);
+		expect(prompt).toContain('open(');
+		expect(prompt).toContain('decision');
+		expect(prompt).toMatch(/never lock/i);
+		expect(prompt).toContain('entitlements');
+		expect(prompt).toMatch(/never .*plan|not .*plan/i);
+	});
+
+	it('does not hand the app any seat work, whatever the model', () => {
+		// The SDK holds a floating seat itself, so the prompt is identical for both models and
+		// tells the agent not to write one. Naming it beats staying silent: inventing a heartbeat
+		// interval is the likeliest wrong move, and it is the app deciding whether users get
+		// locked out.
+		for (const model of ['node_locked', 'floating'] as const) {
+			const prompt = agentPrompt(product({ activationModel: model }), BASE).toLowerCase();
+			expect(prompt, model).toMatch(/do not write .*heartbeat/);
+			expect(prompt, model).not.toContain('node_locked');
+		}
+		expect(agentPrompt(product({ activationModel: 'floating' }), BASE)).toBe(
+			agentPrompt(product({ activationModel: 'node_locked' }), BASE),
+		);
 	});
 });
 
 describe('publicEndpoints', () => {
+	it('lists the keyset route, which is how an app with no slug gets its keys (#73)', () => {
+		const paths = publicEndpoints(product()).map((e) => e.path);
+		expect(paths).toContain('/v1/keyset');
+	});
+
 	it('lists heartbeat only for a floating product and always points pubkey at the slug', () => {
 		const locked = publicEndpoints(product());
 		expect(locked.some((e) => e.path.includes('/v1/heartbeat'))).toBe(false);

@@ -21,7 +21,11 @@ import { productForToken } from '../../services/product-tokens.js';
 import { publicKeysFor } from '../../services/signing.js';
 import { ensureLicenseForSession } from '../../services/stripe.js';
 import { gatewayForConnection } from '../../services/stripe-connection.js';
-import { getActiveConnectionForAccount, getConnection } from '../../store/grants.js';
+import {
+	getActiveConnectionForAccount,
+	getConnection,
+	listGrantsForProduct,
+} from '../../store/grants.js';
 import { getProductBySlugGlobal } from '../../store/products.js';
 import { registerLemonSqueezyRoutes } from './ls.js';
 import { registerPortalRoutes } from './portal.js';
@@ -127,11 +131,18 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const product = await getProductBySlugGlobal(deps.db, slug);
 		if (!product) throw notFound('No product with that slug.');
 		const keys = await publicKeysFor(deps, product.id);
+		// The capability names the vendor's own active grants grant, deduped and sorted. Names
+		// only: which price carries which is the vendor's business, and an app never needs it.
+		const grants = await listGrantsForProduct(deps.db, product.id);
+		const entitlementNames = [
+			...new Set(grants.flatMap((grant) => Object.keys(grant.entitlements ?? {}))),
+		].sort();
 		const brief = buildProductBrief({
 			product,
 			baseUrl: deps.config.publicUrl,
 			publicKeys: keys,
 			guideUrl: `${deps.config.publicUrl}/v1/llms.txt`,
+			entitlementNames,
 		});
 		return c.body(brief, 200, { 'Content-Type': 'text/markdown; charset=utf-8' });
 	});

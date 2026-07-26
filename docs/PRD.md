@@ -425,7 +425,9 @@ revoked": one screen asks for a key, the other says the licence is gone.
   app choosing whether its own users get locked out.
 - Expiry is judged against a persisted wall-clock floor, so winding the clock back cannot extend a
   licence; a successful validation resets it.
-- Seat counts and capabilities are read off the licence, never assumed from the product.
+- Seats are enforced server-side and are not on the verdict or the licence object: an app never
+  counts them, and running out reaches it as the `deny` it already handles. Capabilities are the one
+  per-licence variable, via `state.entitlements`.
 - `product` is optional, and required for a **multi-product** vendor. Signing keys are fetched by
   licence key (`POST /v1/keyset`), so an app needs no slug; without one the first licence an install
   activates binds it to that product and every later key is checked against it. That first key is
@@ -476,9 +478,9 @@ input.
 `activation_limit` is how many seats the price buys (null inherits the product's), and `entitlements` is
 a flat map of signed scalars saying which capabilities it buys, e.g. `{ export_4k: true, batch_limit: 100 }`.
 Both are snapshotted onto the licence at issuance, so re-pricing a grant never changes what somebody
-already bought, and both are read off the licence by the app rather than assumed from the product — which
-is what lets one product sell Basic and Pro. Entitlements are signed into the offline token, and are the
-only thing an app may gate a feature on. Grants are managed through the admin API (§16); they are retired,
+already bought — which is what lets one product sell Basic and Pro. The seat count stays server-side
+and is enforced there; entitlements are signed into the offline token and are the only thing an app
+may gate a feature on. Grants are managed through the admin API (§16); they are retired,
 never deleted, so an issued licence always resolves back to the rule that made it.
 
 ### Stripe connections

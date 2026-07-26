@@ -28,21 +28,31 @@ function seatModelWords(model: string): string {
 export function buildAgentGuide(): string {
 	return `# Cool Beans integration guide (for coding agents)
 
-Cool Beans is a software license service. Your app **activates** a license key on a device,
-then **validates** it. It is offline-tolerant by contract, so a licensed user keeps working
-even when your server is unreachable.
+Cool Beans is a software license service. Your app makes **one call** on launch and gets **one
+verdict** back. It is offline-tolerant by contract, so a licensed user keeps working when our
+server is unreachable.
 
 ## The one rule that matters
 
-An answer is only a revocation when it is *definitive*. Concretely:
+Access is refused only on a *definitive* answer. The SDK already sorts the definitive from the
+inconclusive, so in your code the rule is simply: **branch on \`state.decision\`, and nothing
+else.**
 
-- **Unknown key** -> the server returns 404. That is not a revocation on its own.
-- **Disabled key** -> the license object comes back with \`status: "disabled"\`. This is the
-  only signal that revokes access.
-- **Network failure, a non-200, a malformed body, or a product mismatch** -> inconclusive.
-  **Never lock the user out on an inconclusive result.** Fall back to offline verification.
+What that resolves for you:
 
-If you get this wrong, an outage of ours locks out your paying customers. Do not.
+- **Disabled licence** -> \`deny\`, reason \`revoked\`. This is the only signal that takes access away.
+- **A signed expiry that has passed** -> \`deny\`, reason \`expired\`. Our own credential saying the
+  licence ended, which is how a lapsed subscription reaches a machine that has gone dark.
+- **Never activated on this device** -> \`deny\`, reason \`uninitialized\`. Ask for a key. This is not
+  a revocation, so do not phrase it as one.
+- **Network failure, a timeout, a 404, a 5xx, an answer about a different product** -> **\`allow\`**,
+  on the last known-good state. Every one of these is inconclusive. **Never lock a user out on an
+  inconclusive answer** — the SDK does not, and neither should anything you add.
+
+Do not add your own checks on top. Do not compare dates, inspect \`license.status\`, or decide what
+a failed request meant: that is the whole job of \`open()\`, and every lockout we have seen came
+from an app second-guessing it. If you get this wrong, an outage of ours locks out your paying
+customers.
 
 ## Install
 
@@ -56,33 +66,71 @@ import { CoolBeans } from '@coolbeans/sdk'
 
 const cb = new CoolBeans({
   baseUrl: '<your-base-url>',
-  // Bundle the product's public keys so offline verify needs no first-run network call.
+  product: '<your-product-slug>',
+  // Bundle the product's public keys so the first offline check needs no network call.
   // The SDK also fetches and caches them by licence key when they are missing.
   publicKeys: { /* '<kid>': '<key>' */ },
-  // Node/Electron/Tauri: pass durable storage, or every restart mints a new device id and
-  // burns a seat. The browser uses localStorage automatically.
-  // storage: myDurableStorage,
+  // Required outside the browser — see Storage below. The browser uses localStorage.
+  storage: myDurableStorage,
 })
 
 // On launch, and again whenever the user pastes a key. One call.
 const state = await cb.open(licenseKey, {
+  deviceName: machineName(),   // what the vendor sees for this seat in their console
   onChange: (next) => { if (next.decision === 'deny') lock(next) },
 })
 if (state.decision === 'deny') lock(state)
 else unlock()
 
-// On shutdown: cb.stop()
+await cb.release()  // sign out: gives the seat back. false means it did not reach us, so retry.
+cb.stop()           // shutdown: ends the background refresh
+\`\`\`
+
+## Storage — get this right or you will burn your customer's seats
+
+Outside a browser the SDK **throws at construction** without durable storage, on purpose. In-memory
+storage mints a new device id every launch, so every launch takes another activation, and a
+node-locked licence is spent in a handful of restarts. The interface is two synchronous methods:
+
+\`\`\`ts
+interface Storage {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+}
+\`\`\`
+
+Node, Electron or Tauri: back it with a file the user's profile keeps. Anything durable works —
+\`electron-store\`, the Tauri store plugin, the Keychain:
+
+\`\`\`ts
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+
+function fileStorage(path: string) {
+  mkdirSync(dirname(path), { recursive: true })
+  const read = (): Record<string, string> => {
+    try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return {} }
+  }
+  return {
+    getItem: (k: string) => read()[k] ?? null,
+    setItem: (k: string, v: string) => {
+      writeFileSync(path, JSON.stringify({ ...read(), [k]: v }), { mode: 0o600 })
+    },
+  }
+}
 \`\`\`
 
 \`open()\` activates on first run, validates after that, refreshes on its own cadence, holds a
 floating seat if the product has them, and falls back to the cached signed token when the
 network is gone. There is no instance id to keep and no interval to choose.
 
-**If this vendor sells more than one product, pass \`product: '<slug>'\` too** (the brief has the
-slug). Without it the first licence an install activates decides which product the app is bound
-to, and that first key is the one nobody checked — so a customer holding a licence for the
-vendor's other app could paste it into a fresh install and unlock this one. With it, a licence for
-anything else is refused outright.
+**Always pass \`product\`** — the brief has the slug. It is technically optional, and omitting it is
+only safe for a vendor with exactly one product: without it the first licence an install activates
+decides which product the app is bound to, and that first key is the one nobody checked. A customer
+holding a licence for the vendor's *other* app could paste it into a fresh install and unlock this
+one. With the slug set, a licence for anything else is refused at activation, and while the app is
+running an answer about another product stays inconclusive — so a wrong slug in your build cannot
+lock anybody out, it just never unlocks.
 
 The verdict:
 
@@ -93,10 +141,23 @@ The verdict:
   license: LicenseObject | null }
 \`\`\`
 
-Branch on \`decision\` and nothing else. \`reason\` is for what you tell the user: \`grace\` means
-nudge them online, \`uninitialized\` means ask for a licence key, \`revoked\` means the licence is
-gone. \`license\` is the §9 object for display — show the plan and the renewal date from it, never
-gate a feature on it.
+Branch on \`decision\` and nothing else. \`reason\` is only for what you say to the user:
+
+- \`online\` / \`cached\` — say nothing.
+- \`grace\` — working from a cached licence. Optionally nudge them online. **Not** an error, and not
+  worth a modal: it happens to anyone on a plane.
+- \`clock_rollback\` — unlocked, but this machine's clock went backwards. Treat it exactly like
+  \`cached\`; mention the clock only if you have somewhere sensible to say it.
+- \`uninitialized\` — show the licence-key form.
+- \`expired\` — the licence ended. Point at renewal.
+- \`revoked\` — the licence was taken away. Point at support.
+
+\`license\` is the §9 object for display — the plan label and renewal date. Never gate a feature on
+it. \`expiresAt\` is the same value as \`license.expires_at\`, lifted out for convenience.
+
+\`onChange\` fires whenever the verdict changes after \`open()\` returned, including allow-to-allow
+changes like \`online\` -> \`cached\`. It does not fire while the answer stays the same, so it is safe
+to re-render from it.
 
 ## Gating features: entitlements
 
@@ -115,8 +176,9 @@ alongside the expiry, so a client can trust them. \`plan\` and \`kind\` are a ve
 our lifecycle bookkeeping, they are display only, and \`if (plan === "Pro")\` breaks the day
 somebody renames a tier or adds "Pro annual". Never write that.
 
-Never invent an entitlement name your app checks for and hope the vendor sets it: agree the
-names first. An absent name means the feature stays off.
+**The names are the vendor's, not ours.** The brief lists the ones this product's prices actually
+grant; if it lists none, ask the vendor before writing a check, because an absent name means the
+feature stays off and nothing anywhere will report that as an error.
 
 ## Integrate (Swift, macOS)
 
@@ -140,13 +202,9 @@ if state.isEntitled("export_4k") { enableExport4k() }
 let batchLimit = state.limit("batch_limit") ?? 1
 \`\`\`
 
-Two differences from TypeScript, both because this SDK has no run loop of its own:
-
-- Call \`open()\` again yourself when you want a fresh answer. There is no background refresh.
-- For a **floating** product, call \`await cb.holdSeat()\` on a timer at roughly a third of the
-  lease window it hands back, or the seat lapses while the app is still running.
-
-Sign-out is \`await cb.release()\`, same as TypeScript.
+Same behaviour as TypeScript, including the background refresh and holding a floating seat: pass
+\`onChange:\` to hear about a changed verdict, \`cb.stop()\` on shutdown, \`await cb.release()\` on
+sign-out. Nothing to schedule.
 
 \`LicenseGate\` wraps all of this for SwiftUI if you would rather observe a status than a verdict.
 
@@ -165,7 +223,11 @@ Four calls, and you will use two of them:
 There are lower-level calls in the SDK. You do not need them, and every lockout bug we have
 seen came from wiring them together by hand. Use \`open()\`.
 
-## Public HTTP endpoints (if you are not using an SDK)
+## Public HTTP endpoints — only if there is no SDK for your language
+
+**Skip this section if you are using \`@coolbeans/sdk\` or the Swift SDK.** It is here for languages
+we do not ship one for. Wiring these up by hand means re-deciding everything \`open()\` decides,
+which is exactly where lockouts come from.
 
 Every request carries the license key. There is no service secret; the key is the credential.
 
@@ -195,15 +257,18 @@ so subscriptions get a small server-side grace buffer before the raw expiry; tri
 - **Concurrent (floating):** seats are a shared pool. A running machine holds one and gives it
   back when it stops.
 
-**A TypeScript app does nothing differently for either.** The SDK asks, hears a lease window
-back, and holds the seat itself. Picking an interval in your app is you deciding whether your
-own users get locked out, which is the wrong place for it. Seats are enforced on the server;
-your app never counts them.
+**A TypeScript app does nothing differently for either.** The SDK asks, hears a lease window back,
+and holds the seat itself. Picking an interval in your app is you deciding whether your own users
+get locked out, which is the wrong place for it.
 
-How many seats a licence gets, and which capabilities it carries, are **read off the licence,
-never assumed from the product**. One product can sell three seats or ten, and a capability can
-move between tiers, without your app changing. So: no hard-coded seat count, and no feature
-list that is not \`state.entitlements\`.
+**Seats are enforced on the server and your app never counts them.** There is no seat count on the
+verdict or the licence, deliberately: how many a price buys is the vendor's business, and running
+out shows up the only way it can matter to you — as a \`deny\` you already handle. Do not build a
+device list or a seat policy from anything here.
+
+Capabilities are the one thing that does vary per licence, and they come from
+\`state.entitlements\`. One product can sell Basic and Pro, and a capability can move between tiers,
+with no app release.
 
 ## Common patterns
 
@@ -226,13 +291,20 @@ export function buildProductBrief(args: {
 	baseUrl: string;
 	publicKeys: Record<string, string>;
 	guideUrl: string;
+	/**
+	 * The entitlement names this product's active grants actually grant. An app must not invent
+	 * one: an absent name simply reads as off, with nothing anywhere reporting it, so a guessed
+	 * name silently disables a feature a customer paid for.
+	 */
+	entitlementNames?: string[];
 }): string {
 	const { product, baseUrl, publicKeys, guideUrl } = args;
+	const entitlementNames = args.entitlementNames ?? [];
 	const floating = isFloating(product.activationModel);
 	const keyEntries = Object.entries(publicKeys);
 	const keysBlock = keyEntries.length
 		? `\`\`\`json\n${JSON.stringify(publicKeys, null, 2)}\n\`\`\``
-		: `_None issued yet. The SDK fetches them from \`${baseUrl}/v1/pubkey?product=${product.slug}\` on first verify._`;
+		: `_None issued yet. The SDK fetches them by licence key from \`${baseUrl}/v1/keyset\` on the first \`open()\`, so an integration works before the first key is signed. Paste them here once they exist to skip that call. (\`${baseUrl}/v1/pubkey?product=${product.slug}\` serves the same keys by slug.)_`;
 
 	const endpoints = [
 		`POST ${baseUrl}/v1/activate    { license_key, instance_name }   -> { ok, license, instance }`,
@@ -243,6 +315,7 @@ export function buildProductBrief(args: {
 				]
 			: []),
 		`POST ${baseUrl}/v1/deactivate  { license_key, instance_id }     -> { ok }`,
+		`POST ${baseUrl}/v1/keyset      { license_key }                  -> { ok, algorithm, keys }`,
 		`GET  ${baseUrl}/v1/pubkey?product=${product.slug}          -> { ok, algorithm, keys }`,
 	].join('\n');
 
@@ -256,12 +329,28 @@ how-to code for every framework; this brief has ${product.name}'s real values to
 - **Base URL:** ${baseUrl}
 - **Product slug:** ${product.slug}
 - **Key prefix:** ${product.keyPrefix} (keys look like ${product.keyPrefix}-XXXX-XXXX-XXXX)
-- **Seat model:** ${seatModelWords(product.activationModel)}, ${product.activationLimit} per key by default (a price can buy more or fewer, so read the count off the licence, never assume this one)
-- **Heartbeat:** ${floating ? 'yes, at about a third of the lease window (floating seats)' : 'not needed (per-device seats)'}
+- **Seat model:** ${seatModelWords(product.activationModel)}, ${product.activationLimit} per key by default (a price can buy more or fewer; enforced on our side, so the app never counts them)
+- **Seat handling:** ${floating ? 'the TypeScript SDK holds the floating seat itself; a Swift app calls `holdSeat()` on a timer' : 'nothing to do (per-device seats)'}
 
 ## Embedded public keys (ed25519, for offline verification)
 
 ${keysBlock}
+
+## Capabilities this product grants
+
+${
+	entitlementNames.length
+		? `Read these from \`state.entitlements\`, and nothing else, when deciding what a licence unlocks:
+
+${entitlementNames.map((name) => `- \`${name}\``).join('\n')}
+
+Not every licence carries every one — a price decides. Absent means off, so write
+\`state.entitlements?.<name>\` and treat missing as no.`
+		: `This product's prices grant **no capabilities**, so \`state.entitlements\` will be absent and
+there is nothing to gate on. Do not invent a name and check for it: it would read as off forever,
+and nothing would report that as an error. If a paid-only feature is meant to exist, ask the vendor
+to add the capability to the price first.`
+}
 
 ## Endpoints this app calls
 
@@ -271,8 +360,26 @@ ${endpoints}
 
 ## Do this
 
-Read the guide at ${guideUrl} and integrate Cool Beans using the config above. Wire up
-activate-on-key-entry, verify-offline-on-launch${floating ? ', and a heartbeat to hold the floating seat' : ''}.
-Remember the one rule: an inconclusive check never locks the user out.
+Read the guide at ${guideUrl} and integrate Cool Beans using the config above. The whole app-side
+integration is one call on launch, and again when the user pastes a key:
+
+\`\`\`ts
+const state = await cb.open(licenseKey, {
+  onChange: (next) => { if (next.decision === 'deny') lock(next) },
+})
+if (state.decision === 'deny') lock(state)
+else unlock()
+\`\`\`
+
+Branch on \`state.decision\` and nothing else. Gate any paid-only feature on
+\`state.entitlements?.<name>\`, never on \`state.license.plan\`. Call \`cb.release()\` on sign-out and
+\`cb.stop()\` on shutdown.${
+		floating
+			? ' This product uses concurrent seats; the TypeScript SDK holds the seat for you, so do not write a heartbeat.'
+			: ''
+	}
+
+Do not write a refresh loop or keep an instance id — the SDK owns both. Remember the one rule: an
+inconclusive check never locks the user out.
 `;
 }

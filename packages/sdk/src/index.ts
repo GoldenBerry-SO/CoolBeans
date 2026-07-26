@@ -45,8 +45,20 @@ export interface CoolBeansOptions {
 	 * Keys fetched from /v1/pubkey are persisted to storage and merged with these.
 	 */
 	publicKeys?: Record<string, string>;
-	/** Persistent storage. Defaults to localStorage in the browser, in-memory elsewhere. */
+	/**
+	 * Where the device id, cached token and trusted keys live between launches.
+	 *
+	 * The browser gets `localStorage` automatically. **Everywhere else this is required**, and
+	 * construction throws without it: in-memory storage mints a new device id every launch, so
+	 * every launch takes another activation and a node-locked licence is used up in a handful of
+	 * restarts. That lands on somebody who paid, months after the integration was written.
+	 */
 	storage?: Storage;
+	/**
+	 * Permit in-memory storage outside a browser. For tests and throwaway scripts only — an app
+	 * that ships this burns one of its customer's seats on every restart.
+	 */
+	allowEphemeralStorage?: boolean;
 	/** Injectable fetch for tests. */
 	fetch?: typeof fetch;
 }
@@ -138,6 +150,12 @@ export interface OpenOptions {
 	intervalMs?: number;
 	/** Fraction of the interval to spread randomly, 0 to 1. Defaults to 0.2. */
 	jitter?: number;
+	/**
+	 * What to call this device in the vendor's console, used when `open()` activates. Defaults to
+	 * the device fingerprint, which is a uuid — fine for the SDK, useless to a vendor trying to
+	 * work out which of a customer's machines holds a seat. Pass the machine's name.
+	 */
+	deviceName?: string;
 	/** Injectable randomness for deterministic tests. */
 	random?: () => number;
 }
@@ -175,16 +193,19 @@ function memoryStorage(): Storage {
 	};
 }
 
-function defaultStorage(): Storage {
-	// Browsers get durable storage automatically; Node/Electron callers should inject
-	// their own. Falling back to memory silently would mint a new device id on every
-	// restart and burn a seat each time, so say so loudly once.
+function defaultStorage(allowEphemeral: boolean): Storage {
+	// Browsers get durable storage automatically. Everywhere else, refuse: a warning went to a
+	// console nobody reads during integration, and the bill arrived later as a customer whose
+	// licence had been spent on their own restarts. Failing at construction is loud, immediate,
+	// and lands on the person who can actually fix it.
 	const ls = (globalThis as { localStorage?: Storage }).localStorage;
 	if (ls) return ls;
-	console.warn(
-		'[coolbeans] No localStorage found and no storage option was passed, so this client is using in-memory storage. The device id and cached token will be lost on restart, and each restart consumes another activation seat. Pass a durable `storage` (for example one backed by a file or Electron store).',
-	);
-	return memoryStorage();
+	if (allowEphemeral) return memoryStorage();
+	throw new CoolBeansError(0, {
+		error: 'storage_required',
+		message:
+			'Cool Beans needs durable storage outside the browser. Pass `storage` (a file, an Electron store, the Keychain — anything that survives a restart), or `allowEphemeralStorage: true` if this really is a test. Without it every launch mints a new device id and consumes another activation from your customer.',
+	});
 }
 
 export class CoolBeans {
@@ -200,6 +221,7 @@ export class CoolBeans {
 	private stopped = true;
 	private refreshing = false;
 	private openKey: string | undefined;
+	private deviceName: string | undefined;
 	private lastState: AccessState | undefined;
 	private onChange: ((state: AccessState) => void) | undefined;
 	/**
@@ -211,7 +233,7 @@ export class CoolBeans {
 	constructor(opts: CoolBeansOptions) {
 		this.product = opts.product;
 		this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE).replace(/\/$/, '');
-		this.storage = opts.storage ?? defaultStorage();
+		this.storage = opts.storage ?? defaultStorage(opts.allowEphemeralStorage === true);
 		this.doFetch = opts.fetch ?? globalThis.fetch.bind(globalThis);
 		this.embeddedKeys = opts.publicKeys ?? null;
 	}
@@ -305,6 +327,7 @@ export class CoolBeans {
 		// The cached token carries its own licence key, so an app that has opened once need
 		// not store the key anywhere itself.
 		this.openKey = licenseKey ?? this.cachedTokenKey();
+		this.deviceName = opts.deviceName;
 		const state = await this.evaluate();
 		this.lastState = state;
 		// Take the floating seat before saying yes, so an allow means the seat is actually
@@ -508,7 +531,7 @@ export class CoolBeans {
 	 */
 	private async claimSeat(licenseKey: string): Promise<string | null> {
 		try {
-			const { instance } = await this.activate(licenseKey);
+			const { instance } = await this.activate(licenseKey, { name: this.deviceName });
 			return instance.id;
 		} catch {
 			return null;

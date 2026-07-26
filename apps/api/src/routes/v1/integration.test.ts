@@ -58,6 +58,27 @@ describe('GET /v1/integration/:slug', () => {
 		expect(body).toContain('batch_limit');
 	});
 
+	it('still lists a capability whose price was retired', async () => {
+		// Licences issued before a price was retired still carry its capabilities, so an app still
+		// has to honour them. Absent means off, so a name listed but no longer sold costs nothing,
+		// while a name omitted leaves a paying customer without the feature they bought.
+		const { seedGrant } = await import('../../test/seed.js');
+		const { rawQuery } = await import('../../test/pg.js');
+		const product = await h.app.request('/admin/products/acme-app', { headers: h.adminHeaders });
+		const { product: found } = (await product.json()) as { product: { id: number } };
+		await seedGrant(h.deps, {
+			productId: found.id,
+			priceId: 'price_acmeOld',
+			kind: 'perpetual',
+			entitlements: { legacy_filters: true },
+		});
+		await rawQuery("UPDATE license_grants SET status = 'retired' WHERE stripe_price_id = $1", [
+			'price_acmeOld',
+		]);
+		const body = await (await h.app.request('/v1/integration/acme-app')).text();
+		expect(body).toContain('legacy_filters');
+	});
+
 	it('never leaks the price a capability came from', async () => {
 		// Grant ids and Stripe price ids are the vendor's business, not the app's.
 		const { seedGrant } = await import('../../test/seed.js');

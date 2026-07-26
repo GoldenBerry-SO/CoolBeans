@@ -76,7 +76,8 @@ const cb = new CoolBeans({
 
 // On launch, and again whenever the user pastes a key. One call.
 const state = await cb.open(licenseKey, {
-  deviceName: machineName(),   // what the vendor sees for this seat in their console
+  deviceName: machineName(),   // what the vendor sees for this seat; a hostname often carries a
+                               // person's name, so send something the user would expect to share
   onChange: (next) => { if (next.decision === 'deny') lock(next) },
 })
 if (state.decision === 'deny') lock(state)
@@ -85,6 +86,11 @@ else unlock()
 await cb.release()  // sign out: gives the seat back. false means it did not reach us, so retry.
 cb.stop()           // shutdown: ends the background refresh
 \`\`\`
+
+Two things worth stating because they look like traps and are not: \`publicKeys: {}\` is fine — the
+SDK fetches and caches them by licence key on the first \`open()\`, and offline-before-that is
+\`uninitialized\`, never a wrong unlock. And \`open()\` with no argument is exactly \`open(undefined)\`:
+after the first call the key is stored, so a relaunch needs nothing passed.
 
 ## Storage — get this right or you will burn your customer's seats
 
@@ -136,10 +142,16 @@ The verdict:
 
 \`\`\`ts
 { decision: 'allow', reason: 'online' | 'cached' | 'grace' | 'clock_rollback',
-  license: LicenseObject | null, expiresAt: string | null }
+  license: LicenseObject | null, expiresAt: string | null,
+  entitlements?: Record<string, boolean | number | string> }
 { decision: 'deny',  reason: 'revoked' | 'expired' | 'uninitialized',
-  license: LicenseObject | null }
+  license: LicenseObject | null,
+  entitlements?: Record<string, boolean | number | string> }
 \`\`\`
+
+\`entitlements\` is top-level, not inside \`license\`, and absent when the licence has none. It is
+present on a \`deny\` too, since it comes off the same token — but gate on it only when the decision
+is \`allow\`, or you are handing capabilities to somebody whose licence just ended.
 
 Branch on \`decision\` and nothing else. \`reason\` is only for what you say to the user:
 
@@ -216,11 +228,17 @@ Four calls, and you will use two of them:
 - \`open(licenseKey?)\` -> the verdict above. On launch, and again when a key is pasted. The key
   is optional after the first call: it is stored for you.
 - \`release()\` -> frees this device's seat, forgets the licence, and ends the background refresh.
-  On sign-out. Returns false if it could not reach us, so you know the seat is still taken and can
-  say so. After it, \`open(newKey)\` starts again from scratch.
-- \`stop()\` -> ends the background refresh. On app shutdown.
+  On sign-out. Returns false when it could not reach us, and then **nothing was cleared** — so the
+  retry still has what it needs, and the seat is genuinely still held. After a true, \`open(newKey)\`
+  starts again from scratch.
+- \`stop()\` -> ends the background refresh. On app shutdown. Synchronous, nothing to await.
 - \`importActivation(blob)\` -> unlocks a machine that will never reach the network, from a
   vendor-issued signed blob. Only if the vendor offers that.
+- \`activate(licenseKey)\` -> for a **key-entry form only**, when you want to tell the user *why* a
+  key was refused. \`open()\` deliberately swallows that, because an unknown key is inconclusive and
+  must never read as a revocation, which leaves you unable to say "we could not verify that key".
+  \`activate\` throws a \`CoolBeansError\` with a \`body.error\` code you can show. Follow it with
+  \`open()\`; never gate the app on its result.
 
 There are lower-level calls in the SDK. You do not need them, and every lockout bug we have
 seen came from wiring them together by hand. Use \`open()\`.
@@ -238,6 +256,7 @@ POST /v1/activate    { license_key, instance_name }        -> { ok, license, ins
 POST /v1/validate    { license_key, instance_id }          -> { ok, valid, license, instance, token? }
 POST /v1/heartbeat   { license_key, instance_id }          -> { ok, lease_expires_at }
 POST /v1/deactivate  { license_key, instance_id }          -> { ok }
+POST /v1/keyset      { license_key }                       -> { ok, algorithm: "ed25519", keys }
 GET  /v1/pubkey?product=<slug>                             -> { ok, algorithm: "ed25519", keys }
 \`\`\`
 

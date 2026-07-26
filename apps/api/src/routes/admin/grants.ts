@@ -21,12 +21,27 @@ const grantBody = z.object({
 	// before seats could be priced.
 	activation_limit: z.number().int().positive().optional(),
 	/**
-	 * Capabilities this price buys, e.g. { "export_4k": true, "batch_limit": 100 }. Flat scalars
-	 * only: nested shapes mean nothing to an app and would sign an unbounded blob into every
-	 * token. Omit to keep whatever the price already grants.
+	 * Capabilities this price buys, e.g. { "export_4k": true, "batch_limit": 100 }. Omit to keep
+	 * whatever the price already grants; an empty object means none.
+	 *
+	 * Flat scalars only, names an app can read as a property, and a bounded number of them. Every
+	 * one of these is signed into every token the price issues, and that token lives in an app's
+	 * storage and travels on each validate — so this is not a place for an arbitrary blob. The
+	 * console enforces the same name rule; if only the console did, the contract would be a
+	 * convention rather than a rule.
 	 */
 	entitlements: z
-		.record(z.string().min(1), z.union([z.boolean(), z.number(), z.string()]))
+		.record(
+			z
+				.string()
+				.regex(
+					/^[A-Za-z_][A-Za-z0-9_]*$/,
+					'Capability names must be letters, numbers and underscores, starting with a letter',
+				)
+				.max(64),
+			z.union([z.boolean(), z.number(), z.string().max(256)]),
+		)
+		.refine((map) => Object.keys(map).length <= 32, 'At most 32 capabilities per price')
 		.optional(),
 });
 

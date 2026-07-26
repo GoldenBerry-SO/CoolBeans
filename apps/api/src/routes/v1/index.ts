@@ -22,9 +22,9 @@ import { publicKeysFor } from '../../services/signing.js';
 import { ensureLicenseForSession } from '../../services/stripe.js';
 import { gatewayForConnection } from '../../services/stripe-connection.js';
 import {
+	entitlementNamesForProduct,
 	getActiveConnectionForAccount,
 	getConnection,
-	listGrantsForProduct,
 } from '../../store/grants.js';
 import { getProductBySlugGlobal } from '../../store/products.js';
 import { registerLemonSqueezyRoutes } from './ls.js';
@@ -131,12 +131,9 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const product = await getProductBySlugGlobal(deps.db, slug);
 		if (!product) throw notFound('No product with that slug.');
 		const keys = await publicKeysFor(deps, product.id);
-		// The capability names the vendor's own active grants grant, deduped and sorted. Names
-		// only: which price carries which is the vendor's business, and an app never needs it.
-		const grants = await listGrantsForProduct(deps.db, product.id);
-		const entitlementNames = [
-			...new Set(grants.flatMap((grant) => Object.keys(grant.entitlements ?? {}))),
-		].sort();
+		// The capability names a licence for this product might carry. Names only: which price
+		// carries which is the vendor's business, and an app never needs it.
+		const entitlementNames = await entitlementNamesForProduct(deps.db, product.id);
 		const brief = buildProductBrief({
 			product,
 			baseUrl: deps.config.publicUrl,

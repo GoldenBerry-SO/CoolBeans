@@ -212,6 +212,63 @@ describe('open() keeps itself fresh (#75)', () => {
 		expect(seen).toHaveLength(1);
 	});
 
+	it('reports an upgrade that changes only the capabilities', async () => {
+		// The docs promise a capability can move between tiers with no app release. That only holds
+		// if a running app hears about it: on a Basic-to-Pro upgrade the decision and the reason
+		// are both unchanged, so comparing those alone leaves 4k export switched off until the
+		// user happens to restart.
+		server.cfg.entitlements = { export_4k: false };
+		const seen: AccessState[] = [];
+		await cb.open(KEY, { jitter: 0, onChange: (s) => seen.push(s) });
+		server.cfg.entitlements = { export_4k: true };
+		await tick(REFRESH);
+		await until(() => seen.length === 1, 'the upgrade');
+		expect(seen[0]?.entitlements).toEqual({ export_4k: true });
+	});
+
+	it('does not report a tick that changed nothing, capabilities included', async () => {
+		server.cfg.entitlements = { export_4k: true, batch_limit: 100 };
+		const seen: AccessState[] = [];
+		await cb.open(KEY, { jitter: 0, onChange: (s) => seen.push(s) });
+		await tick(3 * REFRESH);
+		expect(seen).toHaveLength(0);
+	});
+
+	it('holds the seat again after the refresh takes a fresh one', async () => {
+		// A floating seat freed from the console makes the heartbeat answer null, which is also how
+		// a node-locked product answers — so the beat loop stops. The refresh then re-activates.
+		// Without reopening the lease question the new seat is never held either, so it lapses,
+		// gets re-activated, lapses again: the app looks fine while the seat churns forever.
+		server.cfg.leaseMs = 30 * MINUTE;
+		await cb.open(KEY, { jitter: 0 });
+		server.deactivateAll();
+
+		// The beat at ten minutes finds no seat and gives up.
+		await tick(10 * MINUTE);
+		const afterLapse = server.count('/v1/heartbeat');
+
+		// The refresh at twenty takes a fresh seat.
+		await tick(10 * MINUTE);
+		await until(() => server.count('/v1/activate') === 2, 're-activation');
+
+		// Which must start the beats again.
+		await tick(10 * MINUTE);
+		await until(() => server.count('/v1/heartbeat') > afterLapse, 'the seat being held again');
+	});
+
+	it('keeps the handler when a later open() does not pass one', async () => {
+		// An app registers onChange on launch and then calls open(key) again when the user pastes a
+		// key, often from another module that has no handler to hand. Dropping it there means
+		// revocations stop reaching a running app, silently. Swift keeps it; so does this.
+		const seen: AccessState[] = [];
+		await cb.open(KEY, { jitter: 0, onChange: (s) => seen.push(s) });
+		await cb.open(KEY, { jitter: 0 });
+		server.cfg.status = 'disabled';
+		await tick(REFRESH);
+		await until(() => seen.length === 1, 'the revocation');
+		expect(seen[0]).toMatchObject({ decision: 'deny', reason: 'revoked' });
+	});
+
 	it('stops cleanly, and stopping twice is harmless', async () => {
 		server.cfg.leaseMs = 30 * MINUTE;
 		await cb.open(KEY, { jitter: 0 });

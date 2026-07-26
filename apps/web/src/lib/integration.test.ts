@@ -134,6 +134,24 @@ describe('buildSnippets', () => {
 		expect(browser).not.toContain('storage:');
 	});
 
+	it('imports exactly what each snippet uses, so it compiles when pasted', () => {
+		// The storage adapter is shared between hosts, and a shared import list means the Electron
+		// snippet asked for homedir it never uses and never imported the `app` it calls. A snippet
+		// that does not compile is a snippet somebody deletes, storage and all.
+		const code = (target: 'node' | 'electron' | 'tauri') =>
+			buildSnippets(product(), BASE, KEYS).find((s) => s.target === target)?.code ?? '';
+
+		expect(code('node')).toContain("import { homedir } from 'node:os'");
+		expect(code('node')).toContain('homedir()');
+
+		expect(code('electron')).toContain("import { app } from 'electron'");
+		expect(code('electron')).not.toContain('homedir');
+
+		// Tauri's store is the plugin, so none of the node:fs imports belong there.
+		expect(code('tauri')).not.toContain('node:fs');
+		expect(code('tauri')).toContain('@tauri-apps/plugin-fs');
+	});
+
 	it('constructs with the product slug, since the console knows it', () => {
 		// Optional in the SDK, but a console that has the slug and omits it hands a multi-product
 		// vendor the one configuration where another product's key unlocks this app.

@@ -121,6 +121,62 @@ describe('a grant carries the capabilities a price buys', () => {
 		expect(grant.plan).toBe('Pro (annual)');
 	});
 
+	it('treats an empty map as no capabilities, not as a capability map', async () => {
+		// Absent and empty are different facts everywhere else, so they cannot differ here: an
+		// empty object would be signed into every token as `entitlements: {}`, and coalesce would
+		// let it wipe the capabilities a price already granted.
+		const map = (body: Record<string, unknown>) =>
+			h.app.request('/admin/products/clementine/grants', {
+				method: 'POST',
+				headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ stripe_price_id: PRICE_PRO, kind: 'perpetual', ...body }),
+			});
+		const created = await map({ entitlements: {} });
+		expect(
+			((await created.json()) as { grant: { entitlements: unknown } }).grant.entitlements,
+		).toBeNull();
+
+		await map({ entitlements: PRO });
+		const after = await map({ entitlements: {} });
+		expect(
+			((await after.json()) as { grant: { entitlements: unknown } }).grant.entitlements,
+		).toEqual(PRO);
+	});
+
+	it('refuses a name an app cannot read as a property', async () => {
+		// An app reads these as `state.entitlements?.export_4k`. A name with a dot or a space in it
+		// looks like a nested path and is not one, so the console refuses it — and the API has to
+		// agree, or the console is the only thing holding the contract.
+		for (const name of ['limits.batch', 'has space', '4k', '']) {
+			const res = await h.app.request('/admin/products/clementine/grants', {
+				method: 'POST',
+				headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					stripe_price_id: PRICE_PRO,
+					kind: 'perpetual',
+					entitlements: { [name]: true },
+				}),
+			});
+			expect(res.status, name).toBeGreaterThanOrEqual(400);
+		}
+	});
+
+	it('refuses a map big enough to bloat every token it signs', async () => {
+		// These are signed into every token the price issues, and the token lives in an app's
+		// storage and travels on every validate. An unbounded blob is not a capability map.
+		const huge = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`cap_${i}`, true]));
+		const res = await h.app.request('/admin/products/clementine/grants', {
+			method: 'POST',
+			headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				stripe_price_id: PRICE_PRO,
+				kind: 'perpetual',
+				entitlements: huge,
+			}),
+		});
+		expect(res.status).toBeGreaterThanOrEqual(400);
+	});
+
 	it('refuses anything but flat scalar values', async () => {
 		// Nested objects have no meaning to an app and would sign an unbounded blob into every
 		// token. A flat map of booleans, numbers and strings is the whole contract.
@@ -195,6 +251,17 @@ describe('the offline token carries them, signed', () => {
 		});
 		const payload = await tokenPayload(await buy('cs_pro', 'evt_pro'));
 		expect(payload.entitlements).toEqual(PRO);
+	});
+
+	it('omits the claim for an empty map too, not just a missing one', async () => {
+		// Belt and braces at the boundary that matters. A licence row carrying `{}` — set by hand,
+		// or by some future path — must not sign a claim that says "there is a capability map"
+		// when there is nothing in it.
+		await seedGrant(h.deps, { productId, priceId: PRICE_BASIC, kind: 'perpetual' });
+		const key = await buy('cs_basic', 'evt_plain');
+		await rawQuery('UPDATE licenses SET entitlements = $1', ['{}']);
+		const payload = await tokenPayload(key);
+		expect('entitlements' in payload).toBe(false);
 	});
 
 	it('omits the claim entirely when a licence has none', async () => {

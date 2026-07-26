@@ -294,6 +294,12 @@ export class CoolBeans {
 		}
 		this.storage.setItem(INSTANCE_KEY, data.instance.id);
 		this.rememberProduct(data.license.product);
+		// A new seat reopens the lease question. Without this, a floating seat that lapsed (the
+		// heartbeat answered null, so the loop stopped) is re-activated by the refresh and then
+		// never held again: it lapses once more and keeps doing so, so the app looks like it works
+		// while the seat churns. Here rather than in open()'s helper, because an app calling
+		// activate itself has taken a fresh seat just the same.
+		this.lease = 'unknown';
 		return { license: data.license, instance: data.instance };
 	}
 
@@ -319,10 +325,14 @@ export class CoolBeans {
 	 * `verify`, `verifyOffline` and `offlineState` remain for apps that want the pieces.
 	 */
 	async open(licenseKey?: string, opts: OpenOptions = {}): Promise<AccessState> {
-		// A second open() replaces the first rather than racing it.
+		// A second open() replaces the first rather than racing it. The handler survives one that
+		// does not pass a new one: an app registers it on launch and calls open() again from the
+		// key-entry path, which usually has no handler to hand, and dropping it there would stop
+		// revocations reaching a running app without a word. `stop()` is how you clear it.
+		const handler = opts.onChange ?? this.onChange;
 		this.stop();
 		this.stopped = false;
-		this.onChange = opts.onChange;
+		this.onChange = handler;
 		this.lease = 'unknown';
 		// The cached token carries its own licence key, so an app that has opened once need
 		// not store the key anywhere itself.
@@ -378,9 +388,7 @@ export class CoolBeans {
 			if (this.stopped) return;
 			const before = this.lastState;
 			this.lastState = state;
-			if (!before || before.decision !== state.decision || before.reason !== state.reason) {
-				this.onChange?.(state);
-			}
+			if (!before || CoolBeans.verdictChanged(before, state)) this.onChange?.(state);
 			// Only when we never got an answer about leases. Once the cadence is known the lease
 			// loop keeps itself going, and a node-locked product is done being asked.
 			if (this.lease === 'unknown' && !this.leaseTimer) await this.holdLease();
@@ -391,6 +399,22 @@ export class CoolBeans {
 		} finally {
 			this.refreshing = false;
 		}
+	}
+
+	/**
+	 * Whether an app would render anything differently.
+	 *
+	 * Capabilities count, not just the decision and reason: on a Basic-to-Pro upgrade both of
+	 * those stay the same and only `entitlements` moves, and a running app that never hears about
+	 * it leaves the feature the customer just paid for switched off until they restart.
+	 */
+	private static verdictChanged(before: AccessState, after: AccessState): boolean {
+		if (before.decision !== after.decision || before.reason !== after.reason) return true;
+		// Key order is the server's, and JSON.stringify preserves it, so sort before comparing or
+		// a reordered map reads as a change and fires on every tick.
+		const flatten = (state: AccessState): string =>
+			JSON.stringify(Object.entries(state.entitlements ?? {}).sort());
+		return flatten(before) !== flatten(after);
 	}
 
 	private scheduleRefresh(opts: OpenOptions): void {

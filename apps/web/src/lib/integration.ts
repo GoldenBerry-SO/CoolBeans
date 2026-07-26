@@ -176,15 +176,18 @@ function swiftKeysLiteral(publicKeys: Record<string, string>): string {
 /**
  * A durable storage adapter, spelled out rather than described.
  *
- * The SDK throws at construction without one outside a browser, so a snippet that only warns
- * about storage is a snippet that does not run. Getting this wrong is also the likeliest way to
- * hurt a real customer: a fresh device id per launch takes another activation every time.
+ * The SDK throws at construction without one outside a browser, so a snippet that only warns about
+ * storage is a snippet that does not run. Getting this wrong is also the likeliest way to hurt a
+ * real customer: a fresh device id per launch takes another activation every time.
+ *
+ * Imports are per host rather than shared, because a snippet that pulls in something it never uses
+ * and calls something it never imported is a snippet somebody deletes, storage and all.
  */
-const FILE_STORAGE = (path: string): string =>
+const FILE_STORAGE = (imports: string[], path: string): string =>
 	[
 		"import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'",
-		"import { dirname, join } from 'node:path'",
-		"import { homedir } from 'node:os'",
+		"import { dirname } from 'node:path'",
+		...imports,
 		'',
 		'// Survives restarts and updates, which is what keeps one activation to one machine.',
 		`const file = ${path}`,
@@ -331,7 +334,10 @@ export function buildSnippets(
 		tsSnippet(
 			'node',
 			'Node',
-			FILE_STORAGE("join(homedir(), '.config', '<your-app>', 'license.json')"),
+			FILE_STORAGE(
+				["import { join } from 'node:path'", "import { homedir } from 'node:os'"],
+				"join(homedir(), '.config', '<your-app>', 'license.json')",
+			),
 			product,
 			baseUrl,
 			publicKeys,
@@ -339,7 +345,13 @@ export function buildSnippets(
 		tsSnippet(
 			'electron',
 			'Electron (main)',
-			`// Licensing belongs in the main process, so the key never sits in web content.\n${FILE_STORAGE("join(app.getPath('userData'), 'license.json')")}`,
+			[
+				'// Licensing belongs in the main process, so the key never sits in web content.',
+				FILE_STORAGE(
+					["import { join } from 'node:path'", "import { app } from 'electron'"],
+					"join(app.getPath('userData'), 'license.json')",
+				),
+			].join('\n'),
 			product,
 			baseUrl,
 			publicKeys,

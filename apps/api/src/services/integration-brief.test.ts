@@ -147,6 +147,25 @@ describe('buildAgentGuide', () => {
 		expect(release.slice(0, release.indexOf('\n- '))).toMatch(/refresh|upkeep/i);
 	});
 
+	it('documents entitlements in the verdict it tells you to read them from', () => {
+		// The verdict block listed decision, reason, license and expiresAt, then a later section
+		// said to gate on state.entitlements. An integrator has to assume where that lives.
+		const verdict = guide.slice(guide.indexOf('The verdict:'));
+		const firstFence = verdict.indexOf('```');
+		expect(verdict.slice(firstFence, verdict.indexOf('```', firstFence + 3))).toContain(
+			'entitlements',
+		);
+	});
+
+	it('says how to tell a user their key was refused', () => {
+		// open() swallows the reason on purpose — an unknown key is inconclusive and must never
+		// revoke — but that left an integrator with no way to write "we could not verify that key",
+		// which is the most common thing a key form has to say. activate() is that path.
+		expect(guide).toMatch(/activate\(/);
+		const surface = guide.slice(guide.indexOf('## The whole surface'));
+		expect(surface).toMatch(/key-entry|why a key was refused|refused/i);
+	});
+
 	it('leaks no pricing or plumbing, in the guide or a brief (#78)', () => {
 		const brief = buildProductBrief({
 			product: product({ activationModel: 'floating' }),

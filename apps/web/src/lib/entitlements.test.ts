@@ -34,6 +34,13 @@ describe('parseEntitlements', () => {
 		expect(parseEntitlements('  \n ')).toEqual({ values: undefined });
 	});
 
+	it('refuses a name with no value after the equals', () => {
+		// `export_4k=` is a slip, and reading it as the empty string is the worst outcome: the value
+		// is falsy, so the capability is off, and the vendor sees it listed and assumes it is on.
+		expect(parseEntitlements('export_4k=').error).toBeTruthy();
+		expect(parseEntitlements('a=1, b=').error).toMatch(/b/);
+	});
+
 	it('refuses a nameless value', () => {
 		expect(parseEntitlements('=100').error).toMatch(/name/i);
 	});

@@ -94,6 +94,24 @@ export async function getConnectionByStripeAccount(
 }
 
 /** The active grants on a product, newest first, for the console and audit. */
+/**
+ * Every capability name a licence for this product might carry, deduped and sorted.
+ *
+ * Retired grants count: licences issued before a price was retired still carry its capabilities,
+ * and an app that stops checking one takes a feature away from somebody who paid for it. A name
+ * that is no longer sold costs nothing, since absent reads as off.
+ */
+export async function entitlementNamesForProduct(
+	db: Database,
+	productId: number,
+): Promise<string[]> {
+	const rows = await db
+		.select({ entitlements: licenseGrants.entitlements })
+		.from(licenseGrants)
+		.where(eq(licenseGrants.productId, productId));
+	return [...new Set(rows.flatMap((row) => Object.keys(row.entitlements ?? {})))].sort();
+}
+
 export async function listGrantsForProduct(
 	db: Database,
 	productId: number,

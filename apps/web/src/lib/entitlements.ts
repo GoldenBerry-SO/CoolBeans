@@ -38,16 +38,26 @@ export function parseEntitlements(input: string): ParsedEntitlements {
 			};
 		}
 		if (name in values) return { error: `"${name}" is listed twice.` };
-		values[name] = split === -1 ? true : readValue(entry.slice(split + 1).trim());
+		if (split === -1) {
+			values[name] = true;
+			continue;
+		}
+		const raw = entry.slice(split + 1).trim();
+		if (!raw) {
+			// The empty string is the worst reading of a slip: falsy, so the capability is off,
+			// while the vendor sees it listed and assumes it is on. Write the name alone for true.
+			return { error: `"${name}" has no value. Write "${name}" on its own to switch it on.` };
+		}
+		values[name] = readValue(raw);
 	}
 	return { values };
 }
 
+/** Never called with an empty string: the caller refuses those rather than guessing. */
 function readValue(raw: string): boolean | number | string {
 	if (raw === 'true') return true;
 	if (raw === 'false') return false;
-	// Number('') is 0, which would turn `seats=` into a real limit of zero.
-	if (raw.length > 0 && Number.isFinite(Number(raw))) return Number(raw);
+	if (Number.isFinite(Number(raw))) return Number(raw);
 	return raw;
 }
 

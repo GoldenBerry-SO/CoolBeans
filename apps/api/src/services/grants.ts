@@ -64,6 +64,18 @@ async function assertPriceModeForKind(
  * price): re-mapping a price just refreshes it (and un-retires it). A price already mapped to
  * another product is moved here, since a price resolves to exactly one product.
  */
+/**
+ * An empty map is not a capability map. Absent and empty mean different things everywhere else —
+ * a signed `entitlements: {}` claims there is one — so they cannot differ here either, and a
+ * caller sending `{}` means "no capabilities", not "clear what this price grants".
+ */
+function entitlementsOrNull(
+	entitlements: CreateGrantArgs['entitlements'],
+): Record<string, boolean | number | string> | null {
+	if (!entitlements || Object.keys(entitlements).length === 0) return null;
+	return entitlements;
+}
+
 export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise<LicenseGrant> {
 	// Same reserved-price guard connect uses: our own Pro price must never resolve to a product.
 	assertNotBillingPrice(deps, args.priceId);
@@ -88,7 +100,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			kind: args.kind,
 			plan: args.plan ?? null,
 			activationLimit: args.activationLimit ?? null,
-			entitlements: args.entitlements ?? null,
+			entitlements: entitlementsOrNull(args.entitlements),
 			status: 'active',
 		})
 		.onConflictDoUpdate({
@@ -102,7 +114,10 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 				// Clearing one is deliberate: retire the grant and map the price again.
 				plan: sql`coalesce(${args.plan ?? null}, ${licenseGrants.plan})`,
 				activationLimit: sql`coalesce(${args.activationLimit ?? null}, ${licenseGrants.activationLimit})`,
-				entitlements: sql`coalesce(${args.entitlements ? JSON.stringify(args.entitlements) : null}::jsonb, ${licenseGrants.entitlements})`,
+				entitlements: sql`coalesce(${(() => {
+					const value = entitlementsOrNull(args.entitlements);
+					return value ? JSON.stringify(value) : null;
+				})()}::jsonb, ${licenseGrants.entitlements})`,
 				status: 'active',
 				retiredAt: null,
 			},

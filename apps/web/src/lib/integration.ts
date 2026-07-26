@@ -180,8 +180,8 @@ const TS_OPEN = [
 	'\tshowPlan(state.license)',
 	'}',
 	'',
-	'// On shutdown, so nothing is left running:',
-	'// cb.stop()',
+	'// On sign-out, to give the seat back: await cb.release()',
+	'// On shutdown, so nothing is left running: cb.stop()',
 ].join('\n');
 
 function tsSnippet(

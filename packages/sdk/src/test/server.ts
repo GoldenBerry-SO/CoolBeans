@@ -126,6 +126,10 @@ export async function fakeServer() {
 					: null;
 			return json(200, { ok: true, lease_expires_at: lease });
 		}
+		if (path === '/v1/deactivate') {
+			seats.delete(body.instance_id as string);
+			return json(200, { ok: true });
+		}
 		if (path === '/v1/keyset') {
 			return json(200, { ok: true, algorithm: 'ed25519', keys: publicKeys });
 		}

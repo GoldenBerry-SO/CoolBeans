@@ -58,6 +58,39 @@ describe('buildAgentGuide', () => {
 		expect(guide).not.toContain('heartbeatMs');
 	});
 
+	it('teaches one path and none of the ceremony that path removed (#78)', () => {
+		// An agent reading this wires up a real customer's app. Every extra way to do it is a
+		// way to get it wrong, and each of these was a real lockout: choosing verifyOffline over
+		// verify, keeping an instance id, picking a heartbeat interval.
+		expect(guide).not.toMatch(/verifyOffline|offlineState/);
+		expect(guide).not.toMatch(/instanceId|instance_id: *<|\{ instanceId \}/);
+		expect(guide).not.toMatch(/heartbeat\(|heartbeatMs|every \d+ minutes/);
+		// One deny check is the whole app-side decision.
+		expect(guide).toContain("state.decision === 'deny'");
+	});
+
+	it('says seats and capabilities are read off the licence, never assumed (#78)', () => {
+		// A grant can sell three seats or ten from one product, so a hard-coded number in an app
+		// is wrong the day a vendor adds a tier.
+		expect(guide).toMatch(/read .*off the licence|never assume|from the licence/i);
+	});
+
+	it('leaks no pricing or plumbing, in the guide or a brief (#78)', () => {
+		const brief = buildProductBrief({
+			product: product({ activationModel: 'floating' }),
+			baseUrl: BASE,
+			publicKeys: KEYS,
+			guideUrl: GUIDE,
+		});
+		for (const text of [guide, brief]) {
+			// Price ids, grant ids, connection ids and Stripe account ids are ours and the
+			// vendor's business. An app never needs one, so it never sees one.
+			expect(text).not.toMatch(/price_[A-Za-z0-9]/);
+			expect(text).not.toMatch(/acct_[A-Za-z0-9]/);
+			expect(text).not.toMatch(/grant[_ ]id|stripe_connection|connection[_ ]id/i);
+		}
+	});
+
 	it('points feature gating at signed entitlements, never at plan or kind (#76)', () => {
 		expect(guide).toContain('entitlements');
 		const gating = guide.slice(guide.indexOf('entitlements'));

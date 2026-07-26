@@ -67,8 +67,10 @@ licensed, and lightweight.
 
 - Merchant-of-record / tax handling (that stays with Stripe/PayPal). This is about our customers'
   sales of their own software; our own subscription billing is §7.
-- Licensing models beyond the four above (no feature-flag entitlement graphs, no per-API-key rate
-  plans as a product).
+- Licensing models beyond the four above: no per-API-key rate plans as a product, and no entitlement
+  *graphs* — no inheritance, no rules, no computed features. A **flat map of signed scalars** on a grant
+  does ship, because "which capabilities did this price buy" is the same kind of fact as "how many seats
+  did it buy", and the alternative was apps branching on a plan label.
 - Payment providers beyond Stripe and PayPal in v1 (the issuance core is provider-pluggable so a
   third is an adapter, not a rewrite).
 
@@ -241,6 +243,16 @@ Request: `{ "license_key": "CLEM-…", "instance_id": "<uuid>" }`
 
 The `token` is the signed offline credential (§11).
 
+### `POST /v1/keyset`
+
+Request: `{ "license_key": "CLEM-…" }` -> `200 { "ok": true, "algorithm": "ed25519", "keys": { "<kid>": "<base64>" } }`
+
+The signing keys for whatever product that licence belongs to, so an app can verify a token offline
+without being told a product slug — it holds a key, not a slug. POST rather than GET because the key is
+the credential and a URL lands in access logs and browser history; the keys it returns are public. An
+unknown key is refused exactly as everywhere else, without confirming whether some product exists behind
+it. `GET /v1/pubkey?product=<slug>` remains for integrations that have a slug and no key.
+
 ### `POST /v1/deactivate`
 
 Request: `{ "license_key": "CLEM-…", "instance_id": "<uuid>" }`
@@ -311,7 +323,8 @@ licensing must be a five-minute, few-line job, and the app must keep working off
 ### Offline tokens
 
 On a successful `validate`, Cool Beans returns a compact **Ed25519-signed token** (a JWT-style
-structure) carrying `{ key, status, kind, plan, product, expires_at, instance_id, iat, exp }` with a short
+structure) carrying `{ key, status, kind, plan, product, expires_at, entitlements?, instance_id, iat, exp }`
+with a short
 TTL (default 7 days). The SDK caches it and can verify it **with no network** against a public key
 bundled in the app. Behaviour:
 
@@ -374,31 +387,56 @@ That is inherent to licensing something we cannot reach, not a defect, and the T
 Runs in the Electron main process, Tauri, plain Node, and the browser (WebCrypto). No service secret in
 the client.
 
+One call on launch, and one verdict the app acts on. Everything the app used to decide — activate or
+validate, online or cached, what an inconclusive answer means — the SDK decides, because each of those
+was a way to lock out a paying customer.
+
 ```ts
 import { CoolBeans } from '@coolbeans/sdk'
 
-const cb = new CoolBeans({ product: 'clementine' }) // no secret — the key is the credential
+const cb = new CoolBeans({ publicKeys: { '1': '<base64>' } }) // no secret — the key is the credential
 
-// Activate on this device (e.g. Electron main / Tauri)
-const { instance } = await cb.activate(licenseKey, { name: cb.fingerprint() })
+// On launch, and again whenever the user pastes a key. The key is optional after the first call.
+const state = await cb.open(licenseKey, {
+  onChange: (next) => { if (next.decision === 'deny') lock(next) },
+})
+if (state.decision === 'deny') lock(state)
+else unlockApp()
 
-// Verify — returns a cached, offline-verifiable signed token
-const res = await cb.verify(licenseKey, { instanceId: instance.id })
-if (res.valid) unlockApp()          // online path
-if (cb.verifyOffline()) unlockApp() // no-network path: local signature check
-
-// Free a seat
-await cb.deactivate(licenseKey, { instanceId: instance.id })
+await cb.release() // sign out: give the seat back
+cb.stop()          // shutdown: end the background refresh
 ```
 
-- `cb.fingerprint()` — a stable device-name/id helper.
-- `cb.verifyOffline()` — local Ed25519 check of the cached token; returns valid/grace/expired.
-- Framework quickstarts shipped in docs: **Electron**, **Tauri**, **plain Node/CLI**, **browser**.
+The verdict is a discriminated union, never a boolean:
+
+```ts
+{ decision: 'allow', reason: 'online' | 'cached' | 'grace' | 'clock_rollback',
+  license, expiresAt, entitlements? }
+{ decision: 'deny',  reason: 'revoked' | 'expired' | 'uninitialized', license }
+```
+
+"We have never established an entitlement" (`uninitialized`) must not share a name with "you were
+revoked": one screen asks for a key, the other says the licence is gone.
+
+- Apps branch on `decision` and nothing else. `license` is display only. Features are gated on signed
+  `entitlements`, never on `plan` or `kind`.
+- `open()` refreshes on its own at a third of the token's lifetime, jittered, and holds a floating seat
+  on the cadence the server's own lease implies. No app-side interval, ever: an app choosing that is an
+  app choosing whether its own users get locked out.
+- Expiry is judged against a persisted wall-clock floor, so winding the clock back cannot extend a
+  licence; a successful validation resets it.
+- Seat counts and capabilities are read off the licence, never assumed from the product.
+- `product` is optional. Signing keys are fetched by licence key (`POST /v1/keyset`), so an app needs no
+  slug; supplying one adds a belt-and-braces claim check.
+- Lower-level `activate`/`verify`/`verifyOffline`/`offlineState`/`heartbeat`/`deactivate` remain, and are
+  not the documented path.
+- Framework quickstarts ship in `examples/`: **Electron**, **Tauri**, **plain Node/CLI**, **browser**.
 - **Migrating from Lemon Squeezy:** point the SDK/base URL at Cool Beans; the request/response shapes in
   §9 match, so client changes are minimal.
 
-Native SDK stubs (Swift / C# / C++) are a fast-follow, mirroring the same activate/verify/deactivate
-surface for non-JS desktop apps.
+The Swift SDK (`coolbeans-swift`) has the same call, the same decisions and the same reason names.
+`contract/access-states.json` is the shared fixture set both run, so the two cannot drift on which
+states deny and which keep access. C# / C++ stubs are a fast-follow against the same contract.
 
 ---
 
@@ -425,11 +463,19 @@ the amount, currency, interval, or product name.
 
 ### License grants
 
-A **license grant** maps one Stripe price to one product: `{ stripe_price_id, kind, plan? }`, unique
-per (connection, price). A one-time price grants a `perpetual` licence (no expiry); a recurring price
-of any cadence grants a `subscription` licence whose `expires_at` tracks the Stripe period end. The
-`plan` label (e.g. "Pro monthly") is snapshotted onto every licence the grant issues and is display
-only, never an authorization input. Grants are managed through the admin API (§16); they are retired,
+A **license grant** maps one Stripe price to one product:
+`{ stripe_price_id, kind, plan?, activation_limit?, entitlements? }`, unique per (connection, price). A
+one-time price grants a `perpetual` licence (no expiry); a recurring price of any cadence grants a
+`subscription` licence whose `expires_at` tracks the Stripe period end. The `plan` label (e.g. "Pro
+monthly") is snapshotted onto every licence the grant issues and is display only, never an authorization
+input.
+
+`activation_limit` is how many seats the price buys (null inherits the product's), and `entitlements` is
+a flat map of signed scalars saying which capabilities it buys, e.g. `{ export_4k: true, batch_limit: 100 }`.
+Both are snapshotted onto the licence at issuance, so re-pricing a grant never changes what somebody
+already bought, and both are read off the licence by the app rather than assumed from the product — which
+is what lets one product sell Basic and Pro. Entitlements are signed into the offline token, and are the
+only thing an app may gate a feature on. Grants are managed through the admin API (§16); they are retired,
 never deleted, so an issued licence always resolves back to the rule that made it.
 
 ### Stripe connections
@@ -787,7 +833,8 @@ instead).
 - **Commoditization** (a 2026 wave of entrants). Tie-breaker is DX, docs, and the clean drop-in path —
   not feature count.
 - **Scope creep.** Metering/floating/PayPal/portal/dashboard are in v1 to match keygate; keep each
-  minimal and resist entitlement-graph/feature-flag territory (a non-goal).
+  minimal and resist entitlement-*graph* territory (a non-goal). A flat signed capability map on a
+  grant is in; inheritance, rules and computed features are not.
 - **Open questions:** Do we ship native SDK stubs (Swift/C#/C++) in v1 or fast-follow? Is Cloud Free
   one product or two? A one-time (own-it) cloud price is intentionally omitted (self-host is the "own
   it" option) — confirm.

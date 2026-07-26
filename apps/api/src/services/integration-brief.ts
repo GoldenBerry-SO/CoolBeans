@@ -140,21 +140,24 @@ Two differences from TypeScript, both because this SDK has no run loop of its ow
 - For a **floating** product, call \`await cb.holdSeat()\` on a timer at roughly a third of the
   lease window it hands back, or the seat lapses while the app is still running.
 
+Sign-out is \`await cb.release()\`, same as TypeScript.
+
 \`LicenseGate\` wraps all of this for SwiftUI if you would rather observe a status than a verdict.
 
-## The rest of the TypeScript surface
+## The whole surface
 
-You need \`open()\` and \`stop()\`. These are here for the cases they do not cover:
+Four calls, and you will use two of them:
 
-- \`deactivate(licenseKey, { instanceId })\` -> frees this device's seat so another machine can
-  take it. Call it on sign-out. \`cb.instanceId()\` gives you the id.
-- \`activate(licenseKey, { name })\` -> \`{ license, instance }\`. Use it on a key-entry screen when
-  you want the reason a bad key was refused; \`open()\` deliberately swallows that, because an
-  unknown key must never read as a revocation.
-- \`verify\`, \`verifyOffline\`, \`offlineState\` -> the pieces \`open()\` is built from. Reach for
-  them only if you are doing something \`open()\` cannot, and re-read the one rule above first.
-- \`importActivation(blob)\` -> unlock a machine that will never reach the network, from a
-  vendor-issued signed blob. No request is made.
+- \`open(licenseKey?)\` -> the verdict above. On launch, and again when a key is pasted. The key
+  is optional after the first call: it is stored for you.
+- \`release()\` -> frees this device's seat and forgets the licence. On sign-out. Returns false if
+  it could not reach us, so you know the seat is still taken.
+- \`stop()\` -> ends the background refresh. On app shutdown.
+- \`importActivation(blob)\` -> unlocks a machine that will never reach the network, from a
+  vendor-issued signed blob. Only if the vendor offers that.
+
+There are lower-level calls in the SDK. You do not need them, and every lockout bug we have
+seen came from wiring them together by hand. Use \`open()\`.
 
 ## Public HTTP endpoints (if you are not using an SDK)
 
@@ -180,15 +183,21 @@ key with \`POST /v1/keyset { license_key }\`, or by slug with \`GET /v1/pubkey?p
 Embed them, or let the SDK fetch and cache them. A token past its \`expires_at\` is definitive,
 so subscriptions get a small server-side grace buffer before the raw expiry; trials do not.
 
-## Seat models
+## Seat models, and why you do not care
 
-- **Per device (node-locked):** each seat binds to one machine until it is deactivated.
-- **Concurrent (floating):** seats are a shared pool. A running machine holds one and releases
-  it when it stops.
+- **Per device (node-locked):** each seat binds to one machine until it is released.
+- **Concurrent (floating):** seats are a shared pool. A running machine holds one and gives it
+  back when it stops.
 
-**A TypeScript app does nothing differently for either.** The SDK asks the server, hears a
-lease window back, and holds the seat itself on its own cadence. Picking an interval in your
-app is you deciding whether your own users get locked out, which is the wrong place for it.
+**A TypeScript app does nothing differently for either.** The SDK asks, hears a lease window
+back, and holds the seat itself. Picking an interval in your app is you deciding whether your
+own users get locked out, which is the wrong place for it. Seats are enforced on the server;
+your app never counts them.
+
+How many seats a licence gets, and which capabilities it carries, are **read off the licence,
+never assumed from the product**. One product can sell three seats or ten, and a capability can
+move between tiers, without your app changing. So: no hard-coded seat count, and no feature
+list that is not \`state.entitlements\`.
 
 ## Common patterns
 
@@ -196,9 +205,8 @@ app is you deciding whether your own users get locked out, which is the wrong pl
    \`if (state.decision === 'deny') lock(state)\`.
 2. **Show what they bought:** read \`state.license.plan\` and \`state.license.expires_at\`. Display
    only.
-3. **Gate a feature:** use \`decision\`. Every inconclusive answer already resolves to \`allow\`,
-   so there is nothing extra to get right.
-4. **Deactivate:** \`await cb.deactivate(key, { instanceId: cb.instanceId() })\` on sign-out.
+3. **Gate a feature:** \`state.entitlements?.<name>\`. Never \`plan\`, never \`kind\`.
+4. **Sign out:** \`await cb.release()\`.
 `;
 }
 

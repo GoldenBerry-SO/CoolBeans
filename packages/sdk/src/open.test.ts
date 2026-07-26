@@ -202,6 +202,49 @@ describe('open() and signed entitlements (#76)', () => {
 	});
 });
 
+describe('release() (#78)', () => {
+	it('frees the seat with nothing to hand it', async () => {
+		// The last place an app had to keep an instance id was signing out. Now it does not:
+		// open() stored the key and the id, so this needs neither.
+		await cb.open(KEY);
+		server.calls.length = 0;
+		expect(await cb.release()).toBe(true);
+		expect(server.calls).toContain('/v1/deactivate');
+	});
+
+	it('forgets the seat locally, so the next open activates fresh', async () => {
+		await cb.open(KEY);
+		await cb.release();
+		expect(cb.instanceId()).toBeNull();
+		// Nothing cached should still be unlocking the app after a sign-out.
+		expect(await cb.verifyOffline()).toBe(false);
+		server.calls.length = 0;
+		expect(await cb.open(KEY)).toMatchObject({ decision: 'allow' });
+		expect(server.calls).toContain('/v1/activate');
+	});
+
+	it('says so rather than throwing when there is nothing to release', async () => {
+		expect(await cb.release()).toBe(false);
+	});
+
+	it('keeps the seat when the server could not be reached', async () => {
+		// Reporting a freed seat that was never freed makes the app stop retrying, and the seat
+		// stays taken until the lease lapses — or forever, on a node-locked product.
+		await cb.open(KEY);
+		server.cfg.offline = true;
+		expect(await cb.release()).toBe(false);
+		expect(cb.instanceId()).toBeTruthy();
+	});
+
+	it('stops the background upkeep, so nothing keeps checking a released seat', async () => {
+		await cb.open(KEY, { jitter: 0 });
+		await cb.release();
+		server.calls.length = 0;
+		vi.advanceTimersByTime(60 * 60_000);
+		expect(server.calls).toHaveLength(0);
+	});
+});
+
 describe('open() and a lying clock', () => {
 	it('cannot be given more licence by moving the clock back', async () => {
 		server.cfg.expiresAt = inDays(3);

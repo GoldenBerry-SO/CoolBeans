@@ -16,6 +16,9 @@ const state = await cb.open(licenseKey, {
 });
 if (state.decision === 'deny') lockOut(state);
 
+// On sign-out, to give the seat back
+await cb.release();
+
 // On shutdown
 cb.stop();
 ```
@@ -87,6 +90,10 @@ into your app.
 
 **Do not reach for `verify` / `verifyOffline` first.** They still work, and `open()` is built from
 them, but every lockout bug we have seen came from an app wiring those two together itself.
+
+**Do not hard-code a seat count or a feature list.** How many seats a licence gets and which
+capabilities it carries are read off the licence, never assumed from the product: one product can
+sell three seats or ten, and a capability can move between tiers, with no app release.
 
 ## Offline behaviour
 

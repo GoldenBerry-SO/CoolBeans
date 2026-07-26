@@ -52,8 +52,14 @@ Confirm the §9 example is just illustrative; if 12 chars is intended, it's a on
 |---|---|---|
 | Ed25519 signed tokens, per-product keys, encrypted at rest | ✅ | `domain/crypto.ts` (AES-GCM/HKDF), `services/signing.ts` |
 | Configurable TTL, rotation (multiple active public keys) | ✅ | `config.tokenTtlDays`, `rotateKey`; `token.test.ts` rotation |
-| SDK activate/verify/verifyOffline/deactivate + fingerprint | ✅ | `packages/sdk`; `sdk/index.test.ts` |
-| Offline-tolerant: network error never locks; only `disabled` revokes | ✅ | SDK `verify` returns `offline:true`; `verifyOffline` grace state; e2e |
+| One-call `open()` -> `AccessState`, `release()`, `stop()` | ✅ | `packages/sdk`; `sdk/open.test.ts` |
+| Shared access-state contract, verified by both SDKs | ✅ | `contract/access-states.json`; `sdk/contract.test.ts`, Swift `ContractTests` |
+| Self-managing refresh + floating lease held by the SDK | ✅ | `sdk/scheduler.test.ts` |
+| Signed entitlements: grant -> licence -> token -> `state.entitlements` | ✅ | `api/services/entitlements.test.ts`; `sdk/open.test.ts` |
+| Signing keys by licence key, so an app needs no slug | ✅ | `POST /v1/keyset`; `routes/v1/keyset.test.ts` |
+| Clock-rollback floor: winding the clock back cannot extend a licence | ✅ | `sdk/open.test.ts`; Swift `TrustedTimeTests` |
+| Legacy surface (activate/verify/verifyOffline/deactivate + fingerprint) | ✅ | `packages/sdk`; `sdk/index.test.ts` |
+| Offline-tolerant: network error never locks; only `disabled` revokes | ✅ | `open()` keeps the last good state on every inconclusive answer; `sdk/open.test.ts`, `contract.test.ts` |
 | WebCrypto verification (browser + Node) | ✅ | `sdk/token.ts`; e2e verifies a real server-signed token offline |
 
 ## §12 Usage metering
@@ -161,7 +167,7 @@ four journeys with hard assertions. No containers, no mail service, nothing to i
    key, the download link and the product's own from-address; a forged signature is
    rejected; a redelivery produces neither a second key nor a second email; the success
    page reads the same purchase; three machines activate and the fourth is refused; the
-   real published SDK verifies online and then offline.
+   real published SDK's `open()` returns `allow/online`, then `allow/cached` with no network.
 2. **Refund.** A partial refund leaves the licence alone; a full refund disables it with
    `reason=refund`, the running app sees a definitive (never inconclusive) signal, its
    cached offline token stops working, and a fresh activation is refused.

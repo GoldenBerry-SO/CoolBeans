@@ -1,7 +1,21 @@
 # Cool Beans quickstarts
 
-Four ways to wire a product to Cool Beans, per PRD §11. Each is a single file you can
-copy. The only thing that changes between them is **where the device identity lives**,
+Four ways to wire a product to Cool Beans, per PRD §11. Each is a single file you can copy.
+
+The licensing is the same three lines everywhere:
+
+```ts
+const state = await cb.open(licenseKey);   // on launch, and when a key is pasted
+if (state.decision === 'deny') lock(state);
+await cb.release();                        // on sign-out
+```
+
+`open()` activates on first run, refreshes when it can, falls back to the cached signed token when it
+cannot, and holds a floating seat itself. Every inconclusive answer keeps the app unlocked; only a
+fetched `disabled` or a signed expiry denies. Gate features on `state.entitlements`, never on
+`state.license.plan`.
+
+So the only thing that actually changes between these files is **where the device identity lives**,
 because that is what decides whether a restart burns another seat.
 
 | Host | Storage to pass | Why |

@@ -27,22 +27,34 @@ function fileStorage(path: string) {
 }
 
 const beans = new CoolBeans({
-	product: 'clementine',
 	baseUrl: 'https://keys.clementine.email',
 	storage: fileStorage(join(homedir(), '.config', 'clementine', 'license.json')),
 });
 
-export async function activate(licenseKey: string): Promise<void> {
-	await beans.activate(licenseKey, { name: `${process.platform} CLI` });
+/**
+ * Run on every invocation. One call: it activates the first time, refreshes when it can, and
+ * falls back to the cached signed token when it cannot. The key is optional after the first
+ * run — it is stored with the token.
+ *
+ * The background refresh timers are unref'd, so a CLI that prints and exits still exits.
+ */
+export async function unlock(licenseKey?: string): Promise<boolean> {
+	const state = await beans.open(licenseKey);
+	if (state.decision === 'deny') {
+		// Only three reasons ever reach here, and they are different sentences to a user.
+		if (state.reason === 'uninitialized') console.error('Enter your licence key to continue.');
+		if (state.reason === 'expired') console.error('That licence has ended.');
+		if (state.reason === 'revoked') console.error('That licence was revoked.');
+		return false;
+	}
+	// Read off the licence, never assumed from the product.
+	if (state.entitlements?.batch_limit) {
+		console.error(`Batch limit: ${state.entitlements.batch_limit}`);
+	}
+	return true;
 }
 
-export async function unlock(licenseKey: string): Promise<boolean> {
-	if (await beans.verifyOffline()) return true;
-
-	const instanceId = beans.instanceId();
-	if (!instanceId) return false;
-
-	const result = await beans.verify(licenseKey, { instanceId });
-	// Network trouble is inconclusive, never a lockout (§8).
-	return result.inconclusive ? true : result.valid;
+/** Give the seat back, so another machine can take it. */
+export async function signOut(): Promise<boolean> {
+	return await beans.release();
 }

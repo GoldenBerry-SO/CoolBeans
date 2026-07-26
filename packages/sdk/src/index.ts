@@ -223,7 +223,9 @@ export class CoolBeans {
 
 	/** The instance id from the last successful activate on this device, if any. */
 	instanceId(): string | null {
-		return this.storage.getItem(INSTANCE_KEY);
+		// Empty means released: storage that cannot delete a key is written blank instead, and
+		// an empty string is not an id.
+		return this.storage.getItem(INSTANCE_KEY) || null;
 	}
 
 	/** Activate this device. Fails closed if the returned product does not match. */
@@ -761,6 +763,34 @@ export class CoolBeans {
 			}
 		}
 		return DEFAULT_INTERVAL_MS;
+	}
+
+	/**
+	 * Free this device's seat and forget the licence locally. Call it on sign-out.
+	 *
+	 * Needs nothing handed to it: `open()` already stored the key and the instance id. Returns
+	 * false when there was nothing to release, or when we could not reach the server — telling
+	 * a caller the seat is free when it is not makes them stop retrying, and the seat stays
+	 * taken until the lease lapses, or forever on a node-locked product.
+	 */
+	async release(): Promise<boolean> {
+		const key = this.openKey ?? this.cachedTokenKey();
+		const instanceId = this.instanceId();
+		if (!key || !instanceId) return false;
+		try {
+			await this.deactivate(key, { instanceId });
+		} catch {
+			return false;
+		}
+		// Nothing cached should still be unlocking the app after a sign-out, and the upkeep
+		// loop must not keep checking a seat we gave back.
+		this.stop();
+		this.storage.setItem(TOKEN_KEY, '');
+		this.storage.setItem(INSTANCE_KEY, '');
+		this.storage.setItem(REVOKED_KEY, '');
+		this.openKey = undefined;
+		this.lastState = undefined;
+		return true;
 	}
 
 	/** Free a seat. Idempotent server-side. */

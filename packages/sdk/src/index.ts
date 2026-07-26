@@ -220,6 +220,8 @@ export class CoolBeans {
 	private leaseTimer: ReturnType<typeof setTimeout> | undefined;
 	private stopped = true;
 	private refreshing = false;
+	/** Bumped by every `open()` and by `stop()`, so a superseded call knows to keep its hands off. */
+	private generation = 0;
 	private openKey: string | undefined;
 	private deviceName: string | undefined;
 	private lastState: AccessState | undefined;
@@ -338,11 +340,20 @@ export class CoolBeans {
 		// not store the key anywhere itself.
 		this.openKey = licenseKey ?? this.cachedTokenKey();
 		this.deviceName = opts.deviceName;
+		// Whose call this is. A second open() cannot cancel one that is parked on an await — the
+		// launch check still running while the user pastes a key — so the older one has to notice
+		// it was superseded rather than overwrite shared state and schedule a second refresh loop
+		// on top of the live one. It still returns its own answer to its own caller.
+		const generation = ++this.generation;
 		const state = await this.evaluate();
+		if (generation !== this.generation) return state;
 		this.lastState = state;
 		// Take the floating seat before saying yes, so an allow means the seat is actually
 		// held. One probe is also how we learn whether this product has leases at all.
-		if (state.decision === 'allow') await this.holdLease();
+		if (state.decision === 'allow') {
+			await this.holdLease();
+			if (generation !== this.generation) return state;
+		}
 		this.scheduleRefresh(opts);
 		return state;
 	}
@@ -354,6 +365,9 @@ export class CoolBeans {
 	 */
 	stop(): void {
 		this.stopped = true;
+		// Any open() still in flight is now superseded too, so it cannot schedule upkeep after
+		// this and leave a loop running past a shutdown.
+		this.generation += 1;
 		if (this.refreshTimer) clearTimeout(this.refreshTimer);
 		if (this.leaseTimer) clearTimeout(this.leaseTimer);
 		this.refreshTimer = undefined;

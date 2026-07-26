@@ -269,6 +269,44 @@ describe('open() keeps itself fresh (#75)', () => {
 		expect(seen[0]).toMatchObject({ decision: 'deny', reason: 'revoked' });
 	});
 
+	it('leaves one refresh loop when a key is pasted mid-launch', async () => {
+		// An ordinary Electron flow: launch validation is still in flight when the user submits a
+		// key, so two open() calls overlap. The second cannot cancel the first — it is parked on an
+		// await — so when the first resumed it used to install a second refresh timer on top of the
+		// live one and both ran forever: twice the requests, and the older one publishing a stale
+		// verdict.
+		//
+		// The two calls get different cadences on purpose. Counting refreshes at one tick cannot
+		// see the leak, because the in-flight guard makes the second loop skip that tick and
+		// reschedule quietly. Asking whether the superseded call's cadence is still in effect can.
+		let release = () => {};
+		const parked = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let validates = 0;
+		const slowFirstCheck = (async (url: string | URL | Request, init?: RequestInit) => {
+			if (new URL(String(url)).pathname === '/v1/validate' && ++validates === 1) await parked;
+			return server.doFetch(url, init);
+		}) as typeof fetch;
+
+		const client = new CoolBeans({ storage: memStorage(), fetch: slowFirstCheck });
+		const launch = client.open(KEY, { jitter: 0, intervalMs: MINUTE });
+		await settle();
+		await client.open(KEY, { jitter: 0, intervalMs: 10 * MINUTE });
+		release();
+		await launch;
+		await settle();
+
+		const settled = server.count('/v1/validate');
+		// The superseded call asked for a check every minute. It must not get one.
+		await tick(MINUTE);
+		expect(server.count('/v1/validate')).toBe(settled);
+		// The live call's own cadence still works.
+		await tick(9 * MINUTE);
+		await until(() => server.count('/v1/validate') > settled, 'the surviving loop');
+		client.stop();
+	});
+
 	it('stops cleanly, and stopping twice is harmless', async () => {
 		server.cfg.leaseMs = 30 * MINUTE;
 		await cb.open(KEY, { jitter: 0 });

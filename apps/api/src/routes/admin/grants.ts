@@ -22,7 +22,8 @@ const grantBody = z.object({
 	activation_limit: z.number().int().positive().optional(),
 	/**
 	 * Capabilities this price buys, e.g. { "export_4k": true, "batch_limit": 100 }. Omit to keep
-	 * whatever the price already grants; an empty object means none.
+	 * whatever the price already grants; send {} to clear them, which is the only way to take a
+	 * capability off a price without retiring the mapping. Licences already issued keep theirs.
 	 *
 	 * Flat scalars only, names an app can read as a property, and a bounded number of them. Every
 	 * one of these is signed into every token the price issues, and that token lives in an app's
@@ -60,7 +61,8 @@ export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): voi
 			kind: body.kind,
 			plan: body.plan ?? null,
 			activationLimit: body.activation_limit ?? null,
-			entitlements: body.entitlements ?? null,
+			// Passed through as-is: undefined keeps what the price grants, {} clears it.
+			entitlements: body.entitlements,
 			actor: auditActor(c),
 		});
 		return c.json({ ok: true, grant });

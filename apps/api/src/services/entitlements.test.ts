@@ -121,26 +121,61 @@ describe('a grant carries the capabilities a price buys', () => {
 		expect(grant.plan).toBe('Pro (annual)');
 	});
 
-	it('treats an empty map as no capabilities, not as a capability map', async () => {
-		// Absent and empty are different facts everywhere else, so they cannot differ here: an
-		// empty object would be signed into every token as `entitlements: {}`, and coalesce would
-		// let it wipe the capabilities a price already granted.
-		const map = (body: Record<string, unknown>) =>
-			h.app.request('/admin/products/clementine/grants', {
-				method: 'POST',
-				headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
-				body: JSON.stringify({ stripe_price_id: PRICE_PRO, kind: 'perpetual', ...body }),
-			});
-		const created = await map({ entitlements: {} });
-		expect(
-			((await created.json()) as { grant: { entitlements: unknown } }).grant.entitlements,
-		).toBeNull();
+	it('stores nothing for an empty map on a new mapping', async () => {
+		const res = await h.app.request('/admin/products/clementine/grants', {
+			method: 'POST',
+			headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				stripe_price_id: PRICE_PRO,
+				kind: 'perpetual',
+				entitlements: {},
+			}),
+		});
+		const { grant } = (await res.json()) as { grant: { entitlements: unknown } };
+		// Absent and empty are the same fact here: this price grants no capabilities.
+		expect(grant.entitlements).toBeNull();
+	});
 
-		await map({ entitlements: PRO });
-		const after = await map({ entitlements: {} });
-		expect(
-			((await after.json()) as { grant: { entitlements: unknown } }).grant.entitlements,
-		).toEqual(PRO);
+	const remap = (body: Record<string, unknown>) =>
+		h.app.request('/admin/products/clementine/grants', {
+			method: 'POST',
+			headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ stripe_price_id: PRICE_PRO, kind: 'perpetual', ...body }),
+		});
+
+	it('keeps what the price already grants when they are omitted', async () => {
+		await remap({ entitlements: PRO });
+		// Re-mapping to fix a label must not quietly strip the capabilities customers pay for.
+		const res = await remap({ plan: 'Pro (annual)' });
+		const { grant } = (await res.json()) as { grant: { entitlements: unknown; plan: string } };
+		expect(grant.entitlements).toEqual(PRO);
+		expect(grant.plan).toBe('Pro (annual)');
+	});
+
+	it('clears them when an empty map is sent deliberately', async () => {
+		// Omitted means keep, and an empty map is the only way to say "this price grants none any
+		// more". Without it an operator has to retire and remap to take a capability off a price,
+		// and the route promising `{}` means none would be a promise nothing kept.
+		await remap({ entitlements: PRO });
+		const res = await remap({ entitlements: {} });
+		const { grant } = (await res.json()) as { grant: { entitlements: unknown } };
+		expect(grant.entitlements).toBeNull();
+	});
+
+	it('leaves licences already issued alone when a price stops granting them', async () => {
+		// The snapshot is the whole point: taking a capability off a price is about what it sells
+		// next, never about what somebody already bought.
+		await seedGrant(h.deps, {
+			productId,
+			priceId: PRICE_PRO,
+			kind: 'perpetual',
+			entitlements: PRO,
+		});
+		const key = await buy('cs_pro', 'evt_pro');
+		await rawQuery('UPDATE license_grants SET entitlements = NULL WHERE stripe_price_id = $1', [
+			PRICE_PRO,
+		]);
+		expect((await licenceRow(key)).entitlements).toEqual(PRO);
 	});
 
 	it('refuses a name an app cannot read as a property', async () => {

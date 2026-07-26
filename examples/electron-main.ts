@@ -16,6 +16,10 @@ const read = (): Record<string, string> => {
 };
 
 const beans = new CoolBeans({
+	product: 'clementine',
+	// Optional, and worth passing anyway: without it the first licence this install
+	// activates decides which product the app is bound to, and that first key is the one
+	// nobody checked. Only safe to omit if the vendor sells exactly one product.
 	baseUrl: 'https://keys.clementine.email',
 	storage: {
 		getItem: (k: string) => read()[k] ?? null,

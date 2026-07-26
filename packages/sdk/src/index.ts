@@ -28,7 +28,12 @@ export interface Storage {
 }
 
 export interface CoolBeansOptions {
-	product: string;
+	/**
+	 * The product slug. Optional: activate and validate resolve the product from the key's
+	 * prefix, and signing keys are fetched by licence key, so an app no longer has to know it.
+	 * Supplying it adds a belt-and-braces claim check that a token is for the product expected.
+	 */
+	product?: string;
 	/** Base URL of the Cool Beans server. Defaults to the hosted cloud. */
 	baseUrl?: string;
 	/**
@@ -121,7 +126,7 @@ function defaultStorage(): Storage {
 }
 
 export class CoolBeans {
-	private readonly product: string;
+	private readonly product: string | undefined;
 	private readonly baseUrl: string;
 	private readonly storage: Storage;
 	private readonly doFetch: typeof fetch;
@@ -160,7 +165,7 @@ export class CoolBeans {
 			instance: InstanceObject;
 		};
 		if (!res.ok || !data.ok) throw new CoolBeansError(res.status, data);
-		if (data.license.product !== this.product) {
+		if (this.product !== undefined && data.license.product !== this.product) {
 			throw new CoolBeansError(res.status, { error: 'product_mismatch' });
 		}
 		this.storage.setItem(INSTANCE_KEY, data.instance.id);
@@ -207,7 +212,9 @@ export class CoolBeans {
 		// 404/422/429/5xx and malformed bodies are inconclusive per the frozen contract.
 		if (res.status !== 200 || !data.ok || !data.license) return inconclusive(false);
 		// A definitive answer about some other product is not an answer about this one.
-		if (data.license.product !== this.product) return inconclusive(false);
+		// Only when the app declared a product; the signature is the real binding otherwise.
+		if (this.product !== undefined && data.license.product !== this.product)
+			return inconclusive(false);
 
 		if (data.token) {
 			this.storage.setItem(TOKEN_KEY, data.token);
@@ -215,7 +222,8 @@ export class CoolBeans {
 			// Best effort while we are already online: fetch when there is no keyset or the
 			// returned token uses a rotated/unknown key. offlineState itself never fetches.
 			const keys = this.trustedKeys();
-			if (!keys || !(await verifyTokenSignature(data.token, keys))) await this.refreshKeys();
+			if (!keys || !(await verifyTokenSignature(data.token, keys)))
+				await this.refreshKeys(licenseKey);
 		}
 		// The definitive revocation signal: drop the cached token so verifyOffline stops unlocking.
 		if (data.license.status === 'disabled') this.storage.setItem(TOKEN_KEY, '');
@@ -310,8 +318,10 @@ export class CoolBeans {
 		const payload = keys ? await verifyTokenSignature(token, keys) : null;
 		if (!payload) return 'expired';
 
-		// Claim binding: the token must be for this product and this device's instance.
-		if (payload.product !== this.product) return 'expired';
+		// Claim binding: the token must be for this device's instance, and for the product the
+		// app declared IF it declared one. Without a declared product the signature does this
+		// work: a token from elsewhere is signed by a different product's key and will not verify.
+		if (this.product !== undefined && payload.product !== this.product) return 'expired';
 		const boundInstance = this.storage.getItem(INSTANCE_KEY);
 		if (boundInstance && payload.instance_id !== boundInstance) return 'expired';
 
@@ -477,12 +487,44 @@ export class CoolBeans {
 		return Object.keys(merged).length > 0 ? merged : null;
 	}
 
-	/** Fetch the product keyset and persist it. Returns true when new keys were stored. */
-	private async refreshKeys(): Promise<boolean> {
+	/** The licence key inside the cached token, so key fetching needs no argument. */
+	private cachedTokenKey(): string | undefined {
+		const token = this.storage.getItem(TOKEN_KEY);
+		if (!token) return undefined;
 		try {
-			const res = await this.doFetch(
-				`${this.baseUrl}/v1/pubkey?product=${encodeURIComponent(this.product)}`,
-			);
+			const part = token.split('.')[1];
+			if (!part) return undefined;
+			const json = JSON.parse(
+				new TextDecoder().decode(
+					Uint8Array.from(atob(part.replace(/-/g, '+').replace(/_/g, '/')), (ch) =>
+						ch.charCodeAt(0),
+					),
+				),
+			) as { key?: string };
+			return typeof json.key === 'string' ? json.key : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Fetch the keyset and persist it. Returns true when new keys were stored.
+	 *
+	 * By licence key where we have one, which is what lets an app skip the product slug: the
+	 * key is the credential so it goes in a POST body, never a URL that lands in access logs.
+	 * Falls back to the slug route for an app that declared a product and has no key in hand.
+	 */
+	private async refreshKeys(licenseKey?: string): Promise<boolean> {
+		const key = licenseKey ?? this.cachedTokenKey();
+		try {
+			const res = key
+				? await this.post('/v1/keyset', { license_key: key })
+				: this.product === undefined
+					? null
+					: await this.doFetch(
+							`${this.baseUrl}/v1/pubkey?product=${encodeURIComponent(this.product)}`,
+						);
+			if (!res) return false;
 			const data = (await res.json()) as { ok: boolean; keys: Record<string, string> };
 			if (res.ok && data.ok && data.keys && Object.keys(data.keys).length > 0) {
 				this.storage.setItem(KEYS_KEY, JSON.stringify(data.keys));

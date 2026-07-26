@@ -8,7 +8,13 @@ import { badRequest, notFound, unauthorized } from '../../http/errors.js';
 import { serializeInstance, serializeLicense } from '../../http/serializers.js';
 import { isAdminRequest } from '../../middleware/admin-auth.js';
 import { buildAgentGuide, buildProductBrief } from '../../services/integration-brief.js';
-import { activate, deactivate, heartbeat, validate } from '../../services/licensing.js';
+import {
+	activate,
+	deactivate,
+	heartbeat,
+	resolveLicense,
+	validate,
+} from '../../services/licensing.js';
 import { findByCheckoutId } from '../../services/payments.js';
 import { ensureLicenseForOrder } from '../../services/paypal.js';
 import { productForToken } from '../../services/product-tokens.js';
@@ -25,6 +31,7 @@ const activateBody = z.object({
 	license_key: z.string(),
 	instance_name: z.string().min(1),
 });
+const keysetBody = z.object({ license_key: z.string() });
 const validateBody = z.object({
 	license_key: z.string(),
 	instance_id: z.string(),
@@ -88,6 +95,24 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		if (!slug) throw notFound('A product query parameter is required.');
 		const product = await getProductBySlugGlobal(deps.db, slug);
 		if (!product) throw notFound('No product with that slug.');
+		const keys = await publicKeysFor(deps, product.id);
+		return c.json({ ok: true, algorithm: 'ed25519', keys });
+	});
+
+	/**
+	 * Signing keys for the product a licence belongs to (#73).
+	 *
+	 * An app holds a key, not a slug, and per-product signing keys meant it had to be told the
+	 * slug anyway just to verify a token offline. This resolves the product from the key instead.
+	 * POST, not GET: the key is the credential, so it belongs in a body rather than a URL that
+	 * lands in access logs and browser history. The keys themselves are public.
+	 */
+	app.post('/v1/keyset', async (c) => {
+		const body = await readJson(c, keysetBody);
+		// resolveLicense throws invalid_key for a malformed key and unknown_key for one we do not
+		// have, which is the same answer the rest of the public surface gives: it never confirms
+		// whether some product exists behind a key that is not ours.
+		const { product } = await resolveLicense(deps, body.license_key);
 		const keys = await publicKeysFor(deps, product.id);
 		return c.json({ ok: true, algorithm: 'ed25519', keys });
 	});

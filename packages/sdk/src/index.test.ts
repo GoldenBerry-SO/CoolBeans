@@ -363,7 +363,8 @@ describe('CoolBeans SDK', () => {
 			storage,
 			publicKeys: old.publicKeys,
 			fetch: cannedFetch((path) => {
-				if (path === '/v1/pubkey') {
+				// Keys come from /v1/keyset now, by licence key rather than product slug (#73).
+				if (path === '/v1/keyset') {
 					fetches++;
 					return { status: 200, json: { ok: true, keys: rotated.publicKeys } };
 				}
@@ -442,5 +443,63 @@ describe('SDK hardening (issue #45)', () => {
 		await expect(
 			client.deactivate('CLEM-AAAA-BBBB-CCCC-DDDD', { instanceId: 'inst-1' }),
 		).rejects.toThrow();
+	});
+});
+
+describe('fetching signing keys without a product slug (#73)', () => {
+	it('uses POST /v1/keyset with the licence key, not the slug route', async () => {
+		const signed = await signToken(payloadOf(), 'k1');
+		const seen: Array<{ url: string; method: string; body: string | undefined }> = [];
+		const storage = memStorage();
+		const cb = new CoolBeans({
+			baseUrl: 'https://api.test',
+			storage,
+			fetch: (async (url: string | URL | Request, init?: RequestInit) => {
+				const u = String(url instanceof Request ? url.url : url);
+				seen.push({ url: u, method: init?.method ?? 'GET', body: init?.body as string });
+				if (u.endsWith('/v1/keyset')) {
+					return new Response(
+						JSON.stringify({ ok: true, algorithm: 'ed25519', keys: signed.publicKeys }),
+						{ status: 200, headers: { 'Content-Type': 'application/json' } },
+					);
+				}
+				return new Response(
+					JSON.stringify({
+						ok: true,
+						valid: true,
+						license: {
+							key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
+							status: 'active',
+							kind: 'subscription',
+							plan: null,
+							product: 'clementine',
+							expires_at: null,
+						},
+						instance: { id: 'i', name: 'Mac', created_at: 'now' },
+						token: signed.token,
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				);
+			}) as typeof fetch,
+		});
+		// verify() is where a missing keyset gets fetched; offlineState stays network-free.
+		await cb.verify('CLEM-A2B3-C4D5-E6F7-G8H9', { instanceId: 'i' });
+
+		const keysetCall = seen.find((c) => c.url.endsWith('/v1/keyset'));
+		expect(keysetCall, 'the SDK asked /v1/keyset').toBeDefined();
+		expect(keysetCall?.method).toBe('POST');
+		// The key is the credential: it goes in the body, never in the URL.
+		expect(keysetCall?.body).toContain('CLEM-A2B3-C4D5-E6F7-G8H9');
+		expect(seen.every((c) => !c.url.includes('CLEM-'))).toBe(true);
+		expect(seen.some((c) => c.url.includes('/v1/pubkey'))).toBe(false);
+
+		// And having fetched them, the cached token verifies offline with no product configured.
+		expect(await cb.verifyOffline()).toBe(true);
+	});
+
+	it('can be constructed with no product slug at all', () => {
+		expect(
+			() => new CoolBeans({ baseUrl: 'https://api.test', storage: memStorage() }),
+		).not.toThrow();
 	});
 });

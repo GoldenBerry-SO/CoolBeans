@@ -49,6 +49,43 @@ export interface CoolBeansOptions {
 
 export type OfflineState = 'valid' | 'grace' | 'expired';
 
+/** Why access is granted. All four unlock the app; they differ only in what to tell the user. */
+export type AllowReason =
+	/** The server just confirmed it. */
+	| 'online'
+	/** No fresh answer, but the cached token is still within its lifetime. */
+	| 'cached'
+	/** Past the token's lifetime and still inside the licence. Nudge them online. */
+	| 'grace'
+	/** The machine's clock went backwards. Access stands, evaluated against the clock floor. */
+	| 'clock_rollback';
+
+/** Why access is refused. Only these three are definitive; everything else keeps the last state. */
+export type DenyReason =
+	/** A fetched answer said `disabled`. The only revocation signal there is. */
+	| 'revoked'
+	/** A signed expiry has passed, which is our own credential saying the licence ended. */
+	| 'expired'
+	/** No entitlement has ever been established on this device. Ask for a key. */
+	| 'uninitialized';
+
+/**
+ * The single verdict from `open()`. A discriminated union rather than a boolean, because
+ * "we have never established an entitlement" must not share a name with "you were revoked":
+ * one asks for a licence key, the other says the licence is gone.
+ *
+ * Branch access on `decision` only. `license` is for display.
+ */
+export type AccessState =
+	| {
+			decision: 'allow';
+			reason: AllowReason;
+			license: LicenseObject | null;
+			/** The licence's own end date, null for perpetual. */
+			expiresAt: string | null;
+	  }
+	| { decision: 'deny'; reason: DenyReason; license: LicenseObject | null };
+
 export interface ActivateResult {
 	license: LicenseObject;
 	instance: InstanceObject;
@@ -102,6 +139,20 @@ const DEVICE_KEY = 'coolbeans.device_id';
 const TOKEN_KEY = 'coolbeans.token';
 const KEYS_KEY = 'coolbeans.pubkeys';
 const INSTANCE_KEY = 'coolbeans.instance_id';
+const CLOCK_KEY = 'coolbeans.clock_floor';
+const REVOKED_KEY = 'coolbeans.revoked';
+
+/** The §9 licence object is exactly the display half of a token payload. */
+function licenseFromPayload(payload: TokenPayload): LicenseObject {
+	return {
+		key: payload.key,
+		status: payload.status,
+		kind: payload.kind,
+		plan: payload.plan,
+		product: payload.product,
+		expires_at: payload.expires_at,
+	};
+}
 
 function memoryStorage(): Storage {
 	const map = new Map<string, string>();
@@ -170,6 +221,162 @@ export class CoolBeans {
 		}
 		this.storage.setItem(INSTANCE_KEY, data.instance.id);
 		return { license: data.license, instance: data.instance };
+	}
+
+	/**
+	 * The one call to make on launch. Activates if this device has never been activated,
+	 * refreshes when it can reach us, falls back to the cached signed token when it cannot,
+	 * and returns a single verdict:
+	 *
+	 * ```ts
+	 * const state = await license.open(licenseKey)
+	 * if (state.decision === 'deny') lockOut(state)
+	 * ```
+	 *
+	 * It exists because the alternative — hold the instance id, choose `verify` or
+	 * `verifyOffline`, and read `inconclusive` correctly — is three chances to lock out a
+	 * paying customer. Everything inconclusive (offline, 5xx, timeout, 404, an unknown key)
+	 * keeps the last known-good state. Only a fetched `disabled` or a signed expiry denies.
+	 *
+	 * `verify`, `verifyOffline` and `offlineState` remain for apps that want the pieces.
+	 */
+	async open(licenseKey?: string): Promise<AccessState> {
+		// Before anything reads the clock: record how late it has ever been on this install.
+		this.rememberClock();
+		// The cached token carries its own licence key, so an app that has opened once need
+		// not store the key anywhere itself.
+		const key = licenseKey ?? this.cachedTokenKey();
+		const online = key ? await this.openOnline(key) : null;
+		return online ?? this.offlineVerdict();
+	}
+
+	/**
+	 * The online half of `open()`. Returns null for every inconclusive answer, which is the
+	 * caller's cue to fall back to the cached token rather than deny anything.
+	 */
+	private async openOnline(licenseKey: string): Promise<AccessState | null> {
+		const instanceId = this.instanceId() ?? (await this.claimSeat(licenseKey));
+		if (!instanceId) return null;
+
+		let result = await this.verify(licenseKey, { instanceId });
+		if (!result.inconclusive && !result.valid && result.license?.status === 'active') {
+			result = (await this.reclaimSeat(licenseKey, instanceId)) ?? result;
+		}
+		if (result.inconclusive || !result.license) return null;
+
+		const license = result.license;
+		if (license.status === 'disabled') {
+			// verify() already dropped the token. Remember that we were told, so a later launch
+			// with no network says "revoked" rather than "never activated".
+			this.storage.setItem(REVOKED_KEY, '1');
+			return { decision: 'deny', reason: 'revoked', license };
+		}
+		if (result.valid) {
+			// A server that answers is authoritative on both counts: the licence stands, and
+			// the local clock has no penalty to serve.
+			this.storage.setItem(REVOKED_KEY, '');
+			this.storage.setItem(CLOCK_KEY, String(Date.now()));
+			return { decision: 'allow', reason: 'online', license, expiresAt: license.expires_at };
+		}
+		// Conclusive, active, still not valid. A past expiry is definitive; anything else
+		// (no free seat, for instance) is not our call to turn into a lockout.
+		if (license.expires_at && new Date(license.expires_at).getTime() <= this.effectiveNow()) {
+			return { decision: 'deny', reason: 'expired', license };
+		}
+		return null;
+	}
+
+	/**
+	 * A live licence that does not recognise this device: the seat was freed from the console,
+	 * or storage was restored onto a machine we have no record of. Take a seat again rather
+	 * than lock out someone who is paying. Returns the fresh result, or null when we learned
+	 * nothing better and the caller should keep the one it has.
+	 */
+	private async reclaimSeat(licenseKey: string, previous: string): Promise<VerifyResult | null> {
+		const fresh = await this.claimSeat(licenseKey);
+		if (!fresh || fresh === previous) return null;
+		const result = await this.verify(licenseKey, { instanceId: fresh });
+		if (!result.inconclusive) return result;
+		// The new seat is claimed but unproven, and the cached token still names the old
+		// instance. Leaving the new id stored would make that token look like another device's,
+		// which the offline path reads as "never activated" — a lockout on an inconclusive
+		// answer, which is the one thing we must never do.
+		this.storage.setItem(INSTANCE_KEY, previous);
+		return null;
+	}
+
+	/**
+	 * Activate and return the instance id, or null if we could not. Every failure here is
+	 * inconclusive by contract — an unknown key is a 404, a full product is a 4xx, and neither
+	 * revokes anything — so the error is swallowed. An app that needs the reason (a key-entry
+	 * screen, say) calls `activate()` directly and reads the CoolBeansError.
+	 */
+	private async claimSeat(licenseKey: string): Promise<string | null> {
+		try {
+			const { instance } = await this.activate(licenseKey);
+			return instance.id;
+		} catch {
+			return null;
+		}
+	}
+
+	/** The verdict from local state alone. Never makes a request. */
+	private async offlineVerdict(): Promise<AccessState> {
+		const revoked = this.storage.getItem(REVOKED_KEY) === '1';
+		const nothingKnown = (): AccessState =>
+			revoked
+				? { decision: 'deny', reason: 'revoked', license: null }
+				: { decision: 'deny', reason: 'uninitialized', license: null };
+
+		const token = this.storage.getItem(TOKEN_KEY);
+		if (!token) return nothingKnown();
+
+		// Only signature-verified tokens count, and an unverifiable one is not evidence of a
+		// revocation either — it is a token we know nothing about.
+		const keys = this.trustedKeys();
+		const payload = keys ? await verifyTokenSignature(token, keys) : null;
+		if (!payload) return nothingKnown();
+		if (this.product !== undefined && payload.product !== this.product) return nothingKnown();
+		const boundInstance = this.storage.getItem(INSTANCE_KEY);
+		if (boundInstance && payload.instance_id !== boundInstance) return nothingKnown();
+
+		const license = licenseFromPayload(payload);
+		if (payload.status === 'disabled') return { decision: 'deny', reason: 'revoked', license };
+
+		const now = this.effectiveNow();
+		// A signed expiry that has passed is our own credential saying the licence ended, so
+		// honouring it is not inferring revocation from a network failure.
+		if (payload.expires_at && new Date(payload.expires_at).getTime() <= now) {
+			return { decision: 'deny', reason: 'expired', license };
+		}
+		const withinTtl = payload.exp * 1000 > now;
+		// Trials get no grace: an unbounded one turns a blocked endpoint into a free licence.
+		if (payload.kind === 'trial' && !withinTtl) {
+			return { decision: 'deny', reason: 'expired', license };
+		}
+		const rolledBack = now > Date.now();
+		return {
+			decision: 'allow',
+			reason: rolledBack ? 'clock_rollback' : withinTtl ? 'cached' : 'grace',
+			license,
+			expiresAt: license.expires_at,
+		};
+	}
+
+	/**
+	 * Now, or the latest time this install has ever seen, whichever is later. Winding the
+	 * clock back is the cheapest way to extend a licence, so expiry is judged against the
+	 * floor. A successful validation resets it, so one bad clock is not a life sentence.
+	 */
+	private effectiveNow(): number {
+		const floor = Number(this.storage.getItem(CLOCK_KEY));
+		const now = Date.now();
+		return Number.isFinite(floor) && floor > now ? floor : now;
+	}
+
+	/** Raise the clock floor to now. Called before any expiry is evaluated. */
+	private rememberClock(): void {
+		this.storage.setItem(CLOCK_KEY, String(this.effectiveNow()));
 	}
 
 	/**
@@ -327,7 +534,9 @@ export class CoolBeans {
 
 		if (payload.status === 'disabled') return 'expired';
 
-		const now = Date.now();
+		// The same clock floor open() keeps, so the two surfaces cannot disagree about whether
+		// a licence has ended. Absent any open() call the floor is unset and this is just now.
+		const now = this.effectiveNow();
 
 		// A signed expiry that has passed is definitive, whatever the kind. The token we
 		// issued says this licence ended, so honouring it is reading our own credential,

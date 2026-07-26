@@ -114,7 +114,7 @@ names first. An absent name means the feature stays off.
 
 ## Integrate (Swift, macOS)
 
-The Swift SDK has the activate/verify pair, not \`open()\` yet, so it does the steps by hand:
+The same call, the same verdict, the same reason names:
 
 \`\`\`swift
 import CoolBeans
@@ -125,14 +125,22 @@ let cb = CoolBeans(configuration: .init(
   publicKeys: ["<kid>": "<key>"]
 ))
 
-// On launch: unlock from the cached token first, then refresh online.
-if try await cb.verifyOffline() { unlock() }
-let result = try await cb.verify(licenseKey: key, instanceId: instanceId)
-// Inconclusive means keep going, never lock out. See the one rule above.
+// On launch, and again whenever the user pastes a key.
+let state = await cb.open(licenseKey: key)
+if state.decision == .deny { lockOut(state) } else { unlock() }
+
+// Gating a feature, same rule as above: only ever on a signed entitlement.
+if state.isEntitled("export_4k") { enableExport4k() }
+let batchLimit = state.limit("batch_limit") ?? 1
 \`\`\`
 
-For a **floating** product the Swift app must also hold its own seat, by calling
-\`heartbeat(licenseKey:instanceId:)\` at roughly a third of the lease window it returns.
+Two differences from TypeScript, both because this SDK has no run loop of its own:
+
+- Call \`open()\` again yourself when you want a fresh answer. There is no background refresh.
+- For a **floating** product, call \`await cb.holdSeat()\` on a timer at roughly a third of the
+  lease window it hands back, or the seat lapses while the app is still running.
+
+\`LicenseGate\` wraps all of this for SwiftUI if you would rather observe a status than a verdict.
 
 ## The rest of the TypeScript surface
 

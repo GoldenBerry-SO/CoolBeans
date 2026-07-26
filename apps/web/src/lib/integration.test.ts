@@ -87,15 +87,18 @@ describe('buildSnippets', () => {
 		}
 	});
 
-	it('still shows Swift the heartbeat it has to do itself', () => {
-		// The Swift SDK gets the same one-call shape in #77. Until then its snippet must keep
-		// telling a floating app to hold its own seat, because nothing else will.
+	it('gives Swift the same one call, and the seat it still has to hold itself (#77)', () => {
+		// Swift has open() too now, so the shape matches. What differs is scheduling: the Swift
+		// SDK has no run loop of its own, so a floating app must hold its seat, and a node-locked
+		// one must not be told to.
 		const swift = (model: 'node_locked' | 'floating') =>
-			buildSnippets(product({ activationModel: model }), BASE, KEYS)
-				.find((s) => s.target === 'swift')
-				?.code.toLowerCase();
-		expect(swift('floating')).toContain('heartbeat');
-		expect(swift('node_locked')).not.toContain('heartbeat');
+			buildSnippets(product({ activationModel: model }), BASE, KEYS).find(
+				(s) => s.target === 'swift',
+			)?.code;
+		expect(swift('floating')).toContain('cb.open(');
+		expect(swift('node_locked')).toContain('cb.open(');
+		expect(swift('floating')?.toLowerCase()).toContain('holdseat');
+		expect(swift('node_locked')?.toLowerCase()).not.toContain('holdseat');
 	});
 
 	it('never leaks a service secret: only the key is the credential', () => {

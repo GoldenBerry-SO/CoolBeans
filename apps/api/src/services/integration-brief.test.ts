@@ -41,6 +41,13 @@ describe('buildAgentGuide', () => {
 		expect(guide).toMatch(/concurrent|floating/i);
 	});
 
+	it('teaches the one call in both languages, not one of them (#77)', () => {
+		const swift = guide.slice(guide.indexOf('```swift'));
+		expect(swift).toContain('cb.open(');
+		expect(swift.toLowerCase()).toContain('holdseat');
+		expect(swift).toContain('decision');
+	});
+
 	it('teaches the one-call shape, and nothing that no longer exists (#75)', () => {
 		expect(guide).toContain('open(');
 		expect(guide).toContain('decision');

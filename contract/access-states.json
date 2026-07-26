@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "product": "contract-product",
+  "instance": "contract-instance",
+  "note": "The shared access-state contract (#77). Every SDK runs every case and must agree, because these are the states that decide whether a paying customer keeps working. A harness starts a clock at T0, mints and stores a signed token if `token` is set, sets the revoked marker if `revoked` is true, then walks `steps`: each step moves the clock by that many seconds and evaluates open() with the network down. The last verdict must equal `expect`. Copied verbatim into every SDK repo; the copies are checked byte for byte.",
+  "cases": [
+    {
+      "name": "first run with nothing stored asks for a key, and never says revoked",
+      "token": null,
+      "steps": [0],
+      "expect": { "decision": "deny", "reason": "uninitialized" }
+    },
+    {
+      "name": "a revocation we were actually told about survives the token being erased",
+      "token": null,
+      "revoked": true,
+      "steps": [0],
+      "expect": { "decision": "deny", "reason": "revoked" }
+    },
+    {
+      "name": "a fresh token unlocks with no network at all",
+      "token": { "status": "active", "kind": "perpetual", "expiresIn": null, "ttl": 604800 },
+      "steps": [0],
+      "expect": { "decision": "allow", "reason": "cached" }
+    },
+    {
+      "name": "past the token lifetime but inside the licence is grace, never a lockout",
+      "token": { "status": "active", "kind": "subscription", "expiresIn": 2592000, "ttl": 604800 },
+      "steps": [691200],
+      "expect": { "decision": "allow", "reason": "grace" }
+    },
+    {
+      "name": "a perpetual licence keeps working however long the app is offline",
+      "token": { "status": "active", "kind": "perpetual", "expiresIn": null, "ttl": 604800 },
+      "steps": [31536000],
+      "expect": { "decision": "allow", "reason": "grace" }
+    },
+    {
+      "name": "a signed expiry that has passed ends access offline",
+      "token": { "status": "active", "kind": "subscription", "expiresIn": 259200, "ttl": 604800 },
+      "steps": [345600],
+      "expect": { "decision": "deny", "reason": "expired" }
+    },
+    {
+      "name": "a trial gets no grace past its token, or a blocked endpoint is a free licence",
+      "token": { "status": "active", "kind": "trial", "expiresIn": 1209600, "ttl": 604800 },
+      "steps": [691200],
+      "expect": { "decision": "deny", "reason": "expired" }
+    },
+    {
+      "name": "a trial inside its token unlocks like anything else",
+      "token": { "status": "active", "kind": "trial", "expiresIn": 1209600, "ttl": 604800 },
+      "steps": [0],
+      "expect": { "decision": "allow", "reason": "cached" }
+    },
+    {
+      "name": "a token that says disabled is a revocation we are holding in our hand",
+      "token": { "status": "disabled", "kind": "subscription", "expiresIn": 2592000, "ttl": 604800 },
+      "steps": [0],
+      "expect": { "decision": "deny", "reason": "revoked" }
+    },
+    {
+      "name": "winding the clock back keeps access and says so",
+      "token": { "status": "active", "kind": "subscription", "expiresIn": 2592000, "ttl": 604800 },
+      "steps": [0, -432000],
+      "expect": { "decision": "allow", "reason": "clock_rollback" }
+    },
+    {
+      "name": "winding the clock back cannot resurrect a licence that ended",
+      "token": { "status": "active", "kind": "subscription", "expiresIn": 259200, "ttl": 604800 },
+      "steps": [345600, -864000],
+      "expect": { "decision": "deny", "reason": "expired" }
+    },
+    {
+      "name": "capabilities come off the signed token with no call",
+      "token": {
+        "status": "active",
+        "kind": "perpetual",
+        "expiresIn": null,
+        "ttl": 604800,
+        "entitlements": { "export_4k": true, "batch_limit": 100, "tier": "gold" }
+      },
+      "steps": [0],
+      "expect": {
+        "decision": "allow",
+        "reason": "cached",
+        "entitlements": { "export_4k": true, "batch_limit": 100, "tier": "gold" }
+      }
+    },
+    {
+      "name": "a licence with no capabilities reports none rather than an empty set",
+      "token": { "status": "active", "kind": "perpetual", "expiresIn": null, "ttl": 604800 },
+      "steps": [0],
+      "expect": { "decision": "allow", "reason": "cached", "entitlements": null }
+    }
+  ]
+}

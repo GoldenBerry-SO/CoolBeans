@@ -201,11 +201,14 @@ function swiftSnippet(
 	baseUrl: string,
 	publicKeys: Record<string, string>,
 ): Snippet {
-	const heartbeat = isFloating(product)
+	// Swift has no run loop of its own, so a floating app schedules its own beats. Everything
+	// else is the same one call the TypeScript SDK makes.
+	const seat = isFloating(product)
 		? [
 				'',
-				'// Floating: heartbeat to hold the seat while the app runs.',
-				'let lease = try await cb.heartbeat(licenseKey: key, instanceId: result.instance.id)',
+				'// Floating: hold the seat while the app runs, at about a third of the lease it',
+				'// returns, so one dropped request does not cost the user their seat.',
+				'let lease = await cb.holdSeat()',
 			].join('\n')
 		: '';
 	const code = [
@@ -217,11 +220,12 @@ function swiftSnippet(
 		`\tpublicKeys: ${swiftKeysLiteral(publicKeys)}`,
 		'))',
 		'',
-		'// When the user pastes their key:',
-		'let result = try await cb.activate(licenseKey: key, name: Host.current().localizedName)',
-		'',
-		'// On every launch, unlock offline first:',
-		`if await cb.verifyOffline() { unlock() }${heartbeat}`,
+		'// On launch, and again whenever the user pastes a key. One call.',
+		'let state = await cb.open(licenseKey: key)',
+		'if state.decision == .deny { return lockOut(state) }',
+		'unlock()',
+		'// For display only: state.license has the plan and renewal date.',
+		`showPlan(state.license)${seat}`,
 	].join('\n');
 	return {
 		target: 'swift',

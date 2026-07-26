@@ -169,7 +169,8 @@ if (state.entitlements?.export_4k) enableExport4k()
 const batchLimit = Number(state.entitlements?.batch_limit ?? 1)
 \`\`\`
 
-The field is absent when a licence has none, so \`?.\` is not optional politeness — write it.
+The field is absent when a licence has none, so \`?.\` is not optional politeness — write it. Values
+are booleans, numbers or strings, never nested, so \`Number(x ?? 1)\` and \`=== true\` are safe.
 
 Why this and not \`plan\`: entitlements are authored on the server and **signed** into the token
 alongside the expiry, so a client can trust them. \`plan\` and \`kind\` are a vendor's own label and
@@ -214,8 +215,9 @@ Four calls, and you will use two of them:
 
 - \`open(licenseKey?)\` -> the verdict above. On launch, and again when a key is pasted. The key
   is optional after the first call: it is stored for you.
-- \`release()\` -> frees this device's seat and forgets the licence. On sign-out. Returns false if
-  it could not reach us, so you know the seat is still taken.
+- \`release()\` -> frees this device's seat, forgets the licence, and ends the background refresh.
+  On sign-out. Returns false if it could not reach us, so you know the seat is still taken and can
+  say so. After it, \`open(newKey)\` starts again from scratch.
 - \`stop()\` -> ends the background refresh. On app shutdown.
 - \`importActivation(blob)\` -> unlocks a machine that will never reach the network, from a
   vendor-issued signed blob. Only if the vendor offers that.

@@ -135,6 +135,18 @@ describe('buildAgentGuide', () => {
 		expect(guide).toMatch(/state\.entitlements/);
 	});
 
+	it('answers the questions an integrator actually asks', () => {
+		// Each of these came back from handing the guide to an engineer with no other context and
+		// reading what they had to guess at.
+		// What a capability value can be, since they write `entitlements?.x` against it:
+		const heading = '## Gating features';
+		const gating = guide.slice(guide.indexOf(heading) + heading.length);
+		expect(gating.slice(0, gating.indexOf('\n## '))).toMatch(/booleans, numbers/i);
+		// What release() leaves behind, since a half-signed-out app is a support ticket:
+		const release = guide.slice(guide.indexOf('- `release()`'));
+		expect(release.slice(0, release.indexOf('\n- '))).toMatch(/refresh|upkeep/i);
+	});
+
 	it('leaks no pricing or plumbing, in the guide or a brief (#78)', () => {
 		const brief = buildProductBrief({
 			product: product({ activationModel: 'floating' }),

@@ -79,6 +79,58 @@ describe('GET /v1/integration/:slug', () => {
 		expect(body).toContain('legacy_filters');
 	});
 
+	it('lists capabilities from hand-issued licences, so a manual-only vendor is not lied about', async () => {
+		// Clementine before Stripe is wired: no grants at all, keys issued by hand carrying
+		// export_4k. The brief used to read names from grants only, so it said "this product
+		// grants no capabilities" while every licence carried one — and an agent following the
+		// docs correctly refused to gate on names that genuinely exist.
+		const res = await h.app.request('/admin/keys', {
+			method: 'POST',
+			headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				product: 'acme-app',
+				email: 'comp@example.com',
+				kind: 'perpetual',
+				entitlements: { export_4k: true, batch_limit: 100 },
+			}),
+		});
+		expect(res.status).toBe(200);
+		const body = await (await h.app.request('/v1/integration/acme-app')).text();
+		expect(body).toContain('export_4k');
+		expect(body).toContain('batch_limit');
+		expect(body).not.toMatch(/no capabilit/i);
+		// The licence key itself must not leak into a public document.
+		const key = ((await res.json()) as { key: string }).key;
+		expect(body).not.toContain(key.replace(/-/g, ''));
+	});
+
+	it('merges names from grants and licences without duplicates', async () => {
+		const { seedGrant } = await import('../../test/seed.js');
+		const product = await h.app.request('/admin/products/acme-app', { headers: h.adminHeaders });
+		const { product: found } = (await product.json()) as { product: { id: number } };
+		await seedGrant(h.deps, {
+			productId: found.id,
+			priceId: 'price_acmePro',
+			kind: 'perpetual',
+			entitlements: { export_4k: true },
+		});
+		await h.app.request('/admin/keys', {
+			method: 'POST',
+			headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				product: 'acme-app',
+				email: 'comp@example.com',
+				kind: 'perpetual',
+				entitlements: { export_4k: true, legacy_filters: true },
+			}),
+		});
+		const body = await (await h.app.request('/v1/integration/acme-app')).text();
+		// One mention in the names list, not one per source.
+		const names = body.slice(body.indexOf('## Capabilities'), body.indexOf('## Endpoints'));
+		expect(names.match(/`export_4k`/g)).toHaveLength(1);
+		expect(names).toContain('legacy_filters');
+	});
+
 	it('never leaks the price a capability came from', async () => {
 		// Grant ids and Stripe price ids are the vendor's business, not the app's.
 		const { seedGrant } = await import('../../test/seed.js');

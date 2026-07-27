@@ -77,25 +77,6 @@ export function assertNotBillingPrice(
 	}
 }
 
-/**
- * The two prices connect maps must differ. connect writes one grant per price (perpetual for
- * the one-time price, subscription for the recurring one), keyed by (connection, price). A
- * shared id would collide on that key and leave a single grant, so a yearly subscription
- * would resolve as a non-expiring perpetual licence. Enforced in connectStripe before any
- * grant is written.
- */
-export function assertDistinctTierPrices(
-	lifetime: string | null | undefined,
-	yearly: string | null | undefined,
-): void {
-	if (lifetime && yearly && lifetime === yearly) {
-		throw conflict(
-			'price_conflict',
-			'The lifetime and yearly tiers must map to different Stripe prices.',
-		);
-	}
-}
-
 export async function getSubscriptionRow(
 	deps: Pick<AppDeps, 'db'>,
 	accountId: number,

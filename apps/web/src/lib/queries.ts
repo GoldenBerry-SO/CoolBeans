@@ -315,9 +315,6 @@ export function useUpdateProduct() {
 export interface ConnectStripeInput {
 	slug: string;
 	webhook_url: string;
-	/** The vendor's existing Stripe price ids. Pricing lives in Stripe, not here. */
-	lifetime_price_id: string;
-	yearly_price_id: string;
 }
 
 export interface ConnectStripeResult {
@@ -325,6 +322,8 @@ export interface ConnectStripeResult {
 	webhook_path: string;
 	secret_rotated: boolean;
 	dunning: { setting: string; note: string };
+	/** Present on a cloud Connect account, whose events already arrive on the platform endpoint. */
+	note?: string;
 }
 
 export function useConnectStripe() {

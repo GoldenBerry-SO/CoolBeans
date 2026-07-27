@@ -1,226 +1,131 @@
-// ABOUTME: Stripe connect test (PRD §13) — one admin call references the vendor's prices + wires the webhook.
-// ABOUTME: Uses the fake gateway; asserts the pasted prices land as grants, the secret on the connection, and re-running is safe.
+// ABOUTME: Stripe connect (PRD §13) is webhook registration only — prices are the grants API's job.
+// ABOUTME: Pins that connect can never retire a grant: the two-price model it replaced did exactly that.
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fakeStripeGateway, makeHarness, type TestHarness } from '../../test/harness.js';
 import { rawQuery } from '../../test/pg.js';
-import { createProduct } from '../../test/seed.js';
+import { createProduct, seedGrant } from '../../test/seed.js';
 
 let h: TestHarness;
-
-const PRICES = { lifetime_price_id: 'price_lifeCLEM', yearly_price_id: 'price_yearCLEM' };
+let productId: number;
 
 beforeEach(async () => {
 	h = await makeHarness();
 	h.deps.config.stripe = { secretKey: 'sk_test', webhookSecret: '' };
 	h.deps.stripe = fakeStripeGateway();
-	await createProduct(h.app, {
+	const product = await createProduct(h.app, {
 		slug: 'clementine',
 		name: 'Clementine',
 		key_prefix: 'CLEM',
 		email_from: 'r@clementine.email',
 	});
+	productId = product.id as number;
 });
 
-describe('POST /admin/products/:slug/stripe/connect', () => {
-	it('maps the referenced prices to grants and stores the secret on the connection', async () => {
-		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
-			method: 'POST',
-			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://clementine.email/webhook',
-				...PRICES,
-			}),
-		});
-		expect(res.status).toBe(200);
-		const body = (await res.json()) as {
-			prices: { lifetimePriceId: string; yearlyPriceId: string };
-		};
-		// The vendor's own price id is echoed back, not one we minted.
-		expect(body.prices.lifetimePriceId).toBe('price_lifeCLEM');
-
-		// The one-time price becomes a perpetual grant, the recurring one a subscription grant.
-		expect(await grantsForClementine()).toEqual([
-			{ price: 'price_lifeCLEM', kind: 'perpetual' },
-			{ price: 'price_yearCLEM', kind: 'subscription' },
-		]);
-		// The signing secret lives on the self-host connection now, not the product.
-		expect(await connectionSecret()).toBe('whsec_clementine');
-	});
-
-	it('retires a grant when connect rewires its price', async () => {
-		await connect('price_lifeCLEM', 'price_yearCLEM');
-		expect(await grantsForClementine()).toEqual([
-			{ price: 'price_lifeCLEM', kind: 'perpetual' },
-			{ price: 'price_yearCLEM', kind: 'subscription' },
-		]);
-		// Rewire the perpetual price to a new id. The old one must stop issuing, so an old
-		// checkout link cannot keep minting keys.
-		await connect('price_newLife', 'price_yearCLEM');
-		expect(await grantsForClementine()).toEqual([
-			{ price: 'price_newLife', kind: 'perpetual' },
-			{ price: 'price_yearCLEM', kind: 'subscription' },
-		]);
-		// The old grant is retired, not deleted: the mapping keeps an audit trail.
-		const old = await rawQuery<{ status: string }>(
-			`SELECT status FROM license_grants WHERE stripe_price_id = 'price_lifeCLEM'`,
-		);
-		expect(old).toEqual([{ status: 'retired' }]);
-	});
-
-	it('rejects an id that is not a Stripe price id, before touching Stripe', async () => {
-		// A vendor pasting a product id (prod_) or a checkout link would otherwise store a
-		// value nothing matches at checkout time, silently issuing no key to a paid buyer.
-		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
-			method: 'POST',
-			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://clementine.email/webhook',
-				lifetime_price_id: 'prod_notaprice',
-				yearly_price_id: 'price_yearCLEM',
-			}),
-		});
-		// A well-formed body with an invalid field is 422 here, the repo's convention.
-		expect(res.status).toBe(422);
-
-		// Nothing was stored: no grant exists, so a later valid connect is clean.
-		expect(await storedLifetime()).toBeNull();
-	});
-
-	it('rejects the same price id for both tiers, which would issue every sale as lifetime', async () => {
-		// Price resolution checks the lifetime column first, so identical ids would make a
-		// yearly subscription resolve as a non-expiring lifetime licence.
-		const res = await connect('price_sameCLEM', 'price_sameCLEM');
-		expect(res.status).toBe(409);
-		expect(await storedLifetime()).toBeNull();
-	});
-
-	it('rejects a lifetime tier pointed at a recurring price', async () => {
-		h.deps.stripe = fakeStripeGateway(undefined, undefined, {
-			prices: { price_badlife: { recurring: true }, price_yearCLEM: { recurring: true } },
-		});
-		const res = await connect('price_badlife', 'price_yearCLEM');
-		expect(res.status).toBe(400);
-		expect(await storedLifetime()).toBeNull();
-	});
-
-	it('rejects a yearly tier pointed at a one-time price', async () => {
-		h.deps.stripe = fakeStripeGateway(undefined, undefined, {
-			prices: { price_lifeCLEM: { recurring: false }, price_badyear: { recurring: false } },
-		});
-		const res = await connect('price_lifeCLEM', 'price_badyear');
-		expect(res.status).toBe(400);
-		expect(await storedLifetime()).toBeNull();
-	});
-
-	it('rejects a yearly tier pointed at a shorter-cadence recurring price', async () => {
-		// A monthly price is recurring but renews sooner, so the "yearly" licence would expire
-		// after a month. The tier means an annual subscription.
-		h.deps.stripe = fakeStripeGateway(undefined, undefined, {
-			prices: {
-				price_lifeCLEM: { recurring: false },
-				price_monthly: { recurring: true, interval: 'month' },
-			},
-		});
-		const res = await connect('price_lifeCLEM', 'price_monthly');
-		expect(res.status).toBe(400);
-		expect(await storedLifetime()).toBeNull();
-	});
-
-	it('rejects a price id Stripe does not have', async () => {
-		// Only the yearly price is seeded, so the lifetime id resolves to "not found".
-		h.deps.stripe = fakeStripeGateway(undefined, undefined, {
-			prices: { price_yearCLEM: { recurring: true } },
-		});
-		const res = await connect('price_ghost', 'price_yearCLEM');
-		expect(res.status).toBe(400);
-		expect(await storedLifetime()).toBeNull();
-	});
-});
-
-/** POST a connect request with the two price ids; other tests read what got stored. */
-async function connect(lifetime: string, yearly: string): Promise<Response> {
-	return h.app.request('/admin/products/clementine/stripe/connect', {
+async function connect(body: Record<string, unknown> = {}) {
+	const res = await h.app.request('/admin/products/clementine/stripe/connect', {
 		method: 'POST',
 		headers: h.adminHeaders,
-		body: JSON.stringify({
-			webhook_url: 'https://clementine.email/webhook',
-			lifetime_price_id: lifetime,
-			yearly_price_id: yearly,
-		}),
+		body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...body }),
 	});
+	return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-/** Clementine's active grants as {price, kind}, ordered by kind (perpetual before subscription). */
-async function grantsForClementine(): Promise<Array<{ price: string; kind: string }>> {
-	return rawQuery<{ price: string; kind: string }>(
-		`SELECT g.stripe_price_id AS price, g.kind
-		 FROM license_grants g
-		 JOIN products p ON p.id = g.product_id
-		 WHERE p.slug = 'clementine' AND g.status = 'active'
-		 ORDER BY g.kind`,
+async function connectionSecret(): Promise<string | null> {
+	const rows = await rawQuery<{ webhook_secret: string | null }>(
+		'SELECT webhook_secret FROM stripe_connections WHERE id = 1',
 	);
+	return rows[0]?.webhook_secret ?? null;
 }
 
-/** The self-host connection's stored signing secret, or null. */
-async function connectionSecret(): Promise<unknown> {
-	const [row] = await rawQuery<{ webhook_secret: string | null }>(
-		`SELECT webhook_secret FROM stripe_connections WHERE id = 1`,
+async function grantStatuses(): Promise<Array<{ price: string; status: string }>> {
+	const rows = await rawQuery<{ stripe_price_id: string; status: string }>(
+		'SELECT stripe_price_id, status FROM license_grants ORDER BY stripe_price_id',
 	);
-	return row?.webhook_secret ?? null;
+	return rows.map((r) => ({ price: r.stripe_price_id, status: r.status }));
 }
 
-/** The price of clementine's perpetual grant, or null when connect wrote nothing. */
-async function storedLifetime(): Promise<unknown> {
-	const grants = await grantsForClementine();
-	return grants.find((g) => g.kind === 'perpetual')?.price ?? null;
-}
+describe('POST /admin/products/:slug/stripe/connect', () => {
+	it('registers the webhook and stores the secret, and that is the whole job', async () => {
+		const r = await connect();
+		expect(r.status).toBe(200);
+		expect(r.body.webhook_path).toBe('/v1/stripe/webhook');
+		expect(await connectionSecret()).toBe('whsec_clementine');
+		// No grants appeared: prices are mapped in the grants dialog, never here.
+		expect(await grantStatuses()).toEqual([]);
+	});
 
-describe('connect never degrades a working integration', () => {
+	it('never touches an existing grant', async () => {
+		// The two-price model this replaced retired every active grant not in its pair, so an
+		// operator who mapped three prices and then clicked Connect silently lost the third.
+		// This is the regression test for the replaced behaviour, not just the new one.
+		for (const [price, kind] of [
+			['price_a', 'perpetual'],
+			['price_b', 'subscription'],
+			['price_c', 'perpetual'],
+		] as const) {
+			await seedGrant(h.deps, { productId, priceId: price, kind });
+		}
+		const r = await connect();
+		expect(r.status).toBe(200);
+		expect(await grantStatuses()).toEqual([
+			{ price: 'price_a', status: 'active' },
+			{ price: 'price_b', status: 'active' },
+			{ price: 'price_c', status: 'active' },
+		]);
+	});
+
+	it('refuses the replaced two-price body rather than accepting and ignoring it', async () => {
+		// Accepting-and-ignoring would be worse than refusing: an operator pasting the old body
+		// would believe two prices were mapped when nothing happened.
+		const r = await connect({
+			lifetime_price_id: 'price_life',
+			yearly_price_id: 'price_year',
+		});
+		expect(r.status).toBeGreaterThanOrEqual(400);
+		expect(JSON.stringify(r.body)).toMatch(/grant/i);
+		expect(await grantStatuses()).toEqual([]);
+	});
+
 	it('keeps the stored secret when Stripe reuses an endpoint and returns none', async () => {
-		// First connect stores a real secret.
-		await h.app.request('/admin/products/clementine/stripe/connect', {
-			method: 'POST',
-			headers: h.adminHeaders,
-			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
-		});
+		await connect();
 		expect(await connectionSecret()).toBe('whsec_clementine');
-
-		// Re-running against an existing endpoint yields no secret from Stripe; the
-		// stored one must survive or every subsequent webhook fails verification.
-		h.deps.stripe = fakeStripeGateway(undefined, undefined, { connectSecret: '' });
-		const again = await h.app.request('/admin/products/clementine/stripe/connect', {
-			method: 'POST',
-			headers: h.adminHeaders,
-			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
-		});
-		expect(again.status).toBe(200);
-
+		h.deps.stripe = fakeStripeGateway({}, {}, { connectSecret: '' });
+		const r = await connect();
+		expect(r.status).toBe(200);
+		expect(r.body.secret_rotated).toBe(false);
 		expect(await connectionSecret()).toBe('whsec_clementine');
-	});
-
-	it('reports the connection-level webhook URL to point Stripe at', async () => {
-		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
-			method: 'POST',
-			headers: h.adminHeaders,
-			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
-		});
-		const body = (await res.json()) as { webhook_path: string };
-		// One endpoint per connection: every product on it shares this path and its one secret.
-		expect(body.webhook_path).toBe('/v1/stripe/webhook');
 	});
 
 	it('tells the operator what their dunning setting has to be (§13)', async () => {
-		// customer.subscription.deleted only fires when Stripe's post-retry action is
-		// cancel. We cannot read that setting over the API, so connect has to say it out
-		// loud or a lapsed subscriber keeps working software forever.
-		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
+		const r = await connect();
+		const dunning = r.body.dunning as { setting: string; note: string };
+		expect(dunning.setting).toBe('cancel_subscription');
+		expect(dunning.note).toMatch(/cancel the subscription/i);
+	});
+
+	it('answers a cloud Connect account sensibly instead of refusing', async () => {
+		// A Connect vendor's events already arrive on the platform endpoint, verified by the
+		// platform secret. There is nothing to register — and the old refusal pointed at "the
+		// grants API instead of connect", a workflow distinction that no longer exists now that
+		// connect does not map prices either.
+		await rawQuery(
+			`UPDATE stripe_connections SET mode = 'cloud_connect', stripe_account_id = 'acct_vendor1' WHERE id = 1`,
+		);
+		const r = await connect();
+		expect(r.status).toBe(200);
+		expect(r.body.webhook_path).toBe('/v1/connect/stripe/webhook');
+		expect(r.body.secret_rotated).toBe(false);
+		// Nothing was registered on the vendor's account and no secret moved.
+		expect(JSON.stringify(r.body)).toMatch(/already/i);
+	});
+
+	it('404s a product on another account, never 403', async () => {
+		const res = await h.app.request('/admin/products/nope/stripe/connect', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({ webhook_url: 'https://clementine.email/webhook', ...PRICES }),
+			body: JSON.stringify({ webhook_url: 'https://x.test/hook' }),
 		});
-		const body = (await res.json()) as { dunning: { setting: string; note: string } };
-		expect(body.dunning.setting).toBe('cancel_subscription');
-		expect(body.dunning.note).toMatch(/cancel/i);
+		expect(res.status).toBe(404);
 	});
 });

@@ -4,6 +4,7 @@
 
 import { Command } from 'commander';
 import { apiRequest, type ClientOptions, resolveClient } from './client.js';
+import { parseEntitlementsFlag } from './entitlements-flag.js';
 
 const program = new Command();
 
@@ -90,6 +91,11 @@ key
 	.requiredOption('--email <email>')
 	.option('--kind <kind>', 'perpetual | subscription | trial', 'perpetual')
 	.option('--plan <label>', 'Optional vendor plan label (display only)')
+	.option('--seats <n>', 'Seats this licence gets (omit to inherit the product default)')
+	.option(
+		'--entitlements <json>',
+		'Capabilities this licence carries, e.g. \'{"export_4k":true,"batch_limit":100}\'',
+	)
 	.option('--trial-days <n>', 'Trial length in days')
 	.action(async (opts, cmd) => {
 		const { client, json } = ctx(cmd);
@@ -99,6 +105,8 @@ key
 				email: opts.email,
 				kind: opts.kind,
 				...(opts.plan ? { plan: opts.plan } : {}),
+				...(opts.seats ? { activation_limit: Number(opts.seats) } : {}),
+				...(opts.entitlements ? { entitlements: parseEntitlementsFlag(opts.entitlements) } : {}),
 				...(opts.trialDays ? { trial_days: Number(opts.trialDays) } : {}),
 			})) as { key: string };
 			out(json, res.key, res);

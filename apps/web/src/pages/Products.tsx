@@ -13,7 +13,7 @@ import {
 	PlusIcon,
 	SecondaryButton,
 } from '../components/ui.js';
-import { formatEntitlements, parseEntitlements } from '../lib/entitlements.js';
+import { entitlementsPayload, formatEntitlements, parseEntitlements } from '../lib/entitlements.js';
 import {
 	useArchiveProduct,
 	useBilling,
@@ -344,9 +344,12 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 	// What this price buys, as `export_4k, batch_limit=100`. Signed into every token it issues,
 	// so an app can gate a feature on it — which it must never do with the plan label.
 	const [capabilities, setCapabilities] = useState('');
+	// Blank means "keep what this price already grants", so clearing has to be said out loud.
+	const [clearCapabilities, setClearCapabilities] = useState(false);
 	const parsed = parseEntitlements(capabilities);
+	const capabilityError = clearCapabilities ? undefined : parsed.error;
 	// The same shape the API enforces, so a fat-fingered id is caught before the round trip.
-	const canAdd = /^price_[A-Za-z0-9]+$/.test(priceId) && !parsed.error;
+	const canAdd = /^price_[A-Za-z0-9]+$/.test(priceId) && !capabilityError;
 
 	return (
 		<Dialog
@@ -425,16 +428,26 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 			</div>
 			<Field
 				label="What it unlocks (optional)"
-				hint="export_4k, batch_limit=100 — signed into the licence so your app can read state.entitlements. Blank keeps what this price already grants."
+				hint="export_4k, batch_limit=100 — signed into the licence so your app can read state.entitlements. Blank keeps what this price already grants; licences already issued never change either way."
 			>
-				<input
-					className={inputClass}
-					placeholder="export_4k, batch_limit=100"
-					value={capabilities}
-					onChange={(e) => setCapabilities(e.target.value)}
-				/>
+				{clearCapabilities ? null : (
+					<input
+						className={inputClass}
+						placeholder="export_4k, batch_limit=100"
+						value={capabilities}
+						onChange={(e) => setCapabilities(e.target.value)}
+					/>
+				)}
 			</Field>
-			{parsed.error ? <p className="m-0 text-[12.5px] text-danger">{parsed.error}</p> : null}
+			<label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-secondary">
+				<input
+					type="checkbox"
+					checked={clearCapabilities}
+					onChange={(e) => setClearCapabilities(e.target.checked)}
+				/>
+				Grant no capabilities (clears what this price grants from now on)
+			</label>
+			{capabilityError ? <p className="m-0 text-[12.5px] text-danger">{capabilityError}</p> : null}
 			<AccentButton
 				disabled={!canAdd || create.isPending}
 				onClick={() =>
@@ -445,7 +458,7 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 							kind,
 							plan: plan || undefined,
 							activation_limit: seats ? Number(seats) : undefined,
-							entitlements: parsed.values,
+							entitlements: entitlementsPayload(capabilities, clearCapabilities),
 						},
 						{
 							onSuccess: () => {
@@ -453,6 +466,7 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 								setPlan('');
 								setSeats('');
 								setCapabilities('');
+								setClearCapabilities(false);
 							},
 						},
 					)

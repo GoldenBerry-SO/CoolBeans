@@ -68,3 +68,19 @@ export function formatEntitlements(values: EntitlementMap | null | undefined): s
 		.map(([name, value]) => (value === true ? name : `${name}=${value}`))
 		.join(', ');
 }
+
+/**
+ * What to send as the grant's `entitlements`, keeping the API's three states apart.
+ *
+ * Undefined keeps what the price already grants, an empty map clears them, and a map replaces
+ * them. The console has to be able to reach all three: without the clear, taking a capability off
+ * a price means retiring the mapping or reaching for curl.
+ *
+ * `clear` wins over any text, because the field is hidden while it is ticked and whatever is behind
+ * it is stale rather than intent. Text that does not parse sends nothing, so a typo can never be
+ * read as a clear — the caller shows the parse error instead.
+ */
+export function entitlementsPayload(text: string, clear: boolean): EntitlementMap | undefined {
+	if (clear) return {};
+	return parseEntitlements(text).values;
+}

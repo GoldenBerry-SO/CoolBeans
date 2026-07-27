@@ -2,7 +2,7 @@
 // ABOUTME: become the flat scalar map the API signs into every token this price issues.
 
 import { describe, expect, it } from 'vitest';
-import { parseEntitlements } from './entitlements.js';
+import { entitlementsPayload, parseEntitlements } from './entitlements.js';
 
 describe('parseEntitlements', () => {
 	it('reads a bare name as a capability that is switched on', () => {
@@ -53,5 +53,37 @@ describe('parseEntitlements', () => {
 		// An app reads these as `state.entitlements.export_4k`, so a name with a dot or a space
 		// in it is a trap: it looks like a nested path and is not one.
 		expect(parseEntitlements('limits.batch=10').error).toBeTruthy();
+	});
+});
+
+describe('entitlementsPayload', () => {
+	it('sends nothing for a blank field, so a re-map keeps what the price grants', () => {
+		// Omitted is the API's "keep". Re-mapping a price to fix its label must not strip the
+		// capabilities customers are paying for.
+		expect(entitlementsPayload('', false)).toBeUndefined();
+		expect(entitlementsPayload('   ', false)).toBeUndefined();
+	});
+
+	it('sends an empty map when the operator asks to clear', () => {
+		// The API's only way to say "this price grants none any more". Without a way to reach it
+		// from the console, taking a capability off a price means retiring the mapping or reaching
+		// for curl.
+		expect(entitlementsPayload('', true)).toEqual({});
+	});
+
+	it('lets clear win over leftover text, rather than sending both', () => {
+		// The field is hidden while clear is ticked, so text left behind it is stale, not intent.
+		expect(entitlementsPayload('export_4k', true)).toEqual({});
+	});
+
+	it('sends what was typed otherwise', () => {
+		expect(entitlementsPayload('export_4k, batch_limit=100', false)).toEqual({
+			export_4k: true,
+			batch_limit: 100,
+		});
+	});
+
+	it('sends nothing when the text does not parse, so a typo cannot clear a price', () => {
+		expect(entitlementsPayload('limits.batch=10', false)).toBeUndefined();
 	});
 });

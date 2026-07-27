@@ -184,6 +184,20 @@ describe('agentPrompt', () => {
 		expect(prompt).toContain('acme-app');
 	});
 
+	it('shows the four-group key format in the config facts (#85 cold trial)', () => {
+		const prefix = configFacts(product(), BASE).find((f) => f.label === 'Key prefix');
+		expect(prefix?.hint).toContain('ACME-XXXX-XXXX-XXXX-XXXX');
+	});
+
+	it('does not overstate the inconclusive rule (#85 cold trial)', () => {
+		// The prompt said every inconclusive answer "already resolves to allow". Not on a fresh
+		// install: offline before the first activation is deny/uninitialized, since there is no
+		// last known-good state to keep. The guide has the qualifier; the prompt dropped it.
+		const prompt = agentPrompt(product(), BASE);
+		expect(prompt).not.toMatch(/already resolves to allow/);
+		expect(prompt).toMatch(/last known-good/i);
+	});
+
 	it('carries the rules that matter even if the agent never opens the links', () => {
 		// This block gets pasted into a coding agent. Some of them will write code from the prompt
 		// alone, so the two things that cause real damage have to be in the prompt itself: locking

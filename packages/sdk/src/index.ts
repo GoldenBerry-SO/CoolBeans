@@ -153,7 +153,11 @@ export interface OpenOptions {
 	/**
 	 * What to call this device in the vendor's console, used when `open()` activates. Defaults to
 	 * the device fingerprint, which is a uuid — fine for the SDK, useless to a vendor trying to
-	 * work out which of a customer's machines holds a seat. Pass the machine's name.
+	 * work out which of a customer's machines holds a seat.
+	 *
+	 * This leaves the machine and shows to the vendor, and a hostname often carries a person's
+	 * name. Send something the user would expect to share — same guidance as the hosted docs, so
+	 * the two cannot be read as disagreeing.
 	 */
 	deviceName?: string;
 	/** Injectable randomness for deterministic tests. */

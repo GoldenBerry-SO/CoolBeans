@@ -34,4 +34,13 @@ describe('parseSeatsFlag', () => {
 		expect(() => parseSeatsFlag('0')).toThrow(/--seats/);
 		expect(() => parseSeatsFlag('1.5')).toThrow(/--seats/);
 	});
+
+	it('refuses a number JSON cannot carry, which was the original bug wearing more digits', () => {
+		// Digits-only passes a regex, but 1 with 400 zeroes is Infinity, and JSON.stringify turns
+		// Infinity into null — recreating exactly the invalid request this flag exists to stop.
+		expect(() => parseSeatsFlag(`1${'0'.repeat(400)}`)).toThrow(/--seats/);
+		// And the API's int4 bound applies here too, or a valid-here value 422s over there.
+		expect(() => parseSeatsFlag('2147483648')).toThrow(/--seats/);
+		expect(parseSeatsFlag('2147483647')).toBe(2_147_483_647);
+	});
 });

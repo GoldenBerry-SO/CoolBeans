@@ -120,6 +120,35 @@ describe('POST /admin/products/:slug/stripe/connect', () => {
 		expect(registered).toBe('https://keys.example.com/v1/stripe/webhook');
 	});
 
+	it('refuses a webhook URL carrying a query or fragment, rather than mangling it', async () => {
+		// z.string().url() accepts both, and concatenation would put the path INSIDE the query
+		// ("?source=setup/v1/stripe/webhook"), an endpoint Stripe can deliver to but we never
+		// answer. Codex and Bugbot found this one independently. Neither component means
+		// anything for a webhook endpoint, so refusing beats silently rewriting what was typed.
+		for (const url of [
+			'https://keys.example.com/coolbeans?source=setup',
+			'https://keys.example.com/coolbeans#setup',
+		]) {
+			const r = await connect({ webhook_url: url });
+			expect(r.status, url).toBe(422);
+			expect(JSON.stringify(r.body), url).toMatch(/query|fragment/i);
+		}
+	});
+
+	it('normalizes a trailing slash instead of registering a double-slashed path', async () => {
+		let registered: string | undefined;
+		const base = fakeStripeGateway();
+		h.deps.stripe = {
+			...base,
+			async connect(args: { productSlug: string; webhookUrl: string }) {
+				registered = args.webhookUrl;
+				return base.connect(args);
+			},
+		} as typeof base;
+		await connect({ webhook_url: 'https://keys.example.com/coolbeans/' });
+		expect(registered).toBe('https://keys.example.com/coolbeans/v1/stripe/webhook');
+	});
+
 	it('keeps the stored secret when Stripe reuses an endpoint and returns none', async () => {
 		await connect();
 		expect(await connectionSecret()).toBe('whsec_clementine');

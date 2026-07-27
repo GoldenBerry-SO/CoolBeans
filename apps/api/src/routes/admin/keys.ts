@@ -29,6 +29,7 @@ import {
 	accountScope,
 	assertScope,
 	auditActor,
+	entitlementsSchema,
 	productScope,
 	readBody,
 	requireProduct,
@@ -44,6 +45,14 @@ const issueBody = z.object({
 	email: z.string().email(),
 	kind: z.enum(['perpetual', 'subscription', 'trial']),
 	plan: z.string().max(120).optional(),
+	// Seats this licence gets. Omit to inherit the product's limit.
+	activation_limit: z.number().int().positive().optional(),
+	/**
+	 * Capabilities this licence carries, e.g. { "export_4k": true }. Same rules as a grant's,
+	 * because they end up in the same signed claim: flat scalars, names an app can read as a
+	 * property, at most 32. A hand-issued licence has no price to inherit them from.
+	 */
+	entitlements: entitlementsSchema.optional(),
 	expires_at: z.string().datetime().optional(),
 	trial_days: z.number().int().positive().optional(),
 	note: z.string().optional(),
@@ -151,6 +160,8 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 			email: body.email,
 			kind: body.kind,
 			plan: body.plan,
+			activationLimit: body.activation_limit ?? null,
+			entitlements: body.entitlements ?? null,
 			expiresAt,
 			note: body.note,
 			actor: auditActor(c),

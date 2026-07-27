@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { badRequest } from '../../http/errors.js';
 import { createGrant, listGrantsForProduct, retireGrant } from '../../services/grants.js';
-import { auditActor, readBody, requireProduct } from './util.js';
+import { auditActor, entitlementsSchema, readBody, requireProduct } from './util.js';
 
 const grantBody = z.object({
 	// A Stripe price id, like price_1QabcXYZ. The shape gate turns a fat-fingered id into a
@@ -31,19 +31,7 @@ const grantBody = z.object({
 	 * console enforces the same name rule; if only the console did, the contract would be a
 	 * convention rather than a rule.
 	 */
-	entitlements: z
-		.record(
-			z
-				.string()
-				.regex(
-					/^[A-Za-z_][A-Za-z0-9_]*$/,
-					'Capability names must be letters, numbers and underscores, starting with a letter',
-				)
-				.max(64),
-			z.union([z.boolean(), z.number(), z.string().max(256)]),
-		)
-		.refine((map) => Object.keys(map).length <= 32, 'At most 32 capabilities per price')
-		.optional(),
+	entitlements: entitlementsSchema.optional(),
 });
 
 export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): void {

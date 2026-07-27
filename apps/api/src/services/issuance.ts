@@ -116,6 +116,14 @@ export async function issueManual(
 		email: string;
 		kind: Kind;
 		plan?: string | null;
+		/** Seats this licence gets. Null inherits the product's limit. */
+		activationLimit?: number | null;
+		/**
+		 * Capabilities this licence carries. Normally snapshotted from the grant a price maps to;
+		 * a hand-issued licence has no price, so an operator names them here or the licence can
+		 * never carry any — which would make a comped Pro key indistinguishable from Basic.
+		 */
+		entitlements?: Record<string, boolean | number | string> | null;
 		expiresAt?: string | null;
 		note?: string;
 		actor: string;
@@ -135,6 +143,8 @@ export async function issueManual(
 			purchaseId: purchase.id,
 			kind: args.kind,
 			plan: args.plan,
+			activationLimit: args.activationLimit,
+			entitlements: args.entitlements,
 			expiresAt: args.expiresAt,
 			actor: args.actor,
 		});

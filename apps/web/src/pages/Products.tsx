@@ -489,21 +489,27 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 	const [webhookUrl, setWebhookUrl] = useState('');
 	const connect = useConnectStripe();
 
-	// Once it succeeds the operator still has one thing to do in Stripe, so show the
-	// result rather than closing over it.
+	// Once it succeeds the operator may still have one thing to do in Stripe, so show the
+	// result rather than closing over it. A cloud Connect account gets the note instead of the
+	// endpoint: its events already arrive on the platform endpoint, and telling that operator to
+	// "point Stripe at" a path sends them to their dashboard to wire something that needs no
+	// wiring (Bugbot, #88).
 	if (connect.isSuccess && connect.data) {
+		const alreadyWired = Boolean(connect.data.note);
 		return (
 			<Dialog
 				title="Stripe connected"
-				lede={`${product.name} · webhook wired`}
+				lede={`${product.name} · ${alreadyWired ? 'events already reach us' : 'webhook wired'}`}
 				onClose={onClose}
 				footer={<SecondaryButton onClick={onClose}>Done</SecondaryButton>}
 			>
-				<Field label="Point Stripe at this endpoint">
-					<div className="rounded-[7px] bg-track px-3 py-2 font-mono text-[12.5px]">
-						{connect.data.webhook_path}
-					</div>
-				</Field>
+				{alreadyWired ? null : (
+					<Field label="Point Stripe at this endpoint">
+						<div className="rounded-[7px] bg-track px-3 py-2 font-mono text-[12.5px]">
+							{connect.data.webhook_path}
+						</div>
+					</Field>
+				)}
 				<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
 					{connect.data.note ??
 						(connect.data.secret_rotated

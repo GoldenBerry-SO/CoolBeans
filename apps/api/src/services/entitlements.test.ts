@@ -319,6 +319,13 @@ describe('issuing a licence by hand', () => {
 		expect((await licenceRow((r.body as { key: string }).key)).entitlements).toBeNull();
 	});
 
+	it('refuses a seat count the column cannot hold, rather than 500ing', async () => {
+		// int4 tops out at 2147483647. Above that the schema used to accept it and the insert
+		// blew up mid-transaction, so schema-valid input produced an internal error. Codex P2.
+		const r = await issue({ kind: 'perpetual', activation_limit: 2_147_483_648 });
+		expect(r.status).toBe(422);
+	});
+
 	it('refuses a capability name an app cannot read, exactly as the grant route does', async () => {
 		const r = await issue({ kind: 'perpetual', entitlements: { 'limits.batch': 10 } });
 		expect(r.status).toBeGreaterThanOrEqual(400);

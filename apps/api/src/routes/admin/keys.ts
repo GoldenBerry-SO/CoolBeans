@@ -45,8 +45,9 @@ const issueBody = z.object({
 	email: z.string().email(),
 	kind: z.enum(['perpetual', 'subscription', 'trial']),
 	plan: z.string().max(120).optional(),
-	// Seats this licence gets. Omit to inherit the product's limit.
-	activation_limit: z.number().int().positive().optional(),
+	// Seats this licence gets. Omit to inherit the product's limit. Bounded to what the int4
+	// column can hold, or a schema-valid value blows up mid-transaction as a 500 (Codex P2).
+	activation_limit: z.number().int().positive().max(2_147_483_647).optional(),
 	/**
 	 * Capabilities this licence carries, e.g. { "export_4k": true }. Same rules as a grant's,
 	 * because they end up in the same signed claim: flat scalars, names an app can read as a

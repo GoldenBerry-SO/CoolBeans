@@ -18,8 +18,8 @@ const grantBody = z.object({
 	// Free-form vendor label (e.g. "Pro monthly"), snapshotted onto issued licences. Display only.
 	plan: z.string().min(1).optional(),
 	// Seats this price buys. Omit to inherit the product's limit, which is what every grant did
-	// before seats could be priced.
-	activation_limit: z.number().int().positive().optional(),
+	// before seats could be priced. Bounded to the int4 column, same reason as manual issuance.
+	activation_limit: z.number().int().positive().max(2_147_483_647).optional(),
 	/**
 	 * Capabilities this price buys, e.g. { "export_4k": true, "batch_limit": 100 }. Omit to keep
 	 * whatever the price already grants; send {} to clear them, which is the only way to take a

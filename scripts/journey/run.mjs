@@ -94,14 +94,23 @@ await step('the merchant onboards the product and maps its Stripe prices to gran
 		download_url: 'https://clementine.email/download',
 	});
 	assert.ok([200, 409].includes(res.status), `product setup: ${res.status}`);
-	// Pricing lives in Stripe now: connect maps the one-time and annual prices to a perpetual
-	// and a subscription grant, which is what resolves each checkout to this product.
+	// Connect registers the webhook and nothing else; each price is mapped to a grant on its
+	// own, which is what resolves a checkout to this product. Two calls instead of one is the
+	// point: the single-call shape was the two-tier model the redesign deleted.
 	const connected = await api('POST', '/admin/products/clementine/stripe/connect', {
 		webhook_url: `${API}/v1/stripe/webhook`,
-		lifetime_price_id: 'price_clemLifetime',
-		yearly_price_id: 'price_clemYearly',
 	});
 	assert.equal(connected.status, 200, `connect: ${connected.status} ${JSON.stringify(connected.body)}`);
+	for (const [priceId, kind] of [
+		['price_clemLifetime', 'perpetual'],
+		['price_clemYearly', 'subscription'],
+	]) {
+		const grant = await api('POST', '/admin/products/clementine/grants', {
+			stripe_price_id: priceId,
+			kind,
+		});
+		assert.equal(grant.status, 200, `grant ${priceId}: ${grant.status} ${JSON.stringify(grant.body)}`);
+	}
 })();
 
 const sessionId = `cs_life_${unique}`;

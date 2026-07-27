@@ -319,6 +319,27 @@ describe('issuing a licence by hand', () => {
 		expect((await licenceRow((r.body as { key: string }).key)).entitlements).toBeNull();
 	});
 
+	it('shows the capabilities on the admin licence row, so an operator can see what they set', async () => {
+		// Set at issue time and then invisible: no console page showed a licence's entitlements,
+		// so a comped Pro key and a Basic key looked identical everywhere an operator looks —
+		// the same field-exists-but-unreachable class as the dialog and the CLI.
+		await issue({ kind: 'perpetual', plan: 'Pro', entitlements: PRO });
+		const res = await h.app.request('/admin/products/clementine/keys', {
+			headers: h.adminHeaders,
+		});
+		const { keys } = (await res.json()) as { keys: Array<Record<string, unknown>> };
+		expect(keys[0]?.entitlements).toEqual(PRO);
+	});
+
+	it('keeps entitlements null on the row for a licence that has none', async () => {
+		await issue({ kind: 'perpetual' });
+		const res = await h.app.request('/admin/products/clementine/keys', {
+			headers: h.adminHeaders,
+		});
+		const { keys } = (await res.json()) as { keys: Array<Record<string, unknown>> };
+		expect(keys[0]?.entitlements).toBeNull();
+	});
+
 	it('refuses a seat count the column cannot hold, rather than 500ing', async () => {
 		// int4 tops out at 2147483647. Above that the schema used to accept it and the insert
 		// blew up mid-transaction, so schema-valid input produced an internal error. Codex P2.

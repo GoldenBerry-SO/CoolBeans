@@ -3,7 +3,7 @@
 
 import type { Database, LicenseGrant, Product, StripeConnection } from '@coolbeans/db';
 import { licenseGrants, licenses, products, stripeConnections } from '@coolbeans/db';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull } from 'drizzle-orm';
 
 /**
  * The connection every self-host issuance and the current single-connection flow runs on.
@@ -108,15 +108,18 @@ export async function entitlementNamesForProduct(
 	db: Database,
 	productId: number,
 ): Promise<string[]> {
+	// DISTINCT and NOT NULL, because this feeds an unauthenticated endpoint. Every grant-issued
+	// licence carries its snapshot, so without them each public brief fetch would read one jsonb
+	// per licence ever sold; distinct capability maps number one per tier, however many sell.
 	const [grantRows, licenceRows] = await Promise.all([
 		db
-			.select({ entitlements: licenseGrants.entitlements })
+			.selectDistinct({ entitlements: licenseGrants.entitlements })
 			.from(licenseGrants)
-			.where(eq(licenseGrants.productId, productId)),
+			.where(and(eq(licenseGrants.productId, productId), isNotNull(licenseGrants.entitlements))),
 		db
-			.select({ entitlements: licenses.entitlements })
+			.selectDistinct({ entitlements: licenses.entitlements })
 			.from(licenses)
-			.where(eq(licenses.productId, productId)),
+			.where(and(eq(licenses.productId, productId), isNotNull(licenses.entitlements))),
 	]);
 	return [
 		...new Set(

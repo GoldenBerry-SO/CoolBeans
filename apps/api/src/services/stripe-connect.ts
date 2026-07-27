@@ -73,11 +73,16 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	}
 	if (!deps.stripe) throw new Error('Stripe is not configured on this server.');
 
-	// One endpoint per connection: register the connection-level path regardless of the URL the
-	// caller passed. Two products registering two per-product URLs would make Stripe mint two
-	// endpoints with two secrets, and only the last would be stored — every later delivery for
-	// the first product would then fail signature verification.
-	const webhookUrl = new URL('/v1/stripe/webhook', args.webhookUrl).toString();
+	// One endpoint per connection: register the connection-level path whatever the caller
+	// passed — two per-product URLs would make Stripe mint two endpoints with two secrets, and
+	// only the last would be stored. Built by concatenation, not new URL('/path', base): that
+	// idiom drops the base's own path, so a self-host served under a prefix
+	// (https://host/coolbeans) had its endpoint registered at the bare host and every delivery
+	// 404ed — no key ever issued, silently. The dialog's placeholder shows the full path, so a
+	// pasted full endpoint is kept rather than doubled.
+	const path = '/v1/stripe/webhook';
+	const trimmed = args.webhookUrl.replace(/\/+$/, '');
+	const webhookUrl = trimmed.endsWith(path) ? trimmed : trimmed + path;
 	const result = await deps.stripe.connect({ productSlug: args.product.slug, webhookUrl });
 	// Stripe only reveals a signing secret when it CREATES an endpoint. Re-running connect
 	// against an existing one returns nothing, so writing it through would blank the stored

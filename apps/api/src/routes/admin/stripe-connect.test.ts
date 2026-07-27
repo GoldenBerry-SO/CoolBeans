@@ -87,6 +87,39 @@ describe('POST /admin/products/:slug/stripe/connect', () => {
 		expect(await grantStatuses()).toEqual([]);
 	});
 
+	it('keeps a path prefix in the registered endpoint URL', async () => {
+		// new URL('/path', base) drops base's own path, so a self-host served under a prefix
+		// (https://host/coolbeans) had its webhook registered at the bare host — every delivery
+		// 404s and no key is ever issued, silently. Same class Bugbot caught in onboarding.
+		let registered: string | undefined;
+		const base = fakeStripeGateway();
+		h.deps.stripe = {
+			...base,
+			async connect(args: { productSlug: string; webhookUrl: string }) {
+				registered = args.webhookUrl;
+				return base.connect(args);
+			},
+		} as typeof base;
+		const r = await connect({ webhook_url: 'https://keys.example.com/coolbeans' });
+		expect(r.status).toBe(200);
+		expect(registered).toBe('https://keys.example.com/coolbeans/v1/stripe/webhook');
+	});
+
+	it('does not double the path when the operator pastes the full endpoint', async () => {
+		// The dialog's placeholder shows the full path, so people paste it.
+		let registered: string | undefined;
+		const base = fakeStripeGateway();
+		h.deps.stripe = {
+			...base,
+			async connect(args: { productSlug: string; webhookUrl: string }) {
+				registered = args.webhookUrl;
+				return base.connect(args);
+			},
+		} as typeof base;
+		await connect({ webhook_url: 'https://keys.example.com/v1/stripe/webhook' });
+		expect(registered).toBe('https://keys.example.com/v1/stripe/webhook');
+	});
+
 	it('keeps the stored secret when Stripe reuses an endpoint and returns none', async () => {
 		await connect();
 		expect(await connectionSecret()).toBe('whsec_clementine');

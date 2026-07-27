@@ -4,7 +4,7 @@
 
 import { Command } from 'commander';
 import { apiRequest, type ClientOptions, resolveClient } from './client.js';
-import { parseEntitlementsFlag } from './entitlements-flag.js';
+import { parseEntitlementsFlag, parseSeatsFlag } from './entitlements-flag.js';
 
 const program = new Command();
 
@@ -105,7 +105,9 @@ key
 				email: opts.email,
 				kind: opts.kind,
 				...(opts.plan ? { plan: opts.plan } : {}),
-				...(opts.seats ? { activation_limit: Number(opts.seats) } : {}),
+				// Checked here: Number('abc') is NaN, which JSON turns into null, and the server's
+				// complaint about null seats would point everywhere except at the typo.
+				...(opts.seats ? { activation_limit: parseSeatsFlag(opts.seats) } : {}),
 				...(opts.entitlements ? { entitlements: parseEntitlementsFlag(opts.entitlements) } : {}),
 				...(opts.trialDays ? { trial_days: Number(opts.trialDays) } : {}),
 			})) as { key: string };

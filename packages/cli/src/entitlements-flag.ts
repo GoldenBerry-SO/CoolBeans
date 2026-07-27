@@ -27,3 +27,11 @@ export function parseEntitlementsFlag(raw: string): Record<string, boolean | num
 	}
 	return parsed as Record<string, boolean | number | string>;
 }
+
+/** Parse --seats: a positive integer, or a message that points at the typo. */
+export function parseSeatsFlag(raw: string): number {
+	if (!/^[0-9]+$/.test(raw) || Number(raw) < 1) {
+		throw new Error(`--seats must be a positive integer, got "${raw}".`);
+	}
+	return Number(raw);
+}

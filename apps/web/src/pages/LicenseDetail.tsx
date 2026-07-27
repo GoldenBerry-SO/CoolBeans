@@ -6,6 +6,7 @@ import { clsx } from 'clsx';
 import { useState } from 'react';
 import { OfflineActivationDialog } from '../components/OfflineActivationDialog.js';
 import { Card, CardHeader, EmptyState, SecondaryButton, StatusPill } from '../components/ui.js';
+import { formatEntitlements } from '../lib/entitlements.js';
 import { useLicenseDetail, useSetLicenseStatus } from '../lib/queries.js';
 
 function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
@@ -106,6 +107,17 @@ export function LicenseDetailPage() {
 				/>
 				<Fact label="Seats" value={`${live.length}/${license.activation_limit}`} mono />
 			</Card>
+
+			{/* What this licence unlocks. Without it an operator can set capabilities at issue
+			    time and never see them again, so a comped Pro key reads as Basic everywhere. */}
+			{license.entitlements ? (
+				<Card className="mb-4 overflow-hidden px-[18px] py-3">
+					<span className="mr-3 font-semibold text-[12px] text-ink-secondary">Unlocks</span>
+					<span className="font-mono text-[12.5px] text-ink-body">
+						{formatEntitlements(license.entitlements)}
+					</span>
+				</Card>
+			) : null}
 
 			<div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
 				<Card className="overflow-hidden">

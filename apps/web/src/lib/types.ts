@@ -34,6 +34,8 @@ export interface LicenseRow {
 	email_sent_at: string | null;
 	live_seats: number;
 	activation_limit: number;
+	/** What this licence unlocks, signed into its tokens. Null when it carries none. */
+	entitlements: Record<string, boolean | number | string> | null;
 	customer_email: string | null;
 }
 

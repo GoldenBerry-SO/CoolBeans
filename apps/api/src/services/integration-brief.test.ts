@@ -212,6 +212,20 @@ describe('buildProductBrief', () => {
 		expect(brief).toContain(GUIDE);
 	});
 
+	it('shows the key format keys actually have (#85 cold trial)', () => {
+		// The brief said CLEM-XXXX-XXXX-XXXX; real keys are the prefix plus FOUR groups of four.
+		// Harmless to the SDK, but an integrator writing an input mask off the brief would
+		// reject every valid key their customers paste.
+		const brief = buildProductBrief({
+			product: product(),
+			baseUrl: BASE,
+			publicKeys: KEYS,
+			guideUrl: GUIDE,
+		});
+		expect(brief).toContain('ACME-XXXX-XXXX-XXXX-XXXX');
+		expect(brief).not.toMatch(/ACME-XXXX-XXXX-XXXX[^-]/);
+	});
+
 	it('embeds the public keys with their kid', () => {
 		const brief = buildProductBrief({
 			product: product(),

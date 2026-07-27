@@ -34,7 +34,7 @@ export function generateKeyBody(): string {
 	return drawSymbols(KEY_BODY_LENGTH);
 }
 
-/** Generate a full display key: `<PREFIX>-XXXX-XXXX-XXXX`. */
+/** Generate a full display key: `<PREFIX>-XXXX-XXXX-XXXX-XXXX` (four groups, 16 body chars). */
 export function generateKey(prefix: string): string {
 	const body = generateKeyBody();
 	const groups = [body.slice(0, 4), body.slice(4, 8), body.slice(8, 12), body.slice(12, 16)];

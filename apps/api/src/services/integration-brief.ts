@@ -349,7 +349,7 @@ how-to code for every framework; this brief has ${product.name}'s real values to
 
 - **Base URL:** ${baseUrl}
 - **Product slug:** ${product.slug}
-- **Key prefix:** ${product.keyPrefix} (keys look like ${product.keyPrefix}-XXXX-XXXX-XXXX)
+- **Key prefix:** ${product.keyPrefix} (keys look like ${product.keyPrefix}-XXXX-XXXX-XXXX-XXXX)
 - **Seat model:** ${seatModelWords(product.activationModel)}, ${product.activationLimit} per key by default (a price can buy more or fewer; enforced on our side, so the app never counts them)
 - **Seat handling:** ${floating ? 'the TypeScript SDK holds the floating seat itself; a Swift app calls `holdSeat()` on a timer' : 'nothing to do (per-device seats)'}
 
@@ -365,7 +365,8 @@ ${
 
 ${entitlementNames.map((name) => `- \`${name}\``).join('\n')}
 
-Not every licence carries every one — a price decides. Absent means off, so write
+Not every licence carries every one — each licence names its own, set by the price it was
+bought through or by the vendor issuing it directly. Absent means off, so write
 \`state.entitlements?.<name>\` and treat missing as no.`
 		: `This product's prices grant **no capabilities**, so \`state.entitlements\` will be absent and
 there is nothing to gate on. Do not invent a name and check for it: it would read as off forever,

@@ -1,7 +1,7 @@
 // ABOUTME: @coolbeans/sdk (PRD §11) — drop-in licensing for Node, Electron, Tauri, and the browser.
 // ABOUTME: The key is the credential; offline-tolerant by contract, only `disabled` revokes access.
 
-import { type TokenPayload, verifyTokenSignature } from './token.js';
+import { decodeToken, type TokenPayload, verifyTokenSignature } from './token.js';
 
 export type { TokenPayload };
 
@@ -28,7 +28,16 @@ export interface Storage {
 }
 
 export interface CoolBeansOptions {
-	product: string;
+	/**
+	 * The product slug. Optional: activate and validate resolve the product from the key's prefix,
+	 * and signing keys are fetched by licence key, so an app does not have to know it.
+	 *
+	 * **Pass it if you sell more than one product from one Cool Beans account.** Without it the
+	 * first licence this install activates decides which product the app is bound to, and only
+	 * that first key is unchecked — enough for a single-product vendor, and not enough if a
+	 * customer holding a licence for your other app might paste it here on a fresh install.
+	 */
+	product?: string;
 	/** Base URL of the Cool Beans server. Defaults to the hosted cloud. */
 	baseUrl?: string;
 	/**
@@ -36,13 +45,74 @@ export interface CoolBeansOptions {
 	 * Keys fetched from /v1/pubkey are persisted to storage and merged with these.
 	 */
 	publicKeys?: Record<string, string>;
-	/** Persistent storage. Defaults to localStorage in the browser, in-memory elsewhere. */
+	/**
+	 * Where the device id, cached token and trusted keys live between launches.
+	 *
+	 * The browser gets `localStorage` automatically. **Everywhere else this is required**, and
+	 * construction throws without it: in-memory storage mints a new device id every launch, so
+	 * every launch takes another activation and a node-locked licence is used up in a handful of
+	 * restarts. That lands on somebody who paid, months after the integration was written.
+	 */
 	storage?: Storage;
+	/**
+	 * Permit in-memory storage outside a browser. For tests and throwaway scripts only — an app
+	 * that ships this burns one of its customer's seats on every restart.
+	 */
+	allowEphemeralStorage?: boolean;
 	/** Injectable fetch for tests. */
 	fetch?: typeof fetch;
 }
 
 export type OfflineState = 'valid' | 'grace' | 'expired';
+
+/** Why access is granted. All four unlock the app; they differ only in what to tell the user. */
+export type AllowReason =
+	/** The server just confirmed it. */
+	| 'online'
+	/** No fresh answer, but the cached token is still within its lifetime. */
+	| 'cached'
+	/** Past the token's lifetime and still inside the licence. Nudge them online. */
+	| 'grace'
+	/** The machine's clock went backwards. Access stands, evaluated against the clock floor. */
+	| 'clock_rollback';
+
+/** Why access is refused. Only these three are definitive; everything else keeps the last state. */
+export type DenyReason =
+	/** A fetched answer said `disabled`. The only revocation signal there is. */
+	| 'revoked'
+	/** A signed expiry has passed, which is our own credential saying the licence ended. */
+	| 'expired'
+	/** No entitlement has ever been established on this device. Ask for a key. */
+	| 'uninitialized';
+
+/**
+ * The single verdict from `open()`. A discriminated union rather than a boolean, because
+ * "we have never established an entitlement" must not share a name with "you were revoked":
+ * one asks for a licence key, the other says the licence is gone.
+ *
+ * Branch access on `decision` only. `license` is for display.
+ */
+export type AccessState =
+	| {
+			decision: 'allow';
+			reason: AllowReason;
+			license: LicenseObject | null;
+			/** The licence's own end date, null for perpetual. */
+			expiresAt: string | null;
+			/**
+			 * What this licence buys, when the vendor priced capabilities. Signed, so it is safe
+			 * to gate a feature on — unlike `license.plan`. Absent, not empty, when there are
+			 * none, so `state.entitlements?.export_4k` reads false for a licence without a
+			 * capability map rather than claiming there is one.
+			 */
+			entitlements?: Record<string, boolean | number | string>;
+	  }
+	| {
+			decision: 'deny';
+			reason: DenyReason;
+			license: LicenseObject | null;
+			entitlements?: Record<string, boolean | number | string>;
+	  };
 
 export interface ActivateResult {
 	license: LicenseObject;
@@ -65,29 +135,29 @@ export interface VerifyResult {
 	inconclusive: boolean;
 }
 
-export interface StartOptions {
-	licenseKey: string;
-	/** Defaults to the instance id stored by the last successful activate. */
-	instanceId?: string;
-	/** Defaults to a third of the cached token's lifetime, or 24h if there is none. */
-	intervalMs?: number;
+export interface OpenOptions {
 	/**
-	 * Heartbeat cadence. Provide this ONLY for floating products, at roughly a third of the
-	 * lease window, so one dropped request does not cost the user their seat. Node-locked
-	 * products should leave it unset.
+	 * Called when the verdict changes after `open()` returned — a revocation arriving, the
+	 * network going away, a licence lapsing. Not called for the value `open()` itself
+	 * returned, and not called again while the verdict stays the same.
 	 */
-	heartbeatMs?: number;
+	onChange?: (state: AccessState) => void;
+	/**
+	 * Refresh cadence. Defaults to a third of the cached token's lifetime, so there are two
+	 * or three chances to reconnect before a user drifts into grace. There is rarely a reason
+	 * to set this.
+	 */
+	intervalMs?: number;
 	/** Fraction of the interval to spread randomly, 0 to 1. Defaults to 0.2. */
 	jitter?: number;
-	onResult?: (result: VerifyResult) => void;
-	onError?: (error: unknown) => void;
+	/**
+	 * What to call this device in the vendor's console, used when `open()` activates. Defaults to
+	 * the device fingerprint, which is a uuid — fine for the SDK, useless to a vendor trying to
+	 * work out which of a customer's machines holds a seat. Pass the machine's name.
+	 */
+	deviceName?: string;
 	/** Injectable randomness for deterministic tests. */
 	random?: () => number;
-}
-
-export interface LicenseWatcher {
-	/** Cancel all scheduled work. Safe to call more than once. */
-	stop(): void;
 }
 
 const DEFAULT_BASE = 'https://app.coolbeans.tools';
@@ -97,6 +167,21 @@ const DEVICE_KEY = 'coolbeans.device_id';
 const TOKEN_KEY = 'coolbeans.token';
 const KEYS_KEY = 'coolbeans.pubkeys';
 const INSTANCE_KEY = 'coolbeans.instance_id';
+const CLOCK_KEY = 'coolbeans.clock_floor';
+const PRODUCT_KEY = 'coolbeans.product';
+const REVOKED_KEY = 'coolbeans.revoked';
+
+/** The §9 licence object is exactly the display half of a token payload. */
+function licenseFromPayload(payload: TokenPayload): LicenseObject {
+	return {
+		key: payload.key,
+		status: payload.status,
+		kind: payload.kind,
+		plan: payload.plan,
+		product: payload.product,
+		expires_at: payload.expires_at,
+	};
+}
 
 function memoryStorage(): Storage {
 	const map = new Map<string, string>();
@@ -108,31 +193,71 @@ function memoryStorage(): Storage {
 	};
 }
 
-function defaultStorage(): Storage {
-	// Browsers get durable storage automatically; Node/Electron callers should inject
-	// their own. Falling back to memory silently would mint a new device id on every
-	// restart and burn a seat each time, so say so loudly once.
+function defaultStorage(allowEphemeral: boolean): Storage {
+	// Browsers get durable storage automatically. Everywhere else, refuse: a warning went to a
+	// console nobody reads during integration, and the bill arrived later as a customer whose
+	// licence had been spent on their own restarts. Failing at construction is loud, immediate,
+	// and lands on the person who can actually fix it.
 	const ls = (globalThis as { localStorage?: Storage }).localStorage;
 	if (ls) return ls;
-	console.warn(
-		'[coolbeans] No localStorage found and no storage option was passed, so this client is using in-memory storage. The device id and cached token will be lost on restart, and each restart consumes another activation seat. Pass a durable `storage` (for example one backed by a file or Electron store).',
-	);
-	return memoryStorage();
+	if (allowEphemeral) return memoryStorage();
+	throw new CoolBeansError(0, {
+		error: 'storage_required',
+		message:
+			'Cool Beans needs durable storage outside the browser. Pass `storage` (a file, an Electron store, the Keychain — anything that survives a restart), or `allowEphemeralStorage: true` if this really is a test. Without it every launch mints a new device id and consumes another activation from your customer.',
+	});
 }
 
 export class CoolBeans {
-	private readonly product: string;
+	private readonly product: string | undefined;
 	private readonly baseUrl: string;
 	private readonly storage: Storage;
 	private readonly doFetch: typeof fetch;
 	private readonly embeddedKeys: Record<string, string> | null;
 
+	/** Background upkeep started by `open()` and cancelled by `stop()`. */
+	private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+	private leaseTimer: ReturnType<typeof setTimeout> | undefined;
+	private stopped = true;
+	private refreshing = false;
+	/** Bumped by every `open()` and by `stop()`, so a superseded call knows to keep its hands off. */
+	private generation = 0;
+	private openKey: string | undefined;
+	private deviceName: string | undefined;
+	private lastState: AccessState | undefined;
+	private onChange: ((state: AccessState) => void) | undefined;
+	/**
+	 * 'unknown' until a heartbeat has answered, 'none' for a node-locked product, otherwise
+	 * the cadence in ms we hold the floating seat at. The app is never asked which it is.
+	 */
+	private lease: 'unknown' | 'none' | number = 'unknown';
+
 	constructor(opts: CoolBeansOptions) {
 		this.product = opts.product;
 		this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE).replace(/\/$/, '');
-		this.storage = opts.storage ?? defaultStorage();
+		this.storage = opts.storage ?? defaultStorage(opts.allowEphemeralStorage === true);
 		this.doFetch = opts.fetch ?? globalThis.fetch.bind(globalThis);
 		this.embeddedKeys = opts.publicKeys ?? null;
+	}
+
+	/**
+	 * The product this app is allowed to unlock on: the declared slug, or the one the first
+	 * successful activation bound this install to.
+	 *
+	 * Something has to hold this line. Activate and validate resolve a product from the key, so
+	 * without a check a customer's licence for the vendor's *other* app would activate here,
+	 * fetch that product's keyset by licence key, verify, and unlock. Undefined only until the
+	 * first licence lands.
+	 */
+	private expectedProduct(): string | undefined {
+		// `|| undefined`, not `??`: release() writes the key blank rather than deleting it, and an
+		// empty string as the expected product would mismatch every real one and lock the app.
+		return this.product ?? (this.storage.getItem(PRODUCT_KEY) || undefined);
+	}
+
+	/** Bind this install to a product the server has just confirmed. */
+	private rememberProduct(product: string): void {
+		if (this.storage.getItem(PRODUCT_KEY) !== product) this.storage.setItem(PRODUCT_KEY, product);
 	}
 
 	/** A stable per-install device id, persisted in storage. */
@@ -147,7 +272,9 @@ export class CoolBeans {
 
 	/** The instance id from the last successful activate on this device, if any. */
 	instanceId(): string | null {
-		return this.storage.getItem(INSTANCE_KEY);
+		// Empty means released: storage that cannot delete a key is written blank instead, and
+		// an empty string is not an id.
+		return this.storage.getItem(INSTANCE_KEY) || null;
 	}
 
 	/** Activate this device. Fails closed if the returned product does not match. */
@@ -160,11 +287,354 @@ export class CoolBeans {
 			instance: InstanceObject;
 		};
 		if (!res.ok || !data.ok) throw new CoolBeansError(res.status, data);
-		if (data.license.product !== this.product) {
-			throw new CoolBeansError(res.status, { error: 'product_mismatch' });
+		const expected = this.expectedProduct();
+		if (expected !== undefined && data.license.product !== expected) {
+			throw new CoolBeansError(res.status, {
+				error: 'product_mismatch',
+				message: 'That licence is for a different product.',
+			});
 		}
 		this.storage.setItem(INSTANCE_KEY, data.instance.id);
+		this.rememberProduct(data.license.product);
+		// A new seat reopens the lease question. Without this, a floating seat that lapsed (the
+		// heartbeat answered null, so the loop stopped) is re-activated by the refresh and then
+		// never held again: it lapses once more and keeps doing so, so the app looks like it works
+		// while the seat churns. Here rather than in open()'s helper, because an app calling
+		// activate itself has taken a fresh seat just the same.
+		this.lease = 'unknown';
 		return { license: data.license, instance: data.instance };
+	}
+
+	/**
+	 * The one call to make on launch. Activates if this device has never been activated,
+	 * refreshes when it can reach us, falls back to the cached signed token when it cannot,
+	 * and returns a single verdict:
+	 *
+	 * ```ts
+	 * const state = await license.open(licenseKey)
+	 * if (state.decision === 'deny') lockOut(state)
+	 * ```
+	 *
+	 * It exists because the alternative — hold the instance id, choose `verify` or
+	 * `verifyOffline`, and read `inconclusive` correctly — is three chances to lock out a
+	 * paying customer. Everything inconclusive (offline, 5xx, timeout, 404, an unknown key)
+	 * keeps the last known-good state. Only a fetched `disabled` or a signed expiry denies.
+	 *
+	 * From here the SDK keeps itself fresh: it re-checks on its own cadence, holds a floating
+	 * seat if the product has them, and reports a changed verdict through `onChange`. Call
+	 * `stop()` on shutdown. Nothing it does in the background throws into your app.
+	 *
+	 * `verify`, `verifyOffline` and `offlineState` remain for apps that want the pieces.
+	 */
+	async open(licenseKey?: string, opts: OpenOptions = {}): Promise<AccessState> {
+		// A second open() replaces the first rather than racing it. The handler survives one that
+		// does not pass a new one: an app registers it on launch and calls open() again from the
+		// key-entry path, which usually has no handler to hand, and dropping it there would stop
+		// revocations reaching a running app without a word. `stop()` is how you clear it.
+		const handler = opts.onChange ?? this.onChange;
+		this.stop();
+		this.stopped = false;
+		this.onChange = handler;
+		this.lease = 'unknown';
+		// The cached token carries its own licence key, so an app that has opened once need
+		// not store the key anywhere itself.
+		this.openKey = licenseKey ?? this.cachedTokenKey();
+		this.deviceName = opts.deviceName;
+		// Whose call this is. A second open() cannot cancel one that is parked on an await — the
+		// launch check still running while the user pastes a key — so the older one has to notice
+		// it was superseded rather than overwrite shared state and schedule a second refresh loop
+		// on top of the live one. It still returns its own answer to its own caller.
+		const generation = ++this.generation;
+		const state = await this.evaluate();
+		if (generation !== this.generation) return state;
+		this.lastState = state;
+		// Take the floating seat before saying yes, so an allow means the seat is actually
+		// held. One probe is also how we learn whether this product has leases at all.
+		if (state.decision === 'allow') {
+			await this.holdLease();
+			if (generation !== this.generation) return state;
+		}
+		this.scheduleRefresh(opts);
+		return state;
+	}
+
+	/**
+	 * Cancel the background upkeep `open()` started. Idempotent, and safe to call without
+	 * ever having opened. The cached token is untouched, so a later `open()` still unlocks
+	 * offline; only the timers go away.
+	 */
+	stop(): void {
+		this.stopped = true;
+		// Any open() still in flight is now superseded too, so it cannot schedule upkeep after
+		// this and leave a loop running past a shutdown.
+		this.generation += 1;
+		if (this.refreshTimer) clearTimeout(this.refreshTimer);
+		if (this.leaseTimer) clearTimeout(this.leaseTimer);
+		this.refreshTimer = undefined;
+		this.leaseTimer = undefined;
+		this.onChange = undefined;
+	}
+
+	/** The current verdict, online where we can reach the server and cached where we cannot. */
+	private async evaluate(): Promise<AccessState> {
+		// Before anything reads the clock: record how late it has ever been on this install.
+		this.rememberClock();
+		const key = this.openKey ?? this.cachedTokenKey();
+		const online = key ? await this.openOnline(key) : null;
+		return online ?? this.offlineVerdict();
+	}
+
+	/**
+	 * Re-check, tell the app if the answer moved, and schedule the next one. Never throws:
+	 * a failed refresh is the inconclusive case, so the last good state stands.
+	 */
+	private async refreshOnce(opts: OpenOptions): Promise<void> {
+		this.refreshTimer = undefined;
+		if (this.stopped) return;
+		// Schedule the next tick before doing any work: a slow or hung request must not stall
+		// the cadence. If the previous check somehow has not finished, skip this one rather
+		// than run two at once.
+		this.scheduleRefresh(opts);
+		if (this.refreshing) return;
+		this.refreshing = true;
+		try {
+			const state = await this.evaluate();
+			if (this.stopped) return;
+			const before = this.lastState;
+			this.lastState = state;
+			if (!before || CoolBeans.verdictChanged(before, state)) this.onChange?.(state);
+			// Only when we never got an answer about leases. Once the cadence is known the lease
+			// loop keeps itself going, and a node-locked product is done being asked.
+			if (this.lease === 'unknown' && !this.leaseTimer) await this.holdLease();
+		} catch {
+			// evaluate() resolves network problems itself, so reaching here is something
+			// unexpected. Keeping the last state is still the right answer, and rethrowing from
+			// a timer callback would be an unhandled rejection in the app's process.
+		} finally {
+			this.refreshing = false;
+		}
+	}
+
+	/**
+	 * Whether an app would render anything differently.
+	 *
+	 * Capabilities count, not just the decision and reason: on a Basic-to-Pro upgrade both of
+	 * those stay the same and only `entitlements` moves, and a running app that never hears about
+	 * it leaves the feature the customer just paid for switched off until they restart.
+	 */
+	private static verdictChanged(before: AccessState, after: AccessState): boolean {
+		if (before.decision !== after.decision || before.reason !== after.reason) return true;
+		// Key order is the server's, and JSON.stringify preserves it, so sort before comparing or
+		// a reordered map reads as a change and fires on every tick.
+		const flatten = (state: AccessState): string =>
+			JSON.stringify(Object.entries(state.entitlements ?? {}).sort());
+		return flatten(before) !== flatten(after);
+	}
+
+	private scheduleRefresh(opts: OpenOptions): void {
+		if (this.stopped) return;
+		const jitter = opts.jitter ?? DEFAULT_JITTER;
+		const random = opts.random ?? Math.random;
+		const base = opts.intervalMs ?? this.defaultInterval();
+		// Spread the delay so many installs of the same app do not all wake on one tick and
+		// hammer a single server.
+		const spread = base * jitter;
+		const delay = Math.max(0, base - spread + random() * spread * 2);
+		this.refreshTimer = this.later(() => void this.refreshOnce(opts), delay);
+	}
+
+	/**
+	 * Hold a floating seat on the cadence the server's own lease implies — about a third of
+	 * the window, so a dropped beat has two more tries before the seat lapses. The app is
+	 * never asked whether its product has leases: a null `lease_expires_at` says so.
+	 *
+	 * Nothing here reaches the app. A missed beat costs a seat, not correctness, and the
+	 * refresh loop is what notices a seat we failed to hold.
+	 */
+	private async holdLease(): Promise<void> {
+		this.leaseTimer = undefined;
+		if (this.stopped) return;
+		const instanceId = this.instanceId();
+		if (!this.openKey || !instanceId) return;
+
+		let lease: string | null | undefined;
+		try {
+			lease = await this.heartbeat(this.openKey, { instanceId });
+		} catch {
+			// A failed beat is not evidence the product stopped having leases, so once we know
+			// the cadence we keep to it. Giving up here would quietly lose the user's seat.
+			lease = undefined;
+		}
+		if (this.stopped) return;
+
+		if (lease === null) {
+			// Definitive: there is nothing to renew. A node-locked product, or a seat we could
+			// not hold — and the refresh loop re-activates for the second case.
+			this.lease = 'none';
+			return;
+		}
+		if (typeof lease === 'string') {
+			const remaining = new Date(lease).getTime() - Date.now();
+			if (Number.isFinite(remaining) && remaining > 0) {
+				this.lease = Math.max(1000, remaining / 3);
+			}
+		}
+		if (typeof this.lease !== 'number') return;
+		this.leaseTimer = this.later(() => void this.holdLease(), this.lease);
+	}
+
+	/**
+	 * setTimeout that does not keep a Node process alive. A CLI that opens, prints and exits
+	 * has to exit, not sit on a twenty-minute timer. No-op in the browser, which has no refs.
+	 */
+	private later(fn: () => void, ms: number): ReturnType<typeof setTimeout> {
+		const handle = setTimeout(fn, ms);
+		(handle as unknown as { unref?: () => void }).unref?.();
+		return handle;
+	}
+
+	/**
+	 * The online half of `open()`. Returns null for every inconclusive answer, which is the
+	 * caller's cue to fall back to the cached token rather than deny anything.
+	 */
+	private async openOnline(licenseKey: string): Promise<AccessState | null> {
+		const instanceId = this.instanceId() ?? (await this.claimSeat(licenseKey));
+		if (!instanceId) return null;
+
+		let result = await this.verify(licenseKey, { instanceId });
+		if (!result.inconclusive && !result.valid && result.license?.status === 'active') {
+			result = (await this.reclaimSeat(licenseKey, instanceId)) ?? result;
+		}
+		if (result.inconclusive || !result.license) return null;
+
+		const license = result.license;
+		if (license.status === 'disabled') {
+			// verify() already dropped the token. Remember that we were told, so a later launch
+			// with no network says "revoked" rather than "never activated".
+			this.storage.setItem(REVOKED_KEY, '1');
+			return { decision: 'deny', reason: 'revoked', license };
+		}
+		if (result.valid) {
+			// A server that answers is authoritative on both counts: the licence stands, and
+			// the local clock has no penalty to serve.
+			this.storage.setItem(REVOKED_KEY, '');
+			this.storage.setItem(CLOCK_KEY, String(Date.now()));
+			// Entitlements ride in the token, not the frozen licence object. Read from storage, so
+			// a 200 that carried no token still reports what the last one said — they are
+			// snapshotted at issuance and never change for a licence, so the cached copy cannot
+			// be stale. Decoding rather than verifying is fine here: it arrived over the same
+			// HTTPS response as the licence beside it. The offline path verifies, because there
+			// the token is all there is.
+			const claims = this.cachedTokenPayload();
+			return {
+				decision: 'allow',
+				reason: 'online',
+				license,
+				expiresAt: license.expires_at,
+				...(claims?.entitlements ? { entitlements: claims.entitlements } : {}),
+			};
+		}
+		// Conclusive, active, still not valid. A past expiry is definitive; anything else
+		// (no free seat, for instance) is not our call to turn into a lockout.
+		if (license.expires_at && new Date(license.expires_at).getTime() <= this.effectiveNow()) {
+			return { decision: 'deny', reason: 'expired', license };
+		}
+		return null;
+	}
+
+	/**
+	 * A live licence that does not recognise this device: the seat was freed from the console,
+	 * or storage was restored onto a machine we have no record of. Take a seat again rather
+	 * than lock out someone who is paying. Returns the fresh result, or null when we learned
+	 * nothing better and the caller should keep the one it has.
+	 */
+	private async reclaimSeat(licenseKey: string, previous: string): Promise<VerifyResult | null> {
+		const fresh = await this.claimSeat(licenseKey);
+		if (!fresh || fresh === previous) return null;
+		const result = await this.verify(licenseKey, { instanceId: fresh });
+		if (!result.inconclusive) return result;
+		// The new seat is claimed but unproven, and the cached token still names the old
+		// instance. Leaving the new id stored would make that token look like another device's,
+		// which the offline path reads as "never activated" — a lockout on an inconclusive
+		// answer, which is the one thing we must never do.
+		this.storage.setItem(INSTANCE_KEY, previous);
+		return null;
+	}
+
+	/**
+	 * Activate and return the instance id, or null if we could not. Every failure here is
+	 * inconclusive by contract — an unknown key is a 404, a full product is a 4xx, and neither
+	 * revokes anything — so the error is swallowed. An app that needs the reason (a key-entry
+	 * screen, say) calls `activate()` directly and reads the CoolBeansError.
+	 */
+	private async claimSeat(licenseKey: string): Promise<string | null> {
+		try {
+			const { instance } = await this.activate(licenseKey, { name: this.deviceName });
+			return instance.id;
+		} catch {
+			return null;
+		}
+	}
+
+	/** The verdict from local state alone. Never makes a request. */
+	private async offlineVerdict(): Promise<AccessState> {
+		const revoked = this.storage.getItem(REVOKED_KEY) === '1';
+		const nothingKnown = (): AccessState =>
+			revoked
+				? { decision: 'deny', reason: 'revoked', license: null }
+				: { decision: 'deny', reason: 'uninitialized', license: null };
+
+		const token = this.storage.getItem(TOKEN_KEY);
+		if (!token) return nothingKnown();
+
+		// Only signature-verified tokens count, and an unverifiable one is not evidence of a
+		// revocation either — it is a token we know nothing about.
+		const keys = this.trustedKeys();
+		const payload = keys ? await verifyTokenSignature(token, keys) : null;
+		if (!payload) return nothingKnown();
+		const expected = this.expectedProduct();
+		if (expected !== undefined && payload.product !== expected) return nothingKnown();
+		const boundInstance = this.storage.getItem(INSTANCE_KEY);
+		if (boundInstance && payload.instance_id !== boundInstance) return nothingKnown();
+
+		const license = licenseFromPayload(payload);
+		if (payload.status === 'disabled') return { decision: 'deny', reason: 'revoked', license };
+
+		const now = this.effectiveNow();
+		// A signed expiry that has passed is our own credential saying the licence ended, so
+		// honouring it is not inferring revocation from a network failure.
+		if (payload.expires_at && new Date(payload.expires_at).getTime() <= now) {
+			return { decision: 'deny', reason: 'expired', license };
+		}
+		const withinTtl = payload.exp * 1000 > now;
+		// Trials get no grace: an unbounded one turns a blocked endpoint into a free licence.
+		if (payload.kind === 'trial' && !withinTtl) {
+			return { decision: 'deny', reason: 'expired', license };
+		}
+		const rolledBack = now > Date.now();
+		return {
+			decision: 'allow',
+			reason: rolledBack ? 'clock_rollback' : withinTtl ? 'cached' : 'grace',
+			license,
+			expiresAt: license.expires_at,
+			...(payload.entitlements ? { entitlements: payload.entitlements } : {}),
+		};
+	}
+
+	/**
+	 * Now, or the latest time this install has ever seen, whichever is later. Winding the
+	 * clock back is the cheapest way to extend a licence, so expiry is judged against the
+	 * floor. A successful validation resets it, so one bad clock is not a life sentence.
+	 */
+	private effectiveNow(): number {
+		const floor = Number(this.storage.getItem(CLOCK_KEY));
+		const now = Date.now();
+		return Number.isFinite(floor) && floor > now ? floor : now;
+	}
+
+	/** Raise the clock floor to now. Called before any expiry is evaluated. */
+	private rememberClock(): void {
+		this.storage.setItem(CLOCK_KEY, String(this.effectiveNow()));
 	}
 
 	/**
@@ -206,8 +676,11 @@ export class CoolBeans {
 
 		// 404/422/429/5xx and malformed bodies are inconclusive per the frozen contract.
 		if (res.status !== 200 || !data.ok || !data.license) return inconclusive(false);
-		// A definitive answer about some other product is not an answer about this one.
-		if (data.license.product !== this.product) return inconclusive(false);
+		// A definitive answer about some other product is not an answer about this one. Whether
+		// the app declared the product or the first activation bound it, the check is the same.
+		const expected = this.expectedProduct();
+		if (expected !== undefined && data.license.product !== expected) return inconclusive(false);
+		this.rememberProduct(data.license.product);
 
 		if (data.token) {
 			this.storage.setItem(TOKEN_KEY, data.token);
@@ -215,7 +688,8 @@ export class CoolBeans {
 			// Best effort while we are already online: fetch when there is no keyset or the
 			// returned token uses a rotated/unknown key. offlineState itself never fetches.
 			const keys = this.trustedKeys();
-			if (!keys || !(await verifyTokenSignature(data.token, keys))) await this.refreshKeys();
+			if (!keys || !(await verifyTokenSignature(data.token, keys)))
+				await this.refreshKeys(licenseKey);
 		}
 		// The definitive revocation signal: drop the cached token so verifyOffline stops unlocking.
 		if (data.license.status === 'disabled') this.storage.setItem(TOKEN_KEY, '');
@@ -258,7 +732,10 @@ export class CoolBeans {
 				message: 'That activation could not be verified. Check it was pasted in full.',
 			});
 		}
-		if (payload.product !== this.product) {
+		// Guarded: an app that declared no slug would otherwise compare a real product to
+		// undefined and refuse every blob, on the one flow that has no other way in.
+		const expected = this.expectedProduct();
+		if (expected !== undefined && payload.product !== expected) {
 			throw new CoolBeansError(0, {
 				error: 'product_mismatch',
 				message: 'That activation is for a different product.',
@@ -289,6 +766,9 @@ export class CoolBeans {
 		// Bind the device before storing the token, so offlineState's instance check has
 		// something to compare against rather than silently passing.
 		this.storage.setItem(INSTANCE_KEY, payload.instance_id);
+		// This is an activation, so it binds the product too: a machine activated for one product
+		// must not later accept a blob for another, and it can never ask us which is right.
+		this.rememberProduct(payload.product);
 		this.storage.setItem(TOKEN_KEY, token);
 	}
 
@@ -310,14 +790,19 @@ export class CoolBeans {
 		const payload = keys ? await verifyTokenSignature(token, keys) : null;
 		if (!payload) return 'expired';
 
-		// Claim binding: the token must be for this product and this device's instance.
-		if (payload.product !== this.product) return 'expired';
+		// Claim binding: the token must be for this device's instance, and for the product the
+		// app declared IF it declared one. Without a declared product the signature does this
+		// work: a token from elsewhere is signed by a different product's key and will not verify.
+		const expected = this.expectedProduct();
+		if (expected !== undefined && payload.product !== expected) return 'expired';
 		const boundInstance = this.storage.getItem(INSTANCE_KEY);
 		if (boundInstance && payload.instance_id !== boundInstance) return 'expired';
 
 		if (payload.status === 'disabled') return 'expired';
 
-		const now = Date.now();
+		// The same clock floor open() keeps, so the two surfaces cannot disagree about whether
+		// a licence has ended. Absent any open() call the floor is unset and this is just now.
+		const now = this.effectiveNow();
 
 		// A signed expiry that has passed is definitive, whatever the kind. The token we
 		// issued says this licence ended, so honouring it is reading our own credential,
@@ -357,77 +842,6 @@ export class CoolBeans {
 	}
 
 	/**
-	 * Run the recommended check cadence for you: verify once now, then refresh on a
-	 * jittered interval, heartbeating too when the product is floating.
-	 *
-	 * Entirely optional — an app that never calls this behaves exactly as before. It exists
-	 * because the cadence is the most consequential runtime decision an integrator makes,
-	 * and leaving it undefined means everyone invents their own, usually badly.
-	 *
-	 * Nothing here throws into your app. A failed refresh is the inconclusive case from §8:
-	 * it is reported through `onResult` and the cached token is left alone, so the app keeps
-	 * working. `onError` only fires for genuinely unexpected failures.
-	 */
-	start(opts: StartOptions): LicenseWatcher {
-		const random = opts.random ?? Math.random;
-		const jitter = opts.jitter ?? DEFAULT_JITTER;
-		const instanceId = opts.instanceId ?? this.instanceId();
-		let stopped = false;
-		let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-		let beatTimer: ReturnType<typeof setInterval> | undefined;
-
-		// Spread the delay so many installs of the same app do not all wake together and
-		// hammer one server on the same tick.
-		const nextDelay = (): number => {
-			const base = opts.intervalMs ?? this.defaultInterval();
-			const spread = base * jitter;
-			return Math.max(0, base - spread + random() * spread * 2);
-		};
-
-		const runCheck = async (): Promise<void> => {
-			if (stopped || !instanceId) return;
-			try {
-				const result = await this.verify(opts.licenseKey, { instanceId });
-				opts.onResult?.(result);
-			} catch (err) {
-				// verify() already resolves network problems into an inconclusive result, so
-				// reaching here means something genuinely unexpected. Still never rethrow.
-				opts.onError?.(err);
-			}
-		};
-
-		const scheduleNext = (): void => {
-			if (stopped) return;
-			refreshTimer = setTimeout(() => {
-				void runCheck().finally(scheduleNext);
-			}, nextDelay());
-		};
-
-		// Kick off immediately but asynchronously: an app must not block startup on the
-		// network, and it should not sit on a stale answer for a whole interval either.
-		void runCheck().finally(scheduleNext);
-
-		if (opts.heartbeatMs && instanceId) {
-			beatTimer = setInterval(() => {
-				if (stopped) return;
-				// A missed heartbeat costs a seat, not correctness, so failures are ignored
-				// here and the next tick simply tries again.
-				void this.heartbeat(opts.licenseKey, { instanceId }).catch(() => undefined);
-			}, opts.heartbeatMs);
-		}
-
-		return {
-			stop: () => {
-				stopped = true;
-				if (refreshTimer) clearTimeout(refreshTimer);
-				if (beatTimer) clearInterval(beatTimer);
-				refreshTimer = undefined;
-				beatTimer = undefined;
-			},
-		};
-	}
-
-	/**
 	 * Refresh at a third of the token's own lifetime, so there are two or three chances to
 	 * reconnect before a user drifts into grace. Falls back to a day when no token has been
 	 * cached yet.
@@ -449,6 +863,37 @@ export class CoolBeans {
 			}
 		}
 		return DEFAULT_INTERVAL_MS;
+	}
+
+	/**
+	 * Free this device's seat and forget the licence locally. Call it on sign-out.
+	 *
+	 * Needs nothing handed to it: `open()` already stored the key and the instance id. Returns
+	 * false when there was nothing to release, or when we could not reach the server — telling
+	 * a caller the seat is free when it is not makes them stop retrying, and the seat stays
+	 * taken until the lease lapses, or forever on a node-locked product.
+	 */
+	async release(): Promise<boolean> {
+		const key = this.openKey ?? this.cachedTokenKey();
+		const instanceId = this.instanceId();
+		if (!key || !instanceId) return false;
+		try {
+			await this.deactivate(key, { instanceId });
+		} catch {
+			return false;
+		}
+		// Nothing cached should still be unlocking the app after a sign-out, and the upkeep
+		// loop must not keep checking a seat we gave back.
+		this.stop();
+		this.storage.setItem(TOKEN_KEY, '');
+		this.storage.setItem(INSTANCE_KEY, '');
+		this.storage.setItem(REVOKED_KEY, '');
+		// Binding is not a life sentence: a signed-out install may take a key for a different
+		// product. A declared slug still holds, because that one is the app's own claim.
+		this.storage.setItem(PRODUCT_KEY, '');
+		this.openKey = undefined;
+		this.lastState = undefined;
+		return true;
 	}
 
 	/** Free a seat. Idempotent server-side. */
@@ -477,12 +922,38 @@ export class CoolBeans {
 		return Object.keys(merged).length > 0 ? merged : null;
 	}
 
-	/** Fetch the product keyset and persist it. Returns true when new keys were stored. */
-	private async refreshKeys(): Promise<boolean> {
+	/** The licence key inside the cached token, so key fetching needs no argument. */
+	private cachedTokenKey(): string | undefined {
+		// Decoded, not verified: this only decides which key to send to a route that will refuse
+		// it if it is wrong. Nothing is unlocked on the strength of it.
+		const key = this.cachedTokenPayload()?.key;
+		return typeof key === 'string' ? key : undefined;
+	}
+
+	/** The cached token's claims, decoded without verifying. Never a basis for unlocking. */
+	private cachedTokenPayload(): TokenPayload | undefined {
+		const token = this.storage.getItem(TOKEN_KEY);
+		return token ? decodeToken(token)?.payload : undefined;
+	}
+
+	/**
+	 * Fetch the keyset and persist it. Returns true when new keys were stored.
+	 *
+	 * By licence key where we have one, which is what lets an app skip the product slug: the
+	 * key is the credential so it goes in a POST body, never a URL that lands in access logs.
+	 * Falls back to the slug route for an app that declared a product and has no key in hand.
+	 */
+	private async refreshKeys(licenseKey?: string): Promise<boolean> {
+		const key = licenseKey ?? this.cachedTokenKey();
 		try {
-			const res = await this.doFetch(
-				`${this.baseUrl}/v1/pubkey?product=${encodeURIComponent(this.product)}`,
-			);
+			const res = key
+				? await this.post('/v1/keyset', { license_key: key })
+				: this.product === undefined
+					? null
+					: await this.doFetch(
+							`${this.baseUrl}/v1/pubkey?product=${encodeURIComponent(this.product)}`,
+						);
+			if (!res) return false;
 			const data = (await res.json()) as { ok: boolean; keys: Record<string, string> };
 			if (res.ok && data.ok && data.keys && Object.keys(data.keys).length > 0) {
 				this.storage.setItem(KEYS_KEY, JSON.stringify(data.keys));

@@ -123,6 +123,9 @@ Ideas we adopt:
 - **Ed25519 offline tokens, never HMAC.** A symmetric secret shipped inside a desktop binary is
   extractable and forgeable; an embedded public key is not. Tokens carry an `instance_id` binding and
   a TTL. Unlike keygate's hardcoded 7 days, our TTL is configurable — it's a revocation-latency SLA.
+  They also carry the licence's `entitlements`, which is the whole reason an app may gate a feature on
+  those and must never gate on a `plan` label: one is signed by us, the other is a string a vendor
+  typed.
 - **Atomic limit enforcement in the DB.** Activation limits, floating-lease checkout, and usage
   quotas are single guarded statements (`UPDATE … WHERE current + :delta <= limit RETURNING …`),
   never read-then-write. Each of these paths gets a dedicated race test, as keygate has.
@@ -143,7 +146,14 @@ Keygate pitfalls we avoid:
 
 `docs/PRD.md` §9 is the public client API and it does not drift. Any change to
 activate/validate/deactivate/heartbeat/usage request or response shapes needs a very good reason and
-a migration story for every shipped client. The two invariants that matter most:
+a migration story for every shipped client.
+
+`contract/access-states.json` is the second frozen thing, and newer: the access states every SDK must
+conclude from what it holds. The TypeScript and Swift SDKs both run every case in it, so neither can
+change who keeps working without failing a test. Editing it is editing the product's behaviour, and
+both repos have to move together.
+
+The two invariants that matter most:
 
 1. **Unknown key is `404`, never `disabled`.** Only an explicit `disabled` revokes access.
 2. **A network failure or inconclusive answer never locks a user out.**
@@ -186,7 +196,8 @@ limits hang off it. Decisions worth knowing before changing any of it:
   impossible at the database layer, not merely checked in application code.
 - **`slug` and `key_prefix` stay globally unique.** Both appear in public URLs
   (`/v1/pubkey?product=`, `/v1/stripe/webhook/:product`) and the prefix is how the public
-  path resolves a key with no account in hand. Making them per-account later would break
+  path resolves a key with no account in hand. An app no longer needs the slug — `POST /v1/keyset`
+  resolves signing keys from the licence key — but those URLs still exist. Making them per-account later would break
   those URLs, so it is decided. The cost is that one account can learn a slug is taken.
 - **The public `/v1` surface is never account-scoped.** `resolveLicense` resolves by prefix
   across all products and must keep doing so: an account join adds a way for a valid key to

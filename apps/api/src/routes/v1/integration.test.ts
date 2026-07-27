@@ -40,6 +40,60 @@ describe('GET /v1/integration/:slug', () => {
 		expect(body).toContain('/v1/llms.txt');
 	});
 
+	it('lists the capability names this product actually grants', async () => {
+		// The names come from the vendor's own grants, so a coding agent never has to guess one —
+		// and a guessed name silently leaves a paid feature switched off.
+		const { seedGrant } = await import('../../test/seed.js');
+		const product = await h.app.request('/admin/products/acme-app', { headers: h.adminHeaders });
+		const { product: found } = (await product.json()) as { product: { id: number } };
+		await seedGrant(h.deps, {
+			productId: found.id,
+			priceId: 'price_acmePro',
+			kind: 'perpetual',
+			entitlements: { export_4k: true, batch_limit: 100 },
+		});
+		const res = await h.app.request('/v1/integration/acme-app');
+		const body = await res.text();
+		expect(body).toContain('export_4k');
+		expect(body).toContain('batch_limit');
+	});
+
+	it('still lists a capability whose price was retired', async () => {
+		// Licences issued before a price was retired still carry its capabilities, so an app still
+		// has to honour them. Absent means off, so a name listed but no longer sold costs nothing,
+		// while a name omitted leaves a paying customer without the feature they bought.
+		const { seedGrant } = await import('../../test/seed.js');
+		const { rawQuery } = await import('../../test/pg.js');
+		const product = await h.app.request('/admin/products/acme-app', { headers: h.adminHeaders });
+		const { product: found } = (await product.json()) as { product: { id: number } };
+		await seedGrant(h.deps, {
+			productId: found.id,
+			priceId: 'price_acmeOld',
+			kind: 'perpetual',
+			entitlements: { legacy_filters: true },
+		});
+		await rawQuery("UPDATE license_grants SET status = 'retired' WHERE stripe_price_id = $1", [
+			'price_acmeOld',
+		]);
+		const body = await (await h.app.request('/v1/integration/acme-app')).text();
+		expect(body).toContain('legacy_filters');
+	});
+
+	it('never leaks the price a capability came from', async () => {
+		// Grant ids and Stripe price ids are the vendor's business, not the app's.
+		const { seedGrant } = await import('../../test/seed.js');
+		const product = await h.app.request('/admin/products/acme-app', { headers: h.adminHeaders });
+		const { product: found } = (await product.json()) as { product: { id: number } };
+		await seedGrant(h.deps, {
+			productId: found.id,
+			priceId: 'price_acmeSecret',
+			kind: 'perpetual',
+			entitlements: { export_4k: true },
+		});
+		const body = await (await h.app.request('/v1/integration/acme-app')).text();
+		expect(body).not.toContain('price_acmeSecret');
+	});
+
 	it('404s an unknown product, so it never confirms one that is not there', async () => {
 		const res = await h.app.request('/v1/integration/nope');
 		expect(res.status).toBe(404);

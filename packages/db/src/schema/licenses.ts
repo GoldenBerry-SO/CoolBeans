@@ -2,7 +2,7 @@
 // ABOUTME: status is binary (active|disabled); key is stored normalized (no dashes, uppercased).
 
 import { sql } from 'drizzle-orm';
-import { check, index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
+import { check, index, integer, jsonb, pgTable, serial, text } from 'drizzle-orm/pg-core';
 import { isoNow } from './columns.js';
 import { licenseGrants } from './license-grants.js';
 import { products } from './products.js';
@@ -27,6 +27,10 @@ export const licenses = pgTable(
 		// Snapshotted from the grant at issuance so a later re-price never silently changes what
 		// somebody already bought. NULL inherits the product's limit.
 		activationLimit: integer('activation_limit'),
+		// The capabilities this licence carries, snapshotted from the grant at issuance so moving
+		// a feature between tiers tomorrow never changes what somebody already bought. NULL means
+		// none, which is every licence issued before entitlements existed.
+		entitlements: jsonb('entitlements').$type<Record<string, boolean | number | string>>(),
 		// The grant that issued this licence (null for trials and manual issues, which have
 		// no Stripe price behind them). Immutable provenance: answers "which rule made this key".
 		issuedGrantId: integer('issued_grant_id').references(() => licenseGrants.id),

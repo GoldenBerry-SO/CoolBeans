@@ -7,65 +7,118 @@ is the credential. Zero dependencies; Ed25519 verification uses WebCrypto.
 import { CoolBeans } from '@coolbeans/sdk';
 
 const cb = new CoolBeans({
-  product: 'clementine',
   publicKeys: { '1': 'BASE64_PUBLIC_KEY' }, // bundle these in your app
+  // product: 'clementine',  // required only if you sell more than one product — see below
 });
 
-// Once, when the user pastes their key
-const { instance } = await cb.activate(licenseKey, { name: 'Chris’s MacBook' });
+// On launch, and again whenever the user pastes a key. This is the whole integration.
+const state = await cb.open(licenseKey, {
+  onChange: (next) => setLicensed(next.decision === 'allow'),
+});
+if (state.decision === 'deny') lockOut(state);
 
-// On every launch
-const ok = await cb.verifyOffline();
+// On sign-out, to give the seat back
+await cb.release();
+
+// On shutdown
+cb.stop();
 ```
 
-## Recommended integration
+### Do you need `product`?
 
-The most consequential runtime decision is **how often you check**, and the SDK deliberately does not
-decide it for you. Here is what to do.
+Only if you sell more than one product from one Cool Beans account. Without it the first licence an
+install activates binds the app to that product, and every later key is checked against it — but
+that first key is the one nobody checked, so a customer holding a licence for your other app could
+paste it into a fresh install and unlock this one. Pass the slug and a licence for anything else is
+refused outright.
 
-**Verify once on launch, then roughly every TTL/3 to TTL/2.** With the default 7-day token that means
-daily, which gives two or three chances to reconnect before a user drifts into grace. Add jitter, or
-every install of your app wakes on the same tick and stampedes one server.
-
-**Floating products heartbeat at a third of the lease**, so a single dropped request does not cost the
-user their seat. On the 30-minute default that is every 10 minutes. Node-locked products should never
-call `heartbeat` at all.
-
-`start()` does all of that for you, and is optional:
+## The verdict
 
 ```ts
-const watcher = cb.start({
-  licenseKey,
-  onResult: (r) => setLicensed(r.valid || r.inconclusive),
-  // heartbeatMs: 10 * 60_000,  // floating products only
-});
-// later
-watcher.stop();
+{ decision: 'allow', reason: 'online' | 'cached' | 'grace' | 'clock_rollback',
+  license: LicenseObject | null, expiresAt: string | null }
+{ decision: 'deny',  reason: 'revoked' | 'expired' | 'uninitialized',
+  license: LicenseObject | null }
 ```
+
+Branch on `decision`. Nothing else. `reason` is for what you say to the user: `grace` means nudge
+them online, `uninitialized` means ask for a key, `revoked` means the licence is gone.
+
+It is a union rather than a boolean on purpose. "We have never established an entitlement" and
+"you were revoked" both mean locked, but they are different screens, and a boolean loses that.
+
+`license` is the frozen §9 object, read off the cached token, so showing "Pro monthly, renews 12
+Aug" costs no extra call. It is display only — never gate a feature on `plan` or `kind`.
+
+## Gating features: `state.entitlements`
+
+When a vendor prices capabilities, they arrive here, and this is the only thing to gate on:
+
+```ts
+if (state.entitlements?.export_4k) enableExport4k();
+const batchLimit = Number(state.entitlements?.batch_limit ?? 1);
+```
+
+The field is absent when a licence has none, so keep the `?.`.
+
+These are server-authored and signed into the token, which is what makes them safe in client
+code. `license.plan` is a label a vendor types and `license.kind` is our lifecycle bookkeeping:
+both are display only. `if (plan === 'Pro')` breaks the day somebody renames a tier.
+
+## What `open()` does for you
+
+**Activates on first run, validates after that.** No instance id to hold, no branch to get wrong.
+
+**Refreshes on its own**, at a third of the token's lifetime, jittered so every install of your app
+does not wake on the same tick and stampede one server. A changed verdict arrives via `onChange`;
+it does not fire while the answer stays the same.
+
+**Holds a floating seat itself.** It heartbeats once, reads the lease window off the response, and
+keeps to about a third of it, so one dropped request does not cost the user their seat. A
+node-locked product returns no lease and nothing more is scheduled. Your app does not know or care
+which kind it is.
+
+**Never locks out on an inconclusive answer.** Offline, a 5xx, a timeout, an unknown key: all of it
+keeps the last known-good state. Only a fetched `disabled` or a signed expiry in the past denies.
+
+**Cannot be extended by moving the clock back.** A wall-clock floor is persisted alongside the
+token and expiry is judged against it. A successful validation resets the floor, so a briefly wrong
+clock is not a life sentence.
+
+**Does not keep a CLI alive.** The background timers are unref'd, so a tool that opens, prints and
+exits, exits.
 
 ### Anti-patterns
 
-**Do not verify on every feature use or window focus.** That is what the cached token is for, and it
+**Do not check on every feature use or window focus.** That is what the cached token is for, and it
 turns a momentary network blip into visible flakiness.
 
-**Do not block app startup on `verify()`.** Gate your UI on `verifyOffline()`, which is instant and
-needs no network, and let the online check settle in the background. Otherwise a slow connection makes
-your app feel broken.
+**Do not treat a failed check as a reason to do anything abrupt.** A failure is the inconclusive
+case. `open()` already resolves it to the last good state, and nothing in the background throws
+into your app.
 
-**Do not treat a failed check as a reason to do anything abrupt.** A failure is the inconclusive case:
-carry on with the cached token. Nothing in `start()` throws into your app for this reason.
+**Do not reach for `verify` / `verifyOffline` first.** They still work, and `open()` is built from
+them, but every lockout bug we have seen came from an app wiring those two together itself.
 
-## Offline behaviour
+**Do not build a seat policy.** Seats are enforced on the server and are deliberately not on the
+verdict: running out reaches you as a `deny` you already handle. Capabilities are the one thing that
+varies per licence, and they come from `state.entitlements`.
 
-`offlineState()` is network-free and returns one of three states:
+## Storage
 
-| State | Meaning |
-|---|---|
-| `valid` | Cached token verified and inside its TTL |
-| `grace` | Past the TTL but the licence has not expired — **still unlock** |
-| `expired` | No token, bad signature, wrong device or product, disabled, or the licence expired |
+**Required outside the browser, and the SDK throws at construction without it.** In-memory storage
+mints a new device id every launch, so every launch takes another activation and a node-locked
+licence is spent in a handful of restarts — on a customer who paid. The browser gets `localStorage`.
 
-`verifyOffline()` unlocks on `valid` and `grace`.
+```ts
+const cb = new CoolBeans({ product: 'clementine', storage: myFileBackedStore });
+```
+
+Two synchronous methods, `getItem(key)` and `setItem(key, value)`. Back it with a file in the user's
+profile, `electron-store`, the Tauri store plugin, the Keychain — anything that survives a restart.
+`allowEphemeralStorage: true` opts out, for tests and throwaway scripts only.
+
+## Offline behaviour, and the rules behind it
 
 Three rules are worth knowing because they carry product decisions:
 
@@ -78,15 +131,10 @@ issues that date with a buffer, so a subscriber who renews while offline has roo
 
 **Trials get no grace at all**, or blocking the endpoint would be an unlimited trial.
 
-## Storage
-
-Pass a durable `storage` outside the browser. The default falls back to memory and warns loudly,
-because losing the device id on restart mints a new one and consumes another activation seat each
-time.
-
-```ts
-const cb = new CoolBeans({ product: 'clementine', storage: myFileBackedStore });
-```
+`open()` already applies all three. If you want to see them directly, `offlineState()` is
+network-free and returns `valid` (inside the token's TTL), `grace` (past it, licence still good, and
+**still unlocked**) or `expired`; `verifyOffline()` is the boolean form. Neither is the path to
+build on.
 
 ## Errors
 

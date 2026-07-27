@@ -19,6 +19,9 @@ export async function loadLicenseStore(): Promise<void> {
 
 export const beans = new CoolBeans({
 	product: 'clementine',
+	// Optional, and worth passing anyway: without it the first licence this install
+	// activates decides which product the app is bound to, and that first key is the one
+	// nobody checked. Only safe to omit if the vendor sells exactly one product.
 	baseUrl: 'https://keys.clementine.email',
 	storage: {
 		getItem: (k: string) => cache[k] ?? null,
@@ -37,12 +40,8 @@ export const beans = new CoolBeans({
 	},
 });
 
-export async function unlock(licenseKey: string): Promise<boolean> {
-	if (await beans.verifyOffline()) return true;
-
-	const instanceId = beans.instanceId();
-	if (!instanceId) return false;
-
-	const result = await beans.verify(licenseKey, { instanceId });
-	return result.inconclusive ? true : result.valid;
+/** Call after loadLicenseStore(), on every start and whenever a key is pasted. */
+export async function unlock(licenseKey?: string): Promise<boolean> {
+	const state = await beans.open(licenseKey);
+	return state.decision === 'allow';
 }

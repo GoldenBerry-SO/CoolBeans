@@ -3,7 +3,11 @@
 	"compilerOptions": {
 		"outDir": "dist",
 		"rootDir": "src",
-		"lib": ["ES2022", "DOM"]
+		"lib": ["ES2022", "DOM"],
+		// Only the tests reach for Node: the contract suite reads the shared fixture file off
+		// disk. The library itself is browser-first and uses nothing from here, and the build
+		// config excludes tests, so nothing Node-shaped can leak into what ships.
+		"types": ["node"]
 	},
 	"include": ["src"]
 }

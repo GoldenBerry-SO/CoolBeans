@@ -20,6 +20,30 @@ const grantBody = z.object({
 	// Seats this price buys. Omit to inherit the product's limit, which is what every grant did
 	// before seats could be priced.
 	activation_limit: z.number().int().positive().optional(),
+	/**
+	 * Capabilities this price buys, e.g. { "export_4k": true, "batch_limit": 100 }. Omit to keep
+	 * whatever the price already grants; send {} to clear them, which is the only way to take a
+	 * capability off a price without retiring the mapping. Licences already issued keep theirs.
+	 *
+	 * Flat scalars only, names an app can read as a property, and a bounded number of them. Every
+	 * one of these is signed into every token the price issues, and that token lives in an app's
+	 * storage and travels on each validate — so this is not a place for an arbitrary blob. The
+	 * console enforces the same name rule; if only the console did, the contract would be a
+	 * convention rather than a rule.
+	 */
+	entitlements: z
+		.record(
+			z
+				.string()
+				.regex(
+					/^[A-Za-z_][A-Za-z0-9_]*$/,
+					'Capability names must be letters, numbers and underscores, starting with a letter',
+				)
+				.max(64),
+			z.union([z.boolean(), z.number(), z.string().max(256)]),
+		)
+		.refine((map) => Object.keys(map).length <= 32, 'At most 32 capabilities per price')
+		.optional(),
 });
 
 export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): void {
@@ -37,6 +61,8 @@ export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): voi
 			kind: body.kind,
 			plan: body.plan ?? null,
 			activationLimit: body.activation_limit ?? null,
+			// Passed through as-is: undefined keeps what the price grants, {} clears it.
+			entitlements: body.entitlements,
 			actor: auditActor(c),
 		});
 		return c.json({ ok: true, grant });

@@ -7,6 +7,7 @@ import {
 	foreignKey,
 	index,
 	integer,
+	jsonb,
 	pgTable,
 	serial,
 	text,
@@ -34,6 +35,11 @@ export const licenseGrants = pgTable(
 		// before: a grant already says what duration and what name a price buys, so how MANY it
 		// buys belongs here too. Without it one product cannot sell Basic 3 seats and Pro 10.
 		activationLimit: integer('activation_limit'),
+		// The capabilities this price buys, e.g. {"export_4k": true, "batch_limit": 100}. NULL
+		// means the price grants none, which is every grant before this existed. A flat map of
+		// scalars, snapshotted onto the licence and signed into the token: server-authored and
+		// signed is what makes it safe for an app to trust, unlike the display-only `plan`.
+		entitlements: jsonb('entitlements').$type<Record<string, boolean | number | string>>(),
 		// Retired means "issue no new licences", not "erase history": a grant referenced by a
 		// licence stays resolvable for audit. Editing a price or kind means retire + recreate.
 		status: text('status', { enum: ['active', 'retired'] })

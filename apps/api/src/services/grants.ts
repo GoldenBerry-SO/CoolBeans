@@ -21,6 +21,18 @@ export interface CreateGrantArgs {
 	plan?: string | null;
 	/** Seats this price buys. Null inherits the product's limit. */
 	activationLimit?: number | null;
+	/**
+	 * The capabilities this price buys, e.g. `{ export_4k: true, batch_limit: 100 }`.
+	 *
+	 * Three states, and they are all needed: **undefined** keeps whatever the price already
+	 * grants, so re-mapping to fix a label cannot strip them; an **empty map** clears them, which
+	 * is the only way to say "this price grants none any more"; a **non-empty map** replaces them.
+	 * Licences already issued are snapshots and never change either way.
+	 *
+	 * Server-authored and signed into every token, which is what makes these safe for an app to
+	 * gate a feature on, unlike the display-only `plan`.
+	 */
+	entitlements?: Record<string, boolean | number | string>;
 	actor: string;
 }
 
@@ -58,6 +70,21 @@ async function assertPriceModeForKind(
  * price): re-mapping a price just refreshes it (and un-retires it). A price already mapped to
  * another product is moved here, since a price resolves to exactly one product.
  */
+/**
+ * What to write for a capability map, keeping the three states apart.
+ *
+ * An empty map never reaches storage: a stored `{}` would be signed into every token as a
+ * capability map with nothing in it, and absent and empty are different facts everywhere else in
+ * this feature. So an empty map means "none", which on a re-map means clearing.
+ */
+function entitlementsToStore(entitlements: CreateGrantArgs['entitlements']): {
+	keep: boolean;
+	value: Record<string, boolean | number | string> | null;
+} {
+	if (entitlements === undefined) return { keep: true, value: null };
+	return { keep: false, value: Object.keys(entitlements).length > 0 ? entitlements : null };
+}
+
 export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise<LicenseGrant> {
 	// Same reserved-price guard connect uses: our own Pro price must never resolve to a product.
 	assertNotBillingPrice(deps, args.priceId);
@@ -82,6 +109,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			kind: args.kind,
 			plan: args.plan ?? null,
 			activationLimit: args.activationLimit ?? null,
+			entitlements: entitlementsToStore(args.entitlements).value,
 			status: 'active',
 		})
 		.onConflictDoUpdate({
@@ -95,6 +123,17 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 				// Clearing one is deliberate: retire the grant and map the price again.
 				plan: sql`coalesce(${args.plan ?? null}, ${licenseGrants.plan})`,
 				activationLimit: sql`coalesce(${args.activationLimit ?? null}, ${licenseGrants.activationLimit})`,
+				// Omitted keeps, empty clears, non-empty replaces. coalesce would turn the clear into
+				// a keep, so the clear is a plain NULL rather than going through it.
+				entitlements: (() => {
+					const stored = entitlementsToStore(args.entitlements);
+					if (!stored.keep) {
+						return stored.value === null
+							? sql`NULL::jsonb`
+							: sql`${JSON.stringify(stored.value)}::jsonb`;
+					}
+					return sql`${licenseGrants.entitlements}`;
+				})(),
 				status: 'active',
 				retiredAt: null,
 			},
@@ -110,6 +149,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			kind: args.kind,
 			plan: args.plan ?? null,
 			seats: args.activationLimit ?? null,
+			entitlements: args.entitlements ?? null,
 		},
 	});
 	return grant;

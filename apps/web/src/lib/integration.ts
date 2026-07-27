@@ -57,12 +57,31 @@ export function guideUrl(baseUrl: string): string {
  * the hosted brief and guide, so the agent fetches everything and wires Cool Beans in.
  */
 export function agentPrompt(product: Product, baseUrl: string): string {
-	const seat = isFloating(product) ? 'concurrent (floating)' : 'per device (node-locked)';
+	// The links carry the full guide, but some agents will write code from the prompt alone. So the
+	// two rules that cause real damage when broken are in the prompt itself.
 	return [
 		`Read ${briefUrl(baseUrl, product.slug)} and ${guideUrl(baseUrl)}, then integrate Cool Beans licensing into this app.`,
-		`Product: ${product.slug}`,
+		'',
 		`Base URL: ${baseUrl}`,
-		`Seat model: ${seat}`,
+		`Product slug: ${product.slug}`,
+		'',
+		'The whole app-side integration is one call on launch, and again when a key is pasted:',
+		'',
+		'  const state = await cb.open(licenseKey, {',
+		'    onChange: (next) => { if (next.decision === "deny") lock(next) },',
+		'  })',
+		'  if (state.decision === "deny") lock(state)',
+		'',
+		'Two rules you must not break:',
+		'1. Branch on state.decision only. Every inconclusive answer (offline, 5xx, timeout, an',
+		'   unknown key) already resolves to allow, so never lock a paying user out for one.',
+		'2. Gate features on state.entitlements, which we sign. Never on state.license.plan or',
+		'   .kind, which are display only and change when a vendor renames a tier.',
+		'',
+		'Do not write a refresh loop, a seat heartbeat, or instance-id bookkeeping. The SDK owns all',
+		'three. Seats are enforced on our side and your app never counts them; the only thing that',
+		'varies per licence is state.entitlements. Outside a browser you must pass durable storage,',
+		'or the SDK throws — see the snippet for the adapter.',
 	].join('\n');
 }
 
@@ -85,8 +104,8 @@ export function configFacts(product: Product, baseUrl: string): ConfigFact[] {
 			value: `${seat} · ${product.activationLimit} per key`,
 			mono: false,
 			hint: isFloating(product)
-				? 'Seats are a shared pool; the app heartbeats to hold one while running.'
-				: 'Each seat binds to one machine until it is deactivated. No heartbeat needed.',
+				? 'Seats are a shared pool, and the SDK holds one while the app runs. This count is the product default; a price can buy more or fewer. Enforced on our side, so the app never counts them.'
+				: 'Each seat binds to one machine until it is released. This count is the product default; a price can buy more or fewer. Enforced on our side, so the app never counts them.',
 		},
 	];
 }
@@ -121,9 +140,14 @@ export function publicEndpoints(
 			what: 'Release the seat so another machine can take it.',
 		},
 		{
+			method: 'POST',
+			path: '/v1/keyset',
+			what: 'Signing keys for whatever product a licence belongs to — no slug needed.',
+		},
+		{
 			method: 'GET',
 			path: `/v1/pubkey?product=${product.slug}`,
-			what: 'The public signing keys for offline verification (already embedded above).',
+			what: 'The same keys by slug, for an integration that has one (already embedded above).',
 		},
 	);
 	return base;
@@ -136,7 +160,7 @@ export function publicEndpoints(
  */
 function keysLiteral(publicKeys: Record<string, string>): string {
 	const entries = Object.entries(publicKeys);
-	if (entries.length === 0) return '{ /* fetched from /v1/pubkey on first verify */ }';
+	if (entries.length === 0) return '{ /* fetched by licence key on first open() */ }';
 	const lines = entries.map(([kid, key]) => `\t\t'${kid}': '${key}',`);
 	return `{\n${lines.join('\n')}\n\t}`;
 }
@@ -144,12 +168,73 @@ function keysLiteral(publicKeys: Record<string, string>): string {
 /** The Swift dictionary form of the embedded keys. */
 function swiftKeysLiteral(publicKeys: Record<string, string>): string {
 	const entries = Object.entries(publicKeys);
-	if (entries.length === 0) return '[:] // fetched from /v1/pubkey on first verify';
+	if (entries.length === 0) return '[:] // fetched by licence key on first open()';
 	const lines = entries.map(([kid, key]) => `\t\t"${kid}": "${key}",`);
 	return `[\n${lines.join('\n')}\n\t]`;
 }
 
-function tsClient(product: Product, baseUrl: string, publicKeys: Record<string, string>): string {
+/**
+ * A durable storage adapter, spelled out rather than described.
+ *
+ * The SDK throws at construction without one outside a browser, so a snippet that only warns about
+ * storage is a snippet that does not run. Getting this wrong is also the likeliest way to hurt a
+ * real customer: a fresh device id per launch takes another activation every time.
+ *
+ * Imports are per host rather than shared, because a snippet that pulls in something it never uses
+ * and calls something it never imported is a snippet somebody deletes, storage and all.
+ */
+const FILE_STORAGE = (imports: string[], path: string): string =>
+	[
+		"import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'",
+		"import { dirname } from 'node:path'",
+		...imports,
+		'',
+		'// Survives restarts and updates, which is what keeps one activation to one machine.',
+		`const file = ${path}`,
+		'mkdirSync(dirname(file), { recursive: true })',
+		'const read = (): Record<string, string> => {',
+		"\ttry { return JSON.parse(readFileSync(file, 'utf8')) } catch { return {} }",
+		'}',
+		'const store = {',
+		'\tgetItem: (k: string) => read()[k] ?? null,',
+		'\tsetItem: (k: string, v: string) => {',
+		'\t\twriteFileSync(file, JSON.stringify({ ...read(), [k]: v }), { mode: 0o600 })',
+		'\t},',
+		'}',
+	].join('\n');
+
+/** The Tauri variant: an async store read once at startup, then written behind the cache. */
+const TAURI_STORAGE = [
+	"import { BaseDirectory, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'",
+	'',
+	"const FILE = 'license.json'",
+	'let cache: Record<string, string> = {}',
+	'let queue: Promise<unknown> = Promise.resolve()',
+	'',
+	'// Call this once, before the client is used, or the first device id is not the durable one.',
+	'export async function loadLicenseStore() {',
+	'\ttry {',
+	'\t\tcache = JSON.parse(await readTextFile(FILE, { baseDir: BaseDirectory.AppConfig }))',
+	'\t} catch { cache = {} }',
+	'}',
+	'const store = {',
+	'\tgetItem: (k: string) => cache[k] ?? null,',
+	'\tsetItem: (k: string, v: string) => {',
+	'\t\tcache[k] = v',
+	'\t\t// Chained, not parallel: two overlapping writes can persist a stale snapshot.',
+	'\t\tqueue = queue.then(() =>',
+	'\t\t\twriteTextFile(FILE, JSON.stringify(cache), { baseDir: BaseDirectory.AppConfig }),',
+	'\t\t)',
+	'\t},',
+	'}',
+].join('\n');
+
+function tsClient(
+	product: Product,
+	baseUrl: string,
+	publicKeys: Record<string, string>,
+	needsStorage: boolean,
+): string {
 	return [
 		`import { CoolBeans } from '@coolbeans/sdk'`,
 		'',
@@ -158,43 +243,32 @@ function tsClient(product: Product, baseUrl: string, publicKeys: Record<string, 
 		`\tbaseUrl: '${baseUrl}',`,
 		`\t// Bundle the keys so the app verifies offline with no first-run network call.`,
 		`\tpublicKeys: ${keysLiteral(publicKeys)},`,
+		...(needsStorage ? ['\tstorage: store,'] : []),
 		`})`,
 	].join('\n');
 }
 
-/** activate-on-key-entry, the same for every TS target. */
-const TS_ACTIVATE = [
-	'// When the user pastes their key:',
-	'async function onKeyEntered(key: string) {',
-	'\tconst { license, instance } = await cb.activate(key, { name: deviceName() })',
-	'\treturn license.status === "active"',
+/**
+ * The whole integration, the same for every TS target and every seat model. One call
+ * activates if it needs to, refreshes when it can, falls back to the cached signed token
+ * when it cannot, and holds a floating seat on its own.
+ */
+const TS_OPEN = [
+	'// On launch, and again whenever the user pastes a key:',
+	'async function onLaunch(key: string) {',
+	'\tconst state = await cb.open(key, {',
+	'\t\t// Fires when the verdict changes later, so a revocation reaches a running app.',
+	'\t\tonChange: (next) => { if (next.decision === "deny") lock(next) },',
+	'\t})',
+	'\tif (state.decision === "deny") return lock(state)',
+	'\tunlock()',
+	'\t// For display only: state.license has the plan and the renewal date. Never gate on it.',
+	'\tshowPlan(state.license)',
 	'}',
+	'',
+	'// On sign-out, to give the seat back: await cb.release()',
+	'// On shutdown, so nothing is left running: cb.stop()',
 ].join('\n');
-
-/** verify-offline-on-launch, the same for every TS target. */
-const TS_VERIFY = [
-	'// On every launch, unlock instantly from the cached token, then refresh online:',
-	'async function onLaunch() {',
-	'\tif (await cb.verifyOffline()) unlock()',
-	'}',
-].join('\n');
-
-function tsWatcher(product: Product): string {
-	if (!isFloating(product)) {
-		return [
-			'// Per-device: keep the license fresh in the background, no seat to hold.',
-			'cb.start({ licenseKey: key, onResult: (r) => { if (!r.valid && r.license?.status === "disabled") lock() } })',
-		].join('\n');
-	}
-	return [
-		'// Floating: heartbeat to hold the seat while running (about a third of the lease window).',
-		'cb.start({',
-		'\tlicenseKey: key,',
-		'\theartbeatMs: 5 * 60 * 1000,',
-		'\tonResult: (r) => { if (!r.valid && r.license?.status === "disabled") lock() },',
-		'})',
-	].join('\n');
-}
 
 function tsSnippet(
 	target: Extract<SnippetTarget, 'node' | 'electron' | 'tauri' | 'browser'>,
@@ -204,15 +278,15 @@ function tsSnippet(
 	baseUrl: string,
 	publicKeys: Record<string, string>,
 ): Snippet {
+	// Everything but the browser has to be handed durable storage, and the note above is the code
+	// that provides it, so the client wires it up.
+	const needsStorage = target !== 'browser';
 	const code = [
 		storageNote,
-		tsClient(product, baseUrl, publicKeys),
 		'',
-		TS_ACTIVATE,
+		tsClient(product, baseUrl, publicKeys, needsStorage),
 		'',
-		TS_VERIFY,
-		'',
-		tsWatcher(product),
+		TS_OPEN,
 	].join('\n');
 	return { target, label, language: 'ts', install: 'npm i @coolbeans/sdk', code };
 }
@@ -222,13 +296,9 @@ function swiftSnippet(
 	baseUrl: string,
 	publicKeys: Record<string, string>,
 ): Snippet {
-	const heartbeat = isFloating(product)
-		? [
-				'',
-				'// Floating: heartbeat to hold the seat while the app runs.',
-				'let lease = try await cb.heartbeat(licenseKey: key, instanceId: result.instance.id)',
-			].join('\n')
-		: '';
+	// Identical for both seat models: the Swift SDK holds a floating seat itself, exactly as the
+	// TypeScript one does, so there is nothing here for the app to schedule.
+	const seat = '';
 	const code = [
 		'import CoolBeans',
 		'',
@@ -238,11 +308,12 @@ function swiftSnippet(
 		`\tpublicKeys: ${swiftKeysLiteral(publicKeys)}`,
 		'))',
 		'',
-		'// When the user pastes their key:',
-		'let result = try await cb.activate(licenseKey: key, name: Host.current().localizedName)',
-		'',
-		'// On every launch, unlock offline first:',
-		`if await cb.verifyOffline() { unlock() }${heartbeat}`,
+		'// On launch, and again whenever the user pastes a key. One call.',
+		'let state = await cb.open(licenseKey: key)',
+		'if state.decision == .deny { return lockOut(state) }',
+		'unlock()',
+		'// For display only: state.license has the plan and renewal date.',
+		`showPlan(state.license)${seat}`,
 	].join('\n');
 	return {
 		target: 'swift',
@@ -263,7 +334,10 @@ export function buildSnippets(
 		tsSnippet(
 			'node',
 			'Node',
-			'// Node has no localStorage: pass a durable storage, or every restart burns a seat.',
+			FILE_STORAGE(
+				["import { join } from 'node:path'", "import { homedir } from 'node:os'"],
+				"join(homedir(), '.config', '<your-app>', 'license.json')",
+			),
 			product,
 			baseUrl,
 			publicKeys,
@@ -271,7 +345,13 @@ export function buildSnippets(
 		tsSnippet(
 			'electron',
 			'Electron (main)',
-			'// Run this in the main process and back storage with electron-store or a file.',
+			[
+				'// Licensing belongs in the main process, so the key never sits in web content.',
+				FILE_STORAGE(
+					["import { join } from 'node:path'", "import { app } from 'electron'"],
+					"join(app.getPath('userData'), 'license.json')",
+				),
+			].join('\n'),
 			product,
 			baseUrl,
 			publicKeys,
@@ -279,7 +359,7 @@ export function buildSnippets(
 		tsSnippet(
 			'tauri',
 			'Tauri',
-			'// Back storage with the Tauri store plugin so the device id survives restarts.',
+			`// The Tauri store is async, so read it once at startup and keep it in memory.\n${TAURI_STORAGE}`,
 			product,
 			baseUrl,
 			publicKeys,

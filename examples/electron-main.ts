@@ -17,6 +17,9 @@ const read = (): Record<string, string> => {
 
 const beans = new CoolBeans({
 	product: 'clementine',
+	// Optional, and worth passing anyway: without it the first licence this install
+	// activates decides which product the app is bound to, and that first key is the one
+	// nobody checked. Only safe to omit if the vendor sells exactly one product.
 	baseUrl: 'https://keys.clementine.email',
 	storage: {
 		getItem: (k: string) => read()[k] ?? null,
@@ -26,16 +29,23 @@ const beans = new CoolBeans({
 	},
 });
 
-export async function activate(licenseKey: string): Promise<void> {
-	await beans.activate(licenseKey, { name: 'Desktop app' });
+/**
+ * Call on boot, and again when the renderer sends a pasted key. The SDK keeps itself fresh from
+ * here on, so a revocation reaches a long-running app through `onChange` without polling.
+ */
+export async function checkLicenseOnBoot(licenseKey?: string): Promise<boolean> {
+	const state = await beans.open(licenseKey, {
+		onChange: (next) => {
+			if (next.decision === 'deny') lockTheWindow(next.reason);
+		},
+	});
+	return state.decision === 'allow';
 }
 
-export async function checkLicenseOnBoot(licenseKey: string): Promise<boolean> {
-	if (await beans.verifyOffline()) return true;
-
-	const instanceId = beans.instanceId();
-	if (!instanceId) return false;
-
-	const result = await beans.verify(licenseKey, { instanceId });
-	return result.inconclusive ? true : result.valid;
+/** On quit, so nothing is left running. */
+export function shutdown(): void {
+	beans.stop();
 }
+
+/** Whatever your app does to a window it must not let anyone keep using. */
+declare function lockTheWindow(reason: string): void;

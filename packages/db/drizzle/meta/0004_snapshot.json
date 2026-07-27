@@ -1,6 +1,6 @@
 {
-	"id": "1c1f6c54-4f5a-4c66-b7c6-d68e0a68c8ab",
-	"prevId": "c4ded8d4-9c85-4654-99e4-cb001bb344f0",
+	"id": "4d56ef20-3d64-44b5-a47e-f0b974d0cfeb",
+	"prevId": "1c1f6c54-4f5a-4c66-b7c6-d68e0a68c8ab",
 	"version": "7",
 	"dialect": "postgresql",
 	"tables": {
@@ -721,6 +721,12 @@
 					"primaryKey": false,
 					"notNull": false
 				},
+				"entitlements": {
+					"name": "entitlements",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": false
+				},
 				"status": {
 					"name": "status",
 					"type": "text",
@@ -944,6 +950,12 @@
 				"activation_limit": {
 					"name": "activation_limit",
 					"type": "integer",
+					"primaryKey": false,
+					"notNull": false
+				},
+				"entitlements": {
+					"name": "entitlements",
+					"type": "jsonb",
 					"primaryKey": false,
 					"notNull": false
 				},

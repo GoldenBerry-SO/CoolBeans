@@ -192,6 +192,11 @@ export async function mintToken(
 		plan: args.license.plan ?? null,
 		product: args.product.slug,
 		expires_at: claimedExpiry,
+		// Omitted rather than nulled when there are none, and an empty map counts as none: absent
+		// means "no capability map", and a claim saying `{}` would tell an app there is one.
+		...(args.license.entitlements && Object.keys(args.license.entitlements).length > 0
+			? { entitlements: args.license.entitlements }
+			: {}),
 		...(args.offline ? { fingerprint: args.offline.fingerprint } : {}),
 		instance_id: args.instanceId,
 		iat,

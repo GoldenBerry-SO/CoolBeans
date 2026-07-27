@@ -150,7 +150,8 @@ export function IntegrationPage() {
 						))
 					) : (
 						<EmptyState>
-							No signing keys yet — the SDK fetches them from /v1/pubkey on first verify.
+							No signing keys yet — the SDK fetches them by licence key on the first open(). They
+							appear here once a licence has been validated.
 						</EmptyState>
 					)}
 				</Card>

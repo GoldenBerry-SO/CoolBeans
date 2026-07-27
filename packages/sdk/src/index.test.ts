@@ -363,7 +363,8 @@ describe('CoolBeans SDK', () => {
 			storage,
 			publicKeys: old.publicKeys,
 			fetch: cannedFetch((path) => {
-				if (path === '/v1/pubkey') {
+				// Keys come from /v1/keyset now, by licence key rather than product slug (#73).
+				if (path === '/v1/keyset') {
 					fetches++;
 					return { status: 200, json: { ok: true, keys: rotated.publicKeys } };
 				}
@@ -394,19 +395,53 @@ describe('CoolBeans SDK', () => {
 	});
 });
 
-describe('SDK hardening (issue #45)', () => {
-	it('warns loudly when a non-browser host gets ephemeral storage', () => {
-		const warnings: string[] = [];
-		const original = console.warn;
-		console.warn = (msg: string) => warnings.push(String(msg));
+describe('storage that cannot survive a restart', () => {
+	it('refuses to construct outside a browser with no storage passed', () => {
+		// The likeliest way a real customer gets locked out. In-memory storage mints a new device
+		// id every launch, so every launch takes another activation, and a node-locked licence is
+		// used up in a few restarts. A warning was not enough: it goes to a console nobody reads
+		// during integration, and the damage lands months later on somebody who paid.
+		expect(() => new CoolBeans({ product: 'clementine' })).toThrow(/durable storage/i);
+	});
+
+	it('names the option to pass, because an error nobody can act on is noise', () => {
 		try {
-			// No localStorage and no injected storage: the device id would be reborn on
-			// every restart, silently burning a seat each time.
-			new CoolBeans({ product: 'clementine', baseUrl: 'https://keys.test' });
-		} finally {
-			console.warn = original;
+			new CoolBeans({ product: 'clementine' });
+			expect.unreachable('expected a throw');
+		} catch (err) {
+			const error = err as CoolBeansError;
+			// The sentence has to say what to pass and what happens if you do not, because the
+			// person reading it is integrating and the consequence lands on somebody else later.
+			expect(error.message).toMatch(/storage/);
+			expect(error.message).toMatch(/allowEphemeralStorage/);
+			expect((error.body as { error?: string }).error).toBe('storage_required');
 		}
-		expect(warnings.join(' ')).toMatch(/storage/i);
+	});
+
+	it('allows it deliberately, for tests and throwaway scripts', () => {
+		const cb = new CoolBeans({ product: 'clementine', allowEphemeralStorage: true });
+		expect(cb.fingerprint()).toBeTruthy();
+	});
+
+	it('is happy in a browser, where localStorage is durable', () => {
+		const store = memStorage();
+		(globalThis as { localStorage?: unknown }).localStorage = store;
+		try {
+			expect(() => new CoolBeans({ product: 'clementine' })).not.toThrow();
+		} finally {
+			delete (globalThis as { localStorage?: unknown }).localStorage;
+		}
+	});
+});
+
+describe('SDK hardening (issue #45)', () => {
+	it('refuses ephemeral storage on a non-browser host rather than warning about it', () => {
+		// This started as a console.warn (#45). It became a throw once it was clear the warning
+		// goes to a console nobody reads during integration, while the consequence — a device id
+		// reborn on every restart, burning a seat each time — lands on a paying customer later.
+		expect(() => new CoolBeans({ product: 'clementine', baseUrl: 'https://keys.test' })).toThrow(
+			/durable storage/i,
+		);
 	});
 
 	it('verifyOffline never touches the network', async () => {
@@ -442,5 +477,63 @@ describe('SDK hardening (issue #45)', () => {
 		await expect(
 			client.deactivate('CLEM-AAAA-BBBB-CCCC-DDDD', { instanceId: 'inst-1' }),
 		).rejects.toThrow();
+	});
+});
+
+describe('fetching signing keys without a product slug (#73)', () => {
+	it('uses POST /v1/keyset with the licence key, not the slug route', async () => {
+		const signed = await signToken(payloadOf(), 'k1');
+		const seen: Array<{ url: string; method: string; body: string | undefined }> = [];
+		const storage = memStorage();
+		const cb = new CoolBeans({
+			baseUrl: 'https://api.test',
+			storage,
+			fetch: (async (url: string | URL | Request, init?: RequestInit) => {
+				const u = String(url instanceof Request ? url.url : url);
+				seen.push({ url: u, method: init?.method ?? 'GET', body: init?.body as string });
+				if (u.endsWith('/v1/keyset')) {
+					return new Response(
+						JSON.stringify({ ok: true, algorithm: 'ed25519', keys: signed.publicKeys }),
+						{ status: 200, headers: { 'Content-Type': 'application/json' } },
+					);
+				}
+				return new Response(
+					JSON.stringify({
+						ok: true,
+						valid: true,
+						license: {
+							key: 'CLEM-A2B3-C4D5-E6F7-G8H9',
+							status: 'active',
+							kind: 'subscription',
+							plan: null,
+							product: 'clementine',
+							expires_at: null,
+						},
+						instance: { id: 'i', name: 'Mac', created_at: 'now' },
+						token: signed.token,
+					}),
+					{ status: 200, headers: { 'Content-Type': 'application/json' } },
+				);
+			}) as typeof fetch,
+		});
+		// verify() is where a missing keyset gets fetched; offlineState stays network-free.
+		await cb.verify('CLEM-A2B3-C4D5-E6F7-G8H9', { instanceId: 'i' });
+
+		const keysetCall = seen.find((c) => c.url.endsWith('/v1/keyset'));
+		expect(keysetCall, 'the SDK asked /v1/keyset').toBeDefined();
+		expect(keysetCall?.method).toBe('POST');
+		// The key is the credential: it goes in the body, never in the URL.
+		expect(keysetCall?.body).toContain('CLEM-A2B3-C4D5-E6F7-G8H9');
+		expect(seen.every((c) => !c.url.includes('CLEM-'))).toBe(true);
+		expect(seen.some((c) => c.url.includes('/v1/pubkey'))).toBe(false);
+
+		// And having fetched them, the cached token verifies offline with no product configured.
+		expect(await cb.verifyOffline()).toBe(true);
+	});
+
+	it('can be constructed with no product slug at all', () => {
+		expect(
+			() => new CoolBeans({ baseUrl: 'https://api.test', storage: memStorage() }),
+		).not.toThrow();
 	});
 });

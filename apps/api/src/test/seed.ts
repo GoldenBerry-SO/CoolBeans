@@ -23,6 +23,8 @@ export async function seedGrant(
 		connectionId?: number;
 		/** Seats this price buys; null inherits the product's limit. */
 		activationLimit?: number | null;
+		/** Capabilities this price buys; null grants none. */
+		entitlements?: Record<string, boolean | number | string> | null;
 	},
 ): Promise<void> {
 	await deps.db.insert(licenseGrants).values({
@@ -33,6 +35,7 @@ export async function seedGrant(
 		kind: args.kind,
 		plan: args.plan ?? null,
 		activationLimit: args.activationLimit ?? null,
+		entitlements: args.entitlements ?? null,
 		status: 'active',
 	});
 }

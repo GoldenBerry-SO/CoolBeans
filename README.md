@@ -1,6 +1,7 @@
 # Cool Beans
 
 > The open-source license layer. Issue a key, activate it, check it's still good.
+> One call in the app: `const state = await cb.open(key)`.
 > "Your licence? Cool beans — you're all set."
 
 Cool Beans is a small MIT-licensed service that issues and validates software license keys and turns
@@ -17,7 +18,11 @@ It's a drop-in for the Lemon Squeezy License API, so existing clients migrate wi
 
 **Status: v1 built.** Full license lifecycle, Stripe + PayPal payments, offline-token SDK, usage
 metering, LS-parity routes, admin console, customer portal, worker, and Docker/k8s packaging are
-implemented and tested (automated suites plus a Docker Compose smoke test). The database is
+implemented and tested (automated suites plus a Docker Compose smoke test). Pricing lives in Stripe: a
+licence grant maps one price to what it buys — duration, seats, and a signed capability map an app reads
+as `state.entitlements`. App-side that is one `open()` call returning one verdict, in both the
+TypeScript and Swift SDKs, and `contract/access-states.json` is the shared fixture set that keeps them
+agreeing about who stays unlocked. The database is
 PostgreSQL 16 everywhere — cloud, compose self-host, and the test suite (PGlite). Full product spec:
 [`docs/PRD.md`](docs/PRD.md). Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Design
 system: [`docs/DESIGN.md`](docs/DESIGN.md). PRD coverage: [`docs/VALIDATION.md`](docs/VALIDATION.md).
@@ -35,8 +40,10 @@ packages/
   db/           Drizzle pg schema, postgres-js adapter, and the migrate CLI
   email/        React Email templates + Resend/SMTP sender seam
   logger/       Structured logger — zero deps
-  sdk/          @coolbeans/sdk — drop-in client for Node, Electron, Tauri, and the browser
+  sdk/          @coolbeans/sdk — one open() call on launch; Node, Electron, Tauri, browser
+contract/       access-states.json — the access states every SDK must agree on
 docs/           PRD and architecture notes
+examples/       Copyable quickstarts, one per host
 ```
 
 ## Development

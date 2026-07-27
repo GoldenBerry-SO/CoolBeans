@@ -9,6 +9,12 @@ export interface TokenPayload {
 	product: string;
 	expires_at: string | null;
 	/**
+	 * What this licence actually buys, e.g. `{ export_4k: true, batch_limit: 100 }`. Absent when
+	 * the licence has none. Server-authored and signed, which is what makes it safe to gate a
+	 * feature on — unlike `plan`, which is a label a vendor types.
+	 */
+	entitlements?: Record<string, boolean | number | string>;
+	/**
 	 * The device an offline activation was minted for. Present only on that path, and the
 	 * only thing tying a hand-carried blob to one machine — without it a client can merely
 	 * compare the token to the instance id the token itself supplied.

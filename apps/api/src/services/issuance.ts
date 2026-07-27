@@ -26,6 +26,8 @@ export async function issueLicense(
 		issuedGrantId?: number | null;
 		/** Seats this licence gets, snapshotted from the grant. Null inherits the product's. */
 		activationLimit?: number | null;
+		/** Capabilities this licence carries, snapshotted from the grant. Null grants none. */
+		entitlements?: Record<string, boolean | number | string> | null;
 		expiresAt?: string | null;
 		actor: string;
 	},
@@ -54,6 +56,7 @@ export async function issueLicense(
 						plan: args.plan ?? null,
 						issuedGrantId: args.issuedGrantId ?? null,
 						activationLimit: args.activationLimit ?? null,
+						entitlements: args.entitlements ?? null,
 						status: 'active',
 						expiresAt: args.kind === 'perpetual' ? null : (args.expiresAt ?? null),
 					})

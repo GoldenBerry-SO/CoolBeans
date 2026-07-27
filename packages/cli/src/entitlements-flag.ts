@@ -27,3 +27,18 @@ export function parseEntitlementsFlag(raw: string): Record<string, boolean | num
 	}
 	return parsed as Record<string, boolean | number | string>;
 }
+
+/**
+ * Parse --seats: a positive integer the API can store, or a message that points at the typo.
+ *
+ * Digits-only is not enough: 1 with 400 zeroes is Infinity, and JSON.stringify turns Infinity
+ * into null — recreating exactly the invalid request this flag exists to stop, with more digits.
+ * The upper bound matches the API's int4 column, so a value valid here cannot 422 over there.
+ */
+export function parseSeatsFlag(raw: string): number {
+	const value = Number(raw);
+	if (!/^[0-9]+$/.test(raw) || !Number.isSafeInteger(value) || value < 1 || value > 2_147_483_647) {
+		throw new Error(`--seats must be a positive integer up to 2147483647, got "${raw}".`);
+	}
+	return value;
+}

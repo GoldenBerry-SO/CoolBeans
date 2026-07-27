@@ -120,6 +120,9 @@ export async function adminLicenseView(deps: AppDeps, license: License, product:
 		// The licence's own snapshot when it has one, so a Pro key shows 10 seats next to a Basic
 		// key's 3 on the same product.
 		activation_limit: seatLimit(license, product),
+		// And what it unlocks, or the operator can set capabilities at issue time and never see
+		// them again — a comped Pro key would look identical to Basic everywhere they look.
+		entitlements: license.entitlements ?? null,
 		customer_email: purchase?.email ?? null,
 	};
 }

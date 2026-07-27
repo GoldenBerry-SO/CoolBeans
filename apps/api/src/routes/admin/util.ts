@@ -3,7 +3,7 @@
 
 import type { Account, Product } from '@coolbeans/db';
 import type { Context } from 'hono';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { badRequest, forbidden, notFound, validationError } from '../../http/errors.js';
 import { getAccountProductBySlug } from '../../store/products.js';
@@ -76,6 +76,26 @@ export async function requireProduct(
 	assertScope(c, product);
 	return product;
 }
+
+/**
+ * A capability map, wherever it is accepted: a grant maps a price to one, and a hand-issued
+ * licence names one directly. Both end in the same signed token claim, so both take the same
+ * shape — flat scalars, names an app can read as a property, and a bounded number of them.
+ * Every entry is signed into every token the licence issues, and that token lives in an app's
+ * storage and travels on each validate, so this is not a place for an arbitrary blob.
+ */
+export const entitlementsSchema = z
+	.record(
+		z
+			.string()
+			.regex(
+				/^[A-Za-z_][A-Za-z0-9_]*$/,
+				'Capability names must be letters, numbers and underscores, starting with a letter',
+			)
+			.max(64),
+		z.union([z.boolean(), z.number(), z.string().max(256)]),
+	)
+	.refine((map) => Object.keys(map).length <= 32, 'At most 32 capabilities');
 
 export async function readBody<T>(c: Context, schema: z.ZodType<T>): Promise<T> {
 	let raw: unknown;

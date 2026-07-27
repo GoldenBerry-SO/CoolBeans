@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { badRequest } from '../../http/errors.js';
 import { createGrant, listGrantsForProduct, retireGrant } from '../../services/grants.js';
-import { auditActor, readBody, requireProduct } from './util.js';
+import { auditActor, entitlementsSchema, readBody, requireProduct } from './util.js';
 
 const grantBody = z.object({
 	// A Stripe price id, like price_1QabcXYZ. The shape gate turns a fat-fingered id into a
@@ -18,8 +18,8 @@ const grantBody = z.object({
 	// Free-form vendor label (e.g. "Pro monthly"), snapshotted onto issued licences. Display only.
 	plan: z.string().min(1).optional(),
 	// Seats this price buys. Omit to inherit the product's limit, which is what every grant did
-	// before seats could be priced.
-	activation_limit: z.number().int().positive().optional(),
+	// before seats could be priced. Bounded to the int4 column, same reason as manual issuance.
+	activation_limit: z.number().int().positive().max(2_147_483_647).optional(),
 	/**
 	 * Capabilities this price buys, e.g. { "export_4k": true, "batch_limit": 100 }. Omit to keep
 	 * whatever the price already grants; send {} to clear them, which is the only way to take a
@@ -31,19 +31,7 @@ const grantBody = z.object({
 	 * console enforces the same name rule; if only the console did, the contract would be a
 	 * convention rather than a rule.
 	 */
-	entitlements: z
-		.record(
-			z
-				.string()
-				.regex(
-					/^[A-Za-z_][A-Za-z0-9_]*$/,
-					'Capability names must be letters, numbers and underscores, starting with a letter',
-				)
-				.max(64),
-			z.union([z.boolean(), z.number(), z.string().max(256)]),
-		)
-		.refine((map) => Object.keys(map).length <= 32, 'At most 32 capabilities per price')
-		.optional(),
+	entitlements: entitlementsSchema.optional(),
 });
 
 export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): void {

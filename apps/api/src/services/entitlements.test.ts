@@ -81,7 +81,7 @@ async function tokenPayload(key: string): Promise<Record<string, unknown>> {
 
 async function licenceRow(key: string): Promise<Record<string, unknown>> {
 	const rows = await rawQuery<Record<string, unknown>>(
-		'SELECT entitlements, plan FROM licenses WHERE key = $1',
+		'SELECT entitlements, plan, activation_limit FROM licenses WHERE key = $1',
 		[key.replace(/-/g, '').toUpperCase()],
 	);
 	const row = rows[0];
@@ -273,6 +273,62 @@ describe('issuance snapshots the entitlements', () => {
 		await seedGrant(h.deps, { productId, priceId: PRICE_BASIC, kind: 'perpetual' });
 		const key = await buy('cs_basic', 'evt_plain');
 		expect((await licenceRow(key)).entitlements).toBeNull();
+	});
+});
+
+describe('issuing a licence by hand', () => {
+	/** POST /admin/keys, the path an operator uses when no money moved through Stripe. */
+	async function issue(body: Record<string, unknown>) {
+		const res = await h.app.request('/admin/keys', {
+			method: 'POST',
+			headers: { ...h.adminHeaders, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ product: 'clementine', email: 'hand@example.com', ...body }),
+		});
+		return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+	}
+
+	it('can grant capabilities and seats without a Stripe price behind it', async () => {
+		// Capabilities normally come from the grant a price maps to. An operator issuing a key by
+		// hand — a comped licence, support replacing one, testing before Stripe is wired — has no
+		// price, and without this their licence can never carry any: state.entitlements would be
+		// absent on every hand-issued key, and a paid-only feature untestable without a checkout.
+		const r = await issue({
+			kind: 'perpetual',
+			plan: 'Pro (comped)',
+			entitlements: PRO,
+			activation_limit: 10,
+		});
+		expect(r.status).toBe(200);
+		const key = (r.body as { key: string }).key;
+		const row = await licenceRow(key);
+		expect(row.entitlements).toEqual(PRO);
+		// The seat snapshot too, so a comped Pro key is worth what a bought one is. The §9 licence
+		// object deliberately carries neither, so the row is where to look.
+		expect(row.activation_limit).toBe(10);
+		expect(row.plan).toBe('Pro (comped)');
+	});
+
+	it('signs them into the token, same as a purchased licence', async () => {
+		const r = await issue({ kind: 'perpetual', entitlements: PRO });
+		const payload = await tokenPayload((r.body as { key: string }).key);
+		expect(payload.entitlements).toEqual(PRO);
+	});
+
+	it('carries none when none were asked for', async () => {
+		const r = await issue({ kind: 'perpetual' });
+		expect((await licenceRow((r.body as { key: string }).key)).entitlements).toBeNull();
+	});
+
+	it('refuses a seat count the column cannot hold, rather than 500ing', async () => {
+		// int4 tops out at 2147483647. Above that the schema used to accept it and the insert
+		// blew up mid-transaction, so schema-valid input produced an internal error. Codex P2.
+		const r = await issue({ kind: 'perpetual', activation_limit: 2_147_483_648 });
+		expect(r.status).toBe(422);
+	});
+
+	it('refuses a capability name an app cannot read, exactly as the grant route does', async () => {
+		const r = await issue({ kind: 'perpetual', entitlements: { 'limits.batch': 10 } });
+		expect(r.status).toBeGreaterThanOrEqual(400);
 	});
 });
 

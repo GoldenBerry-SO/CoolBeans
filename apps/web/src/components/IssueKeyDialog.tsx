@@ -2,6 +2,7 @@
 // ABOUTME: On success the key shows once in a mono well with a copy button (docs/DESIGN.md).
 
 import { useEffect, useState } from 'react';
+import { entitlementsPayload, parseEntitlements } from '../lib/entitlements.js';
 import { useIssueKey, useProducts } from '../lib/queries.js';
 import { Dialog, Field, inputClass } from './Dialog.js';
 import { AccentButton, SecondaryButton } from './ui.js';
@@ -11,6 +12,13 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 	const [slug, setSlug] = useState('');
 	const [email, setEmail] = useState('');
 	const [kind, setKind] = useState('subscription');
+	const [plan, setPlan] = useState('');
+	// Blank inherits the product's limit, which is what every hand-issued key used to get.
+	const [seats, setSeats] = useState('');
+	// What this licence unlocks. Normally a price decides; a comped or replacement key has no
+	// price, so without this a comped Pro key is indistinguishable from Basic.
+	const [capabilities, setCapabilities] = useState('');
+	const parsed = parseEntitlements(capabilities);
 	const issue = useIssueKey();
 
 	useEffect(() => {
@@ -54,8 +62,20 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 					    the button still enabled a click on an empty form did nothing at all and
 					    said nothing about why. */}
 					<AccentButton
-						disabled={!email || !slug || issue.isPending}
-						onClick={() => email && slug && issue.mutate({ product: slug, email, kind })}
+						disabled={!email || !slug || !!parsed.error || issue.isPending}
+						onClick={() =>
+							email &&
+							slug &&
+							!parsed.error &&
+							issue.mutate({
+								product: slug,
+								email,
+								kind,
+								plan: plan || undefined,
+								activation_limit: seats ? Number(seats) : undefined,
+								entitlements: entitlementsPayload(capabilities, false),
+							})
+						}
 					>
 						{issue.isPending ? 'Issuing…' : 'Issue key'}
 					</AccentButton>
@@ -86,6 +106,38 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 					className={inputClass}
 				/>
 			</Field>
+			<Field
+				label="Plan label (optional)"
+				hint="What the customer calls this, e.g. Pro. Display only — never gate a feature on it."
+			>
+				<input
+					value={plan}
+					onChange={(e) => setPlan(e.target.value)}
+					placeholder="Pro"
+					className={inputClass}
+				/>
+			</Field>
+			<Field label="Seats (optional)" hint="Blank inherits the product's limit.">
+				<input
+					value={seats}
+					onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ''))}
+					placeholder="10"
+					inputMode="numeric"
+					className={inputClass}
+				/>
+			</Field>
+			<Field
+				label="What it unlocks (optional)"
+				hint="export_4k, batch_limit=100 — signed into the licence, so the app reads state.entitlements. Normally a price decides this; a comped key has no price."
+			>
+				<input
+					value={capabilities}
+					onChange={(e) => setCapabilities(e.target.value)}
+					placeholder="export_4k, batch_limit=100"
+					className={inputClass}
+				/>
+			</Field>
+			{parsed.error ? <p className="m-0 text-[12.5px] text-danger">{parsed.error}</p> : null}
 			{issue.error ? (
 				<p className="m-0 text-[12.5px] text-danger">{(issue.error as Error).message}</p>
 			) : null}

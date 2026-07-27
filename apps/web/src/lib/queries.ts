@@ -244,6 +244,13 @@ export interface IssueKeyInput {
 	email: string;
 	kind: string;
 	plan?: string;
+	/** Seats this licence gets. Omitted inherits the product's limit. */
+	activation_limit?: number;
+	/**
+	 * Capabilities this licence carries. A hand-issued licence has no price to inherit them
+	 * from, so a comped Pro key would otherwise be indistinguishable from Basic.
+	 */
+	entitlements?: EntitlementMap;
 	trial_days?: number;
 }
 

@@ -495,9 +495,10 @@ product, so a self-host instance has exactly one Stripe webhook endpoint however
 
 Signature-verified with the official `stripe` SDK
 (`stripe.webhooks.constructEvent(rawBody, sig, secret)` against the raw request body, using the
-connection's signing secret). "Easy onboarding" specifics: `beans stripe connect` (CLI) or an admin
-action maps a one-time price and an annual price to grants and **auto-registers the connection's
-webhook endpoint via the Stripe API**, then stores the signing secret. No manual dashboard wiring.
+connection's signing secret). "Easy onboarding" specifics: `beans stripe connect` (CLI) or the
+console's Connect Stripe action **auto-registers the connection's webhook endpoint via the Stripe
+API** and stores the signing secret — registration is its whole job. Prices are mapped in the
+grants API, one grant per price. No manual dashboard wiring.
 
 `POST /v1/stripe/webhook` (one endpoint per connection) handles the table below, plus
 `checkout.session.async_payment_succeeded` and `charge.dispute.created` per the integration notes
@@ -587,10 +588,11 @@ dashboard.**
   prefix are immutable after creation — issued keys embed the prefix and clients match on the slug.
   Prefixes are 2 to 12 letters, matching the public format gate.
 - Map Stripe pricing to a product with license grants (§13): `GET /admin/products/:slug/grants` lists
-  them, `POST /admin/products/:slug/grants` maps a price (`{ stripe_price_id, kind, plan? }`), and
-  `POST /admin/products/:slug/grants/:id/retire` retires one (never deleted, so issued licences keep
-  their provenance). `POST /admin/products/:slug/stripe/connect` still maps a one-time and an annual
-  price in a single call and registers the connection's webhook.
+  them, `POST /admin/products/:slug/grants` maps a price (`{ stripe_price_id, kind, plan?,
+  activation_limit?, entitlements? }`), and `POST /admin/products/:slug/grants/:id/retire` retires
+  one (never deleted, so issued licences keep their provenance).
+  `POST /admin/products/:slug/stripe/connect` registers the connection's webhook and nothing else;
+  it never creates or retires a grant.
 - Issue a key manually for a product + email (reissues, comps, testing).
 - Disable a key (`reason=manual`) and re-enable one.
 - List a product's keys; list a key's activations & usage; look up a purchase by email or provider id.

@@ -483,31 +483,41 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 
 function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: () => void }) {
 	// One webhook endpoint per connection: every product shares it and its one signing secret.
+	// Registration is connect's whole job now — prices are mapped in the Stripe prices dialog,
+	// one at a time. Its predecessor took two price ids and retired every grant not among them.
 	const suggestedPath = '/v1/stripe/webhook';
 	const [webhookUrl, setWebhookUrl] = useState('');
-	const [lifetime, setLifetime] = useState('');
-	const [yearly, setYearly] = useState('');
 	const connect = useConnectStripe();
 
-	// Once it succeeds the operator still has one thing to do in Stripe, so show the
-	// result rather than closing over it.
+	// Once it succeeds the operator may still have one thing to do in Stripe, so show the
+	// result rather than closing over it. A cloud Connect account gets the note instead of the
+	// endpoint: its events already arrive on the platform endpoint, and telling that operator to
+	// "point Stripe at" a path sends them to their dashboard to wire something that needs no
+	// wiring (Bugbot, #88).
 	if (connect.isSuccess && connect.data) {
+		const alreadyWired = Boolean(connect.data.note);
 		return (
 			<Dialog
 				title="Stripe connected"
-				lede={`${product.name} · prices linked, webhook wired`}
+				lede={`${product.name} · ${alreadyWired ? 'events already reach us' : 'webhook wired'}`}
 				onClose={onClose}
 				footer={<SecondaryButton onClick={onClose}>Done</SecondaryButton>}
 			>
-				<Field label="Point Stripe at this endpoint">
-					<div className="rounded-[7px] bg-track px-3 py-2 font-mono text-[12.5px]">
-						{connect.data.webhook_path}
-					</div>
-				</Field>
+				{alreadyWired ? null : (
+					<Field label="Point Stripe at this endpoint">
+						<div className="rounded-[7px] bg-track px-3 py-2 font-mono text-[12.5px]">
+							{connect.data.webhook_path}
+						</div>
+					</Field>
+				)}
 				<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
-					{connect.data.secret_rotated
-						? 'A fresh signing secret was stored.'
-						: 'That endpoint already existed, so your stored signing secret was kept.'}
+					{connect.data.note ??
+						(connect.data.secret_rotated
+							? 'A fresh signing secret was stored.'
+							: 'That endpoint already existed, so your stored signing secret was kept.')}
+				</p>
+				<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
+					Next: map your Stripe prices in the Stripe prices dialog, one grant per price.
 				</p>
 				<Field label="One setting we cannot make for you">
 					<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
@@ -521,21 +531,15 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 	return (
 		<Dialog
 			title="Connect Stripe"
-			lede={`${product.name} · point us at your Stripe prices and we wire the webhook`}
+			lede={`${product.name} · we register the webhook so payment events reach us`}
 			onClose={onClose}
 			footer={
 				<>
 					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
 					<button
 						type="button"
-						onClick={() =>
-							connect.mutate({
-								slug: product.slug,
-								webhook_url: webhookUrl,
-								lifetime_price_id: lifetime.trim(),
-								yearly_price_id: yearly.trim(),
-							})
-						}
+						disabled={!webhookUrl || connect.isPending}
+						onClick={() => connect.mutate({ slug: product.slug, webhook_url: webhookUrl })}
 						className="cursor-pointer rounded-[9px] border border-stripe bg-stripe px-4 py-[9px] font-semibold text-[13px] text-white"
 					>
 						{connect.isPending ? 'Connecting…' : 'Connect Stripe'}
@@ -551,30 +555,10 @@ function ConnectStripeDialog({ product, onClose }: { product: Product; onClose: 
 					className={`${inputClass} font-mono text-[13px]`}
 				/>
 			</Field>
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-				<Field
-					label="Lifetime price ID"
-					hint="From your Stripe dashboard. A checkout for this price issues a lifetime license."
-				>
-					<input
-						value={lifetime}
-						onChange={(e) => setLifetime(e.target.value)}
-						placeholder="price_123"
-						className={`${inputClass} font-mono`}
-					/>
-				</Field>
-				<Field
-					label="Yearly price ID"
-					hint="The recurring price whose subscription issues a yearly license."
-				>
-					<input
-						value={yearly}
-						onChange={(e) => setYearly(e.target.value)}
-						placeholder="price_456"
-						className={`${inputClass} font-mono`}
-					/>
-				</Field>
-			</div>
+			<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
+				Prices are not set here: map each Stripe price to what it grants in the Stripe prices
+				dialog, and this webhook carries the events for all of them.
+			</p>
 			{connect.error ? (
 				<p className="m-0 text-[12.5px] text-danger">{(connect.error as Error).message}</p>
 			) : null}

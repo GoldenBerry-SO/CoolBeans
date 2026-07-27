@@ -133,14 +133,10 @@ export function fakeStripeGateway(
 			if (!found) return null;
 			return { stripeAccountId: found.stripeAccountId, livemode: found.livemode ?? false };
 		},
-		async connect(args: { productSlug: string; lifetimePriceId: string; yearlyPriceId: string }) {
-			// Connect no longer mints prices: it echoes back the vendor's own price ids,
-			// which is what the caller then stores on the product.
-			return {
-				lifetimePriceId: args.lifetimePriceId,
-				yearlyPriceId: args.yearlyPriceId,
-				webhookSecret: extras.connectSecret ?? `whsec_${args.productSlug}`,
-			};
+		async connect(args: { productSlug: string; webhookUrl: string }) {
+			// Registration only, like the real one: the secret is revealed on create, and
+			// extras.connectSecret = '' models Stripe reusing an endpoint and returning none.
+			return { webhookSecret: extras.connectSecret ?? `whsec_${args.productSlug}` };
 		},
 	};
 	return gateway;

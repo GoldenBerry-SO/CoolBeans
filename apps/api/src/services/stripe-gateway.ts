@@ -12,8 +12,7 @@ export interface StripeEvent {
 }
 
 export interface StripeConnectResult {
-	lifetimePriceId: string;
-	yearlyPriceId: string;
+	/** Empty when Stripe reused an existing endpoint: the secret is only revealed on create. */
 	webhookSecret: string;
 }
 
@@ -62,12 +61,7 @@ export interface StripeGateway {
 	 * connect no longer creates prices. Idempotent: re-running finds the existing webhook
 	 * by url and returns no secret, since Stripe only reveals it at creation.
 	 */
-	connect(args: {
-		productSlug: string;
-		webhookUrl: string;
-		lifetimePriceId: string;
-		yearlyPriceId: string;
-	}): Promise<StripeConnectResult>;
+	connect(args: { productSlug: string; webhookUrl: string }): Promise<StripeConnectResult>;
 	/**
 	 * Look up a price the vendor referenced, to confirm it exists in their account and is the
 	 * right billing mode for its tier. Null when Stripe has no such price (a typo, or a price
@@ -215,10 +209,9 @@ export function createStripeGateway(
 			}
 		},
 		async connect(args) {
-			// The vendor owns pricing, so connect does not create Stripe products or
-			// prices any more — the two price ids come in already belonging to their
-			// account. Its only side effect is registering the webhook so events reach
-			// us. Idempotent by url: a re-run finds the existing endpoint.
+			// The vendor owns pricing, so connect touches no Stripe products or prices. Its only
+			// side effect is registering the webhook so events reach us. Idempotent by url: a
+			// re-run finds the existing endpoint.
 			const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
 			let endpoint = endpoints.data.find((e) => e.url === args.webhookUrl);
 			endpoint ??= await stripe.webhookEndpoints.create({
@@ -235,12 +228,8 @@ export function createStripeGateway(
 				],
 				metadata: { coolbeans_slug: args.productSlug },
 			});
-			return {
-				lifetimePriceId: args.lifetimePriceId,
-				yearlyPriceId: args.yearlyPriceId,
-				// The secret is only returned at creation; a reused endpoint keeps its stored secret.
-				webhookSecret: endpoint.secret ?? '',
-			};
+			// The secret is only returned at creation; a reused endpoint keeps its stored secret.
+			return { webhookSecret: endpoint.secret ?? '' };
 		},
 	};
 }

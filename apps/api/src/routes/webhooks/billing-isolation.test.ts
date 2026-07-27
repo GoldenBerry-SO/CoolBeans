@@ -152,10 +152,10 @@ describe('the two webhook URLs are distinct routes', () => {
 });
 
 describe('the reverse guard on product prices', () => {
-	it('refuses to connect a product to the Pro price (perpetual slot)', async () => {
+	it('refuses to map the Pro price as a grant', async () => {
 		// A grant on the Pro price would resolve a Cool Beans Pro purchase to a product and
-		// issue somebody a licence key for it. Connect is where prices get mapped now, so
-		// that is where the guard lives.
+		// issue somebody a licence key for it. The grants API is the only place prices get
+		// mapped now — connect stopped taking prices — so the guard lives there.
 		const h = await harness();
 		await createProduct(h.app, {
 			slug: 'sneaky',
@@ -163,20 +163,16 @@ describe('the reverse guard on product prices', () => {
 			key_prefix: 'SNEAK',
 			email_from: 'r@c.io',
 		});
-		const res = await h.app.request('/admin/products/sneaky/stripe/connect', {
+		const res = await h.app.request('/admin/products/sneaky/grants', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://sneaky.example/webhook',
-				lifetime_price_id: PRO_PRICE,
-				yearly_price_id: 'price_sneakyYear',
-			}),
+			body: JSON.stringify({ stripe_price_id: PRO_PRICE, kind: 'perpetual' }),
 		});
 		expect(res.status).toBe(409);
 		expect((await res.json()) as { error: string }).toMatchObject({ error: 'reserved_price' });
 	});
 
-	it('refuses the Pro price in the subscription slot too', async () => {
+	it('refuses it as a subscription grant too', async () => {
 		const h = await harness();
 		await createProduct(h.app, {
 			slug: 'clementine',
@@ -184,14 +180,10 @@ describe('the reverse guard on product prices', () => {
 			key_prefix: 'CLEM',
 			email_from: 'r@c.io',
 		});
-		const res = await h.app.request('/admin/products/clementine/stripe/connect', {
+		const res = await h.app.request('/admin/products/clementine/grants', {
 			method: 'POST',
 			headers: h.adminHeaders,
-			body: JSON.stringify({
-				webhook_url: 'https://clementine.example/webhook',
-				lifetime_price_id: 'price_clemLife',
-				yearly_price_id: PRO_PRICE,
-			}),
+			body: JSON.stringify({ stripe_price_id: PRO_PRICE, kind: 'subscription' }),
 		});
 		expect(res.status).toBe(409);
 		expect((await res.json()) as { error: string }).toMatchObject({ error: 'reserved_price' });

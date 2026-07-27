@@ -170,13 +170,9 @@ const stripe = program.command('stripe').description('Stripe onboarding');
 
 stripe
 	.command('connect')
-	.description(
-		'Reference your Stripe prices + register the webhook for a product (the 5-minute job)',
-	)
+	.description('Register the Stripe webhook for a product (prices are mapped with grants)')
 	.requiredOption('--product <slug>')
 	.requiredOption('--webhook-url <url>')
-	.requiredOption('--lifetime-price <id>', 'Your existing Stripe price id for a lifetime licence')
-	.requiredOption('--yearly-price <id>', 'Your existing Stripe price id for a yearly subscription')
 	.action(async (opts, cmd) => {
 		const { client, json } = ctx(cmd);
 		try {
@@ -184,15 +180,16 @@ stripe
 				client,
 				'POST',
 				`/admin/products/${opts.product}/stripe/connect`,
-				{
-					webhook_url: opts.webhookUrl,
-					lifetime_price_id: opts.lifetimePrice,
-					yearly_price_id: opts.yearlyPrice,
-				},
-			)) as { prices: { lifetimePriceId: string; yearlyPriceId: string } };
+				{ webhook_url: opts.webhookUrl },
+			)) as { webhook_path: string; secret_rotated: boolean; note?: string };
 			out(
 				json,
-				`Connected ${opts.product} to Stripe.\n  lifetime: ${res.prices.lifetimePriceId}\n  yearly:   ${res.prices.yearlyPriceId}`,
+				res.note ??
+					`Webhook wired for ${opts.product} at ${res.webhook_path}.` +
+						(res.secret_rotated
+							? ' A fresh signing secret was stored.'
+							: ' The stored signing secret was kept.') +
+						' Map prices in the console (Stripe prices) or POST /admin/products/<slug>/grants.',
 				res,
 			);
 		} catch (err) {

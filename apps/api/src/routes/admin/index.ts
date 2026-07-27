@@ -135,19 +135,24 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		});
 	});
 
-	// A Stripe price id, like price_1QabcXYZ. Guarding the shape here turns a fat-finger
-	// (a prod_ id, a checkout link) into a clean 400 instead of a value nothing matches at
-	// checkout time, which would silently issue no key to a paying buyer.
-	const priceId = z
-		.string()
-		.regex(/^price_[A-Za-z0-9]+$/, 'Must be a Stripe price id, like price_123');
-	// The two ids must differ and be the right billing mode, but that lives in connectStripe
-	// (shared with product create/patch) so every path that sets these columns is guarded.
-	const connectBody = z.object({
-		webhook_url: z.string().url(),
-		lifetime_price_id: priceId,
-		yearly_price_id: priceId,
-	});
+	// Webhook registration only. The two price fields the old body carried are refused by name
+	// rather than silently stripped: an operator pasting the old shape would otherwise believe
+	// two prices were mapped when nothing happened. Prices are mapped in the grants API.
+	const connectBody = z
+		.object({ webhook_url: z.string().url() })
+		.catchall(z.unknown())
+		.superRefine((body, ctx) => {
+			for (const field of ['lifetime_price_id', 'yearly_price_id']) {
+				if (field in body) {
+					ctx.addIssue({
+						code: 'custom',
+						path: [field],
+						message:
+							'Connect registers the webhook only now. Map prices with the grants API (POST /admin/products/:slug/grants).',
+					});
+				}
+			}
+		});
 	admin.post('/products/:slug/stripe/connect', async (c) => {
 		const product = await requireProduct(c, deps, c.req.param('slug'));
 		const body = await readBody(c, connectBody);
@@ -155,15 +160,13 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			actor: auditActor(c),
 			product,
 			webhookUrl: body.webhook_url,
-			lifetimePriceId: body.lifetime_price_id,
-			yearlyPriceId: body.yearly_price_id,
 		});
 		return c.json({
 			ok: true,
-			prices: { lifetimePriceId: result.lifetimePriceId, yearlyPriceId: result.yearlyPriceId },
 			webhook_path: result.webhookPath,
 			secret_rotated: result.secretRotated,
 			dunning: result.dunning,
+			...(result.note ? { note: result.note } : {}),
 		});
 	});
 

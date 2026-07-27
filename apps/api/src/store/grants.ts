@@ -2,7 +2,7 @@
 // ABOUTME: A grant is the whole pricing model: (connection, price) -> product, kind, plan.
 
 import type { Database, LicenseGrant, Product, StripeConnection } from '@coolbeans/db';
-import { licenseGrants, products, stripeConnections } from '@coolbeans/db';
+import { licenseGrants, licenses, products, stripeConnections } from '@coolbeans/db';
 import { and, asc, desc, eq } from 'drizzle-orm';
 
 /**
@@ -95,21 +95,34 @@ export async function getConnectionByStripeAccount(
 
 /** The active grants on a product, newest first, for the console and audit. */
 /**
- * Every capability name a licence for this product might carry, deduped and sorted.
+ * Every capability name a licence for this product might carry, deduped and sorted. Names come
+ * from grants AND issued licences, because they are two real sources: a price maps a capability
+ * through a grant, and a hand-issued licence (a comp, a support replacement, a vendor with no
+ * Stripe wired) names its own. Reading grants alone told a manual-only vendor's brief "this
+ * product grants no capabilities" while every key it issued carried one.
  *
- * Retired grants count: licences issued before a price was retired still carry its capabilities,
- * and an app that stops checking one takes a feature away from somebody who paid for it. A name
- * that is no longer sold costs nothing, since absent reads as off.
+ * Retired grants and disabled licences count: a licence that carries a name means an app must
+ * honour it, and a listed-but-unsold name costs nothing, since absent reads as off.
  */
 export async function entitlementNamesForProduct(
 	db: Database,
 	productId: number,
 ): Promise<string[]> {
-	const rows = await db
-		.select({ entitlements: licenseGrants.entitlements })
-		.from(licenseGrants)
-		.where(eq(licenseGrants.productId, productId));
-	return [...new Set(rows.flatMap((row) => Object.keys(row.entitlements ?? {})))].sort();
+	const [grantRows, licenceRows] = await Promise.all([
+		db
+			.select({ entitlements: licenseGrants.entitlements })
+			.from(licenseGrants)
+			.where(eq(licenseGrants.productId, productId)),
+		db
+			.select({ entitlements: licenses.entitlements })
+			.from(licenses)
+			.where(eq(licenses.productId, productId)),
+	]);
+	return [
+		...new Set(
+			[...grantRows, ...licenceRows].flatMap((row) => Object.keys(row.entitlements ?? {})),
+		),
+	].sort();
 }
 
 export async function listGrantsForProduct(

@@ -10,6 +10,7 @@ import { nowDate } from '../../deps.js';
 import { badRequest, conflict, planLimitReached } from '../../http/errors.js';
 import { limitsFor } from '../../services/plan-limits.js';
 import { issueProductToken } from '../../services/product-tokens.js';
+import { getOrCreateActiveKey } from '../../services/signing.js';
 import { writeAudit } from '../../store/audit.js';
 import { isUniqueConstraintError } from '../../store/db-errors.js';
 import { getActiveConnectionForAccount } from '../../store/grants.js';
@@ -108,6 +109,23 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			}
 			const product = await getAccountProductBySlug(deps.db, account.id, body.slug);
 			if (!product) throw new Error('Product insert reported success but the row is missing.');
+			// Mint the signing keypair now, not on the first validate: a vendor embeds the public
+			// key at build time, which is before their first customer exists, and two integrating
+			// agents in one week found "keys": {} where the key belonged (#96). Respects a global
+			// key (no per-product key is minted when one keypair serves everything). Best-effort:
+			// the lazy mint on first validate remains the backstop, and failing product creation
+			// over a key hiccup would strand a created row behind a 500.
+			try {
+				await getOrCreateActiveKey(deps, product.id);
+			} catch (err) {
+				deps.logger.error(
+					'Signing key mint at product creation failed; first validate will retry',
+					{
+						product: product.slug,
+						error: String(err),
+					},
+				);
+			}
 			await writeAudit(deps.db, {
 				action: 'product.created',
 				actor: auditActor(c),

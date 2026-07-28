@@ -87,6 +87,37 @@ describe('audit rows land in the account they happened in', () => {
 		expect(audit.map((a) => a.action)).not.toContain('activation.created');
 	});
 
+	it("files a reaped floating lease under the seat's account", async () => {
+		const { reapFloatingLeases } = await import('./sweep.js');
+		// Its own vendor: the free plan is one product per account, and the point here is
+		// that the reap names the right account anyway.
+		const floatVendor = await signUp(h.app, h.logger, 'flo@floaty.test', 'floaty');
+		const floatAccountId = (
+			await rawQuery<{ id: number }>("SELECT id FROM accounts WHERE name = 'floaty'")
+		)[0].id;
+		await createProduct(
+			h.app,
+			{
+				slug: 'clem-float',
+				name: 'Clem Float',
+				key_prefix: 'CLF',
+				email_from: 'r@clem.test',
+				activation_model: 'floating',
+				floating_lease_minutes: 30,
+			},
+			floatVendor,
+		);
+		const floatKey = await issueKey(
+			h.app,
+			{ product: 'clem-float', email: 'buyer@x.test', kind: 'perpetual' },
+			floatVendor,
+		);
+		await post(h.app, '/v1/activate', { license_key: floatKey, instance_name: 'lapsing-mac' });
+		h.clock.advance(31 * 60_000);
+		expect(await reapFloatingLeases(h.deps)).toBe(1);
+		expect(await auditAccountOf('lease.reaped')).toBe(floatAccountId);
+	});
+
 	it("files a swept trial expiry under the licence's account", async () => {
 		const { sweepExpiredTrials } = await import('./sweep.js');
 		await issueKey(

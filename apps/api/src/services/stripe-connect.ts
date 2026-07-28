@@ -106,6 +106,7 @@ export async function connectStripe(deps: AppDeps, args: ConnectArgs): Promise<C
 	await writeAudit(deps.db, {
 		action: 'product.stripe_connected',
 		actor: args.actor ?? 'admin',
+		accountId: args.product.accountId,
 		productId: args.product.id,
 		detail: { webhook: webhookUrl, secretRotated: Boolean(result.webhookSecret) },
 	});

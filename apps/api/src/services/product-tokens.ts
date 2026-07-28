@@ -26,6 +26,7 @@ export async function issueProductToken(
 	await writeAudit(deps.db, {
 		action: 'product.token_rotated',
 		actor,
+		accountId: product.accountId,
 		productId: product.id,
 	});
 	return token;

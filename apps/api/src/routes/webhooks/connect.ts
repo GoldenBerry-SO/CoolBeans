@@ -6,6 +6,7 @@ import type { AppDeps } from '../../deps.js';
 import { handleStripeEvent } from '../../services/stripe.js';
 import { disconnectConnection } from '../../services/stripe-connection.js';
 import { completeConnectAuthorization, publicUrlFor } from '../../services/stripe-onboarding.js';
+import { DEFAULT_ACCOUNT_ID } from '../../store/accounts.js';
 import { writeAudit } from '../../store/audit.js';
 import { getConnectionByStripeAccount } from '../../store/grants.js';
 
@@ -90,6 +91,9 @@ export function registerConnectWebhook(app: OpenAPIHono, deps: AppDeps): void {
 			await writeAudit(deps.db, {
 				action: 'stripe.connect_unroutable',
 				actor: `stripe:${event.id}`,
+				// Unroutable means exactly that no tenant account can be named, so this is a
+				// platform-operations row: filed under the default account, never a guess.
+				accountId: DEFAULT_ACCOUNT_ID,
 				detail: { event: event.id, type: event.type, stripe_account: account },
 			});
 			return c.json({ ok: true, received: true }, 200);

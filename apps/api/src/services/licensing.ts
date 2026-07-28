@@ -15,7 +15,7 @@ import {
 	licenseDisabled,
 	unknownKey,
 } from '../http/errors.js';
-import { writeAudit } from '../store/audit.js';
+import { writeAuditBestEffort } from '../store/audit.js';
 import { getProductById, listPrefixes } from '../store/products.js';
 import { assertKeyNotThrottled, clearKeyFailures, recordKeyFailure } from './key-throttle.js';
 import { mintToken } from './signing.js';
@@ -96,9 +96,10 @@ export async function resolveLicenseUnthrottled(
 		license.disabledAt = disabledAt;
 		license.disabledReason = 'trial_expired';
 		status = 'disabled';
-		await writeAudit(db, {
+		await writeAuditBestEffort(db, deps.logger, {
 			action: 'license.disabled',
 			actor: 'system',
+			accountId: product.accountId,
 			productId: product.id,
 			licenseId: license.id,
 			detail: { reason: 'trial_expired' },
@@ -208,9 +209,10 @@ export async function activate(
 		return created;
 	});
 
-	await writeAudit(db, {
+	await writeAuditBestEffort(db, deps.logger, {
 		action: 'activation.created',
 		actor: 'client',
+		accountId: product.accountId,
 		productId: product.id,
 		licenseId: license.id,
 		detail: { instance_id: activation.instanceId, name: instanceName },
@@ -301,9 +303,10 @@ export async function deactivate(
 		)
 		.returning({ id: activations.id });
 	if (applied(result)) {
-		await writeAudit(db, {
+		await writeAuditBestEffort(db, deps.logger, {
 			action: 'activation.deactivated',
 			actor: 'client',
+			accountId: resolved.product.accountId,
 			productId: resolved.product.id,
 			licenseId: resolved.license.id,
 			detail: { instance_id: instanceId },

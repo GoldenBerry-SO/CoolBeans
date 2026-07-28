@@ -5,6 +5,7 @@ import { affected, providerEvents } from '@coolbeans/db';
 import { and, eq, lt } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
+import { DEFAULT_ACCOUNT_ID } from '../store/accounts.js';
 import { writeAudit } from '../store/audit.js';
 
 /**
@@ -37,6 +38,9 @@ export async function pruneProviderEvents(deps: AppDeps): Promise<number> {
 		await writeAudit(deps.db, {
 			action: 'provider_events.pruned',
 			actor: 'system',
+			// Instance-level housekeeping with no single owner; filed under the default
+			// account, which is the operator's on self-host and ours on cloud.
+			accountId: DEFAULT_ACCOUNT_ID,
 			detail: { deleted, older_than: cutoff },
 		});
 	}

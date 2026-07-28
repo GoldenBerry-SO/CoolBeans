@@ -125,7 +125,10 @@ export function IntegrationPage() {
 						text={agentPrompt(product, baseUrl)}
 						className="absolute top-2.5 right-2.5 z-10"
 					/>
-					<pre className="m-0 overflow-x-auto rounded-[9px] bg-track p-4 font-mono text-[12.5px] text-ink-body leading-[1.6]">
+					{/* Prose wraps, unlike the code snippets below: an agent prompt read sideways
+					    through a horizontal scrollbar is a prompt nobody reviews (#95). The copy
+					    button carries the raw text, so wrapping is display-only. */}
+					<pre className="m-0 whitespace-pre-wrap break-words rounded-[9px] bg-track p-4 font-mono text-[12.5px] text-ink-body leading-[1.6]">
 						<code>{agentPrompt(product, baseUrl)}</code>
 					</pre>
 				</div>

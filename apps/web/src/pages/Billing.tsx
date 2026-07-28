@@ -11,17 +11,9 @@ import {
 	Meter,
 	SecondaryButton,
 } from '../components/ui.js';
+import { formatDate } from '../lib/dates.js';
 import { useBilling, useOpenPortal, useStartCheckout } from '../lib/queries.js';
 import type { PlanUsage } from '../lib/types.js';
-
-function formatDate(iso: string | null): string {
-	if (!iso) return '—';
-	return new Date(iso).toLocaleDateString(undefined, {
-		year: 'numeric',
-		month: 'short',
-		day: 'numeric',
-	});
-}
 
 function UsageRow({ label, usage }: { label: string; usage: PlanUsage }) {
 	const over = usage.limit !== null && usage.current >= usage.limit;

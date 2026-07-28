@@ -3,8 +3,20 @@
 
 import type { AuditEntry } from './types.js';
 
-/** "license.issued" → "Issued", "instance.activated" → "Activated" … for the activity feed. */
+/**
+ * Actions whose mechanical tail reads wrong in a feed: "activation.created" would render
+ * as "Created", which next to "license.issued" says nothing about seats.
+ */
+const NAMED_VERBS: Record<string, string> = {
+	'activation.created': 'Activated',
+	'activation.deactivated': 'Seat freed',
+	'activation.offline_issued': 'Offline activation',
+};
+
+/** "license.issued" → "Issued", "activation.created" → "Activated" … for the activity feed. */
 export function actionVerb(action: string): string {
+	const named = NAMED_VERBS[action];
+	if (named) return named;
 	const tail = action.split('.').pop() ?? action;
 	return tail.charAt(0).toUpperCase() + tail.slice(1).replace(/_/g, ' ');
 }

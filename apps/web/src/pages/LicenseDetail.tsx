@@ -6,6 +6,8 @@ import { clsx } from 'clsx';
 import { useState } from 'react';
 import { OfflineActivationDialog } from '../components/OfflineActivationDialog.js';
 import { Card, CardHeader, EmptyState, SecondaryButton, StatusPill } from '../components/ui.js';
+import { formatDate, formatDateTime } from '../lib/dates.js';
+import { deviceLabel } from '../lib/device-label.js';
 import { formatEntitlements } from '../lib/entitlements.js';
 import { useLicenseDetail, useSetLicenseStatus } from '../lib/queries.js';
 
@@ -102,7 +104,13 @@ export function LicenseDetailPage() {
 				<Fact label="Product" value={license.product} />
 				<Fact
 					label="Expires"
-					value={license.expires_at ?? (license.kind === 'perpetual' ? 'Never (perpetual)' : '—')}
+					value={
+						license.expires_at
+							? formatDate(license.expires_at)
+							: license.kind === 'perpetual'
+								? 'Never (perpetual)'
+								: '—'
+					}
 					mono
 				/>
 				<Fact label="Seats" value={`${live.length}/${license.activation_limit}`} mono />
@@ -142,15 +150,30 @@ export function LicenseDetailPage() {
 									)}
 								/>
 								<div className="min-w-0 flex-1">
-									<div className="font-medium text-[13px]">{a.name}</div>
-									<div className="truncate font-mono text-[10.5px] text-ink-faint">
-										{a.instance_id}
-										{a.last_validated_at ? ` · validated ${a.last_validated_at}` : ''}
+									{/* The full name (often a machine fingerprint) stays reachable via hover;
+									    the row leads with something a human can tell apart. */}
+									<div className="font-medium text-[13px]" title={a.name}>
+										{deviceLabel(a.name)}
+									</div>
+									<div
+										className="truncate font-mono text-[10.5px] text-ink-faint"
+										title={a.instance_id}
+									>
+										{a.instance_id.slice(0, 8)}… · activated {formatDate(a.created_at)}
+										{a.last_validated_at
+											? ` · validated ${formatDateTime(a.last_validated_at)}`
+											: ''}
 									</div>
 								</div>
 								{a.deactivated_at ? (
 									<span className="text-[11.5px] text-ink-faint italic">freed</span>
 								) : null}
+								<SecondaryButton
+									className="px-2 py-[4px] font-mono text-[10.5px]"
+									onClick={() => navigator.clipboard.writeText(a.instance_id)}
+								>
+									Copy id
+								</SecondaryButton>
 							</div>
 						))
 					) : (
@@ -181,7 +204,9 @@ export function LicenseDetailPage() {
 									</div>
 								)}
 								{u.resets_at ? (
-									<div className="mt-1.5 text-[10.5px] text-ink-faint">resets {u.resets_at}</div>
+									<div className="mt-1.5 text-[10.5px] text-ink-faint">
+										resets {formatDate(u.resets_at)}
+									</div>
 								) : null}
 							</div>
 						))

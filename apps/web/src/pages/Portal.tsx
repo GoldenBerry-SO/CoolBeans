@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { AccentButton, BeanMark, Card, SecondaryButton, StatusPill } from '../components/ui.js';
 import { publicApi } from '../lib/api.js';
+import { formatDate } from '../lib/dates.js';
 
 interface Device {
 	instance_id: string;
@@ -154,7 +155,7 @@ export function PortalPage() {
 								<div className="text-[12.5px] text-ink-muted capitalize">
 									{result.license.plan ?? result.license.kind}
 									{result.license.expires_at
-										? ` · renews ${result.license.expires_at.slice(0, 10)}`
+										? ` · renews ${formatDate(result.license.expires_at)}`
 										: ''}
 								</div>
 							</div>

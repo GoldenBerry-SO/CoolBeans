@@ -182,6 +182,18 @@ describe('buildAgentGuide', () => {
 		}
 	});
 
+	it('says the capability names are invented by the vendor, before showing an example', () => {
+		// The product owner bounced off exactly this: example names like export_4k read as
+		// required vocabulary from some catalog. There is no catalog. The one sentence that makes
+		// the feature click is "you make these names up, your app checks the same names", and it
+		// has to come before any example does.
+		const section = guide.slice(guide.indexOf('## Gating features'));
+		const example = section.search(/export_4k/);
+		const rule = section.search(/vendor invents|names? (you|are) (invent|yours|make up)/i);
+		expect(rule).toBeGreaterThan(-1);
+		expect(rule).toBeLessThan(example);
+	});
+
 	it('points feature gating at signed entitlements, never at plan or kind (#76)', () => {
 		expect(guide).toContain('entitlements');
 		const gating = guide.slice(guide.indexOf('entitlements'));
@@ -235,6 +247,17 @@ describe('buildProductBrief', () => {
 		});
 		expect(brief).toContain('"1"');
 		expect(brief).toContain('MCowBQYDK2VwAyEA_fakekey_');
+	});
+
+	it('tells the brief reader too that the names are vendor-invented', () => {
+		const brief = buildProductBrief({
+			product: product(),
+			baseUrl: BASE,
+			publicKeys: KEYS,
+			guideUrl: GUIDE,
+			entitlementNames: ['pro_reports'],
+		});
+		expect(brief).toMatch(/vendor.{0,30}(invent|chose|named)|names? the vendor (invented|chose)/i);
 	});
 
 	it('names the capabilities this product actually grants, so nobody guesses', () => {

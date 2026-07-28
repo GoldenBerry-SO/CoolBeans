@@ -428,12 +428,12 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 			</div>
 			<Field
 				label="What it unlocks (optional)"
-				hint="export_4k, batch_limit=100 — signed into the licence so your app can read state.entitlements. Blank keeps what this price already grants; licences already issued never change either way."
+				hint="Names you invent for features that differ between your tiers — your app checks the same names via state.entitlements. Blank keeps what this price already grants; licences already issued never change either way."
 			>
 				{clearCapabilities ? null : (
 					<input
 						className={inputClass}
-						placeholder="export_4k, batch_limit=100"
+						placeholder="pro_reports, seat_limit=5"
 						value={capabilities}
 						onChange={(e) => setCapabilities(e.target.value)}
 					/>

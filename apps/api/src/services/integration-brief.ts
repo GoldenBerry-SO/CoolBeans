@@ -173,8 +173,11 @@ to re-render from it.
 
 ## Gating features: entitlements
 
-Some products sell tiers that differ in what the software does. Those capabilities arrive as
-\`state.entitlements\`, and that is the **only** thing to gate a feature on:
+Some products sell tiers that differ in what the software does. The capability names are ones
+the vendor invents — there is no catalog, they mean nothing to Cool Beans, and the whole
+mechanism is that the vendor types a name when pricing or issuing a licence and the app checks
+the same name. They arrive as \`state.entitlements\`, and that is the **only** thing to gate a
+feature on:
 
 \`\`\`ts
 if (state.entitlements?.export_4k) enableExport4k()
@@ -361,7 +364,8 @@ ${keysBlock}
 
 ${
 	entitlementNames.length
-		? `Read these from \`state.entitlements\`, and nothing else, when deciding what a licence unlocks:
+		? `These are the names the vendor invented for what this product's tiers unlock. Read them from
+\`state.entitlements\`, and nothing else, when deciding what a licence unlocks:
 
 ${entitlementNames.map((name) => `- \`${name}\``).join('\n')}
 

@@ -7,6 +7,17 @@ import { useIssueKey, useProducts } from '../lib/queries.js';
 import { Dialog, Field, inputClass } from './Dialog.js';
 import { AccentButton, SecondaryButton } from './ui.js';
 
+/**
+ * Plain words per kind, because this is THE decision for a vendor selling by duration (a
+ * lifetime and a yearly, say) and the dropdown alone assumes the vocabulary is known.
+ */
+const KIND_HINTS: Record<string, string> = {
+	perpetual: 'Bought once, never expires. A lifetime licence.',
+	subscription:
+		'Expires and renews. Defaults to one year from today; the app locks when it lapses.',
+	trial: 'Time-boxed evaluation. Ends exactly on time, no offline grace.',
+};
+
 export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 	const products = useProducts();
 	const [slug, setSlug] = useState('');
@@ -91,7 +102,7 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 					))}
 				</select>
 			</Field>
-			<Field label="Kind">
+			<Field label="Kind" hint={KIND_HINTS[kind]}>
 				<select value={kind} onChange={(e) => setKind(e.target.value)} className={inputClass}>
 					<option value="perpetual">Perpetual</option>
 					<option value="subscription">Subscription</option>
@@ -128,12 +139,12 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 			</Field>
 			<Field
 				label="What it unlocks (optional)"
-				hint="export_4k, batch_limit=100 — signed into the licence, so the app reads state.entitlements. Normally a price decides this; a comped key has no price."
+				hint="Names you invent for features that differ between your tiers — your app checks the same names via state.entitlements. A bare name means on; name=value sets a limit. Leave blank if every licence unlocks the same app."
 			>
 				<input
 					value={capabilities}
 					onChange={(e) => setCapabilities(e.target.value)}
-					placeholder="export_4k, batch_limit=100"
+					placeholder="pro_reports, seat_limit=5"
 					className={inputClass}
 				/>
 			</Field>

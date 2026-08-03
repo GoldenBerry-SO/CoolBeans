@@ -23,12 +23,19 @@ export function Dialog({
 	children,
 	footer,
 	onClose,
+	wide,
 }: {
 	title: string;
 	lede?: string;
 	children: ReactNode;
 	footer?: ReactNode;
 	onClose: () => void;
+	/**
+	 * Opt-in 70%-of-screen variant for dialogs that are really small forms with several
+	 * fields (the grants dialog, #105). The 480px default suits confirmations and one-field
+	 * flows; a pricing form in 480px scrolls and nothing can be scanned.
+	 */
+	wide?: boolean;
 }) {
 	// Radix restores focus when its content unmounts, but our callers close a dialog by
 	// unmounting the whole root in the same commit, so that cleanup never gets to run and
@@ -57,7 +64,9 @@ export function Dialog({
 				    dismisses — which is how the old click-the-scrim-to-close behaviour got
 				    lost. */}
 				<DialogOverlay className="flex items-end justify-center p-2.5 sm:items-center sm:p-6">
-					<DialogContent className="cbin relative max-h-[calc(100dvh-1.25rem)] w-full max-w-[480px] overflow-hidden rounded-2xl bg-card shadow-[0_24px_70px_rgba(0,0,0,0.3)]">
+					<DialogContent
+						className={`cbin relative max-h-[calc(100dvh-1.25rem)] w-full overflow-hidden rounded-2xl bg-card shadow-[0_24px_70px_rgba(0,0,0,0.3)] ${wide ? 'max-w-[480px] sm:max-w-[70vw]' : 'max-w-[480px]'}`}
+					>
 						<div className="px-4 pt-4 sm:px-6 sm:pt-5">
 							<DialogTitle className="m-0 font-semibold text-[17px]">{title}</DialogTitle>
 							{lede ? (
@@ -70,7 +79,9 @@ export function Dialog({
 								<DialogDescription className="sr-only">{title}</DialogDescription>
 							)}
 						</div>
-						<div className="flex max-h-[60dvh] flex-col gap-[15px] overflow-y-auto px-4 py-4 sm:max-h-[54vh] sm:px-6 sm:py-5">
+						<div
+							className={`flex max-h-[60dvh] flex-col gap-[15px] overflow-y-auto px-4 py-4 sm:px-6 sm:py-5 ${wide ? 'sm:max-h-[70vh]' : 'sm:max-h-[54vh]'}`}
+						>
 							{children}
 						</div>
 						{footer ? (

@@ -372,6 +372,7 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 			lede={`${product.name} · map each Stripe price to what it grants`}
 			onClose={onClose}
 			footer={<SecondaryButton onClick={onClose}>Done</SecondaryButton>}
+			wide
 		>
 			<div className="flex flex-col gap-2">
 				{grants.data?.length ? (
@@ -423,28 +424,43 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 					onChange={(e) => setPriceId(e.target.value)}
 				/>
 			</Field>
-			<div className="flex gap-2">
-				<select
-					className={inputClass}
-					value={kind}
-					onChange={(e) => setKind(e.target.value as 'perpetual' | 'subscription')}
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+				<Field
+					label="Kind"
+					hint="Perpetual issues a key that never expires; Subscription tracks the Stripe period."
 				>
-					<option value="perpetual">Perpetual (one-time price)</option>
-					<option value="subscription">Subscription (recurring price)</option>
-				</select>
-				<input
-					className={inputClass}
-					placeholder="Plan label (optional)"
-					value={plan}
-					onChange={(e) => setPlan(e.target.value)}
-				/>
-				<input
-					className={inputClass}
-					placeholder="Seats (optional)"
-					inputMode="numeric"
-					value={seats}
-					onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ''))}
-				/>
+					<select
+						className={inputClass}
+						value={kind}
+						onChange={(e) => setKind(e.target.value as 'perpetual' | 'subscription')}
+					>
+						<option value="perpetual">Perpetual (one-time price)</option>
+						<option value="subscription">Subscription (recurring price)</option>
+					</select>
+				</Field>
+				<Field
+					label="Plan label (optional)"
+					hint="Your own name for what was bought, e.g. Yearly. Display only."
+				>
+					<input
+						className={inputClass}
+						placeholder="Yearly"
+						value={plan}
+						onChange={(e) => setPlan(e.target.value)}
+					/>
+				</Field>
+				<Field
+					label="Seats (optional)"
+					hint="How many devices this price buys. Blank inherits the product's limit."
+				>
+					<input
+						className={inputClass}
+						placeholder={String(product.activationLimit)}
+						inputMode="numeric"
+						value={seats}
+						onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ''))}
+					/>
+				</Field>
 			</div>
 			<Field
 				label="What it unlocks (optional)"

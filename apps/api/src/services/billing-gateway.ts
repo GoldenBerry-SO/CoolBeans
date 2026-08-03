@@ -103,6 +103,9 @@ export function createBillingGateway(secretKey: string, apiBase?: string): Billi
 				line_items: [{ price: priceId, quantity: 1 }],
 				success_url: successUrl,
 				cancel_url: cancelUrl,
+				// Coupons enter here: comped accounts and discounts go through the same real
+				// checkout and the same webhook, never through hand-edited billing state.
+				allow_promotion_codes: true,
 				metadata: {
 					[APP_METADATA_KEY]: APP_METADATA_VALUE,
 					[ACCOUNT_METADATA_KEY]: String(accountId),

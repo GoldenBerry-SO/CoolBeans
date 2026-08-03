@@ -65,7 +65,7 @@ export function Dialog({
 				    lost. */}
 				<DialogOverlay className="flex items-end justify-center p-2.5 sm:items-center sm:p-6">
 					<DialogContent
-						className={`cbin relative max-h-[calc(100dvh-1.25rem)] w-full overflow-hidden rounded-2xl bg-card shadow-[0_24px_70px_rgba(0,0,0,0.3)] ${wide ? 'max-w-[480px] sm:max-w-[70vw]' : 'max-w-[480px]'}`}
+						className={`cbin relative max-h-[calc(100dvh-1.25rem)] w-full overflow-hidden rounded-2xl bg-card shadow-[0_24px_70px_rgba(0,0,0,0.3)] ${wide ? 'max-w-[480px] sm:max-w-[max(480px,70vw)]' : 'max-w-[480px]'}`}
 					>
 						<div className="px-4 pt-4 sm:px-6 sm:pt-5">
 							<DialogTitle className="m-0 font-semibold text-[17px]">{title}</DialogTitle>

@@ -4,12 +4,77 @@
 import { Link, useParams } from '@tanstack/react-router';
 import { clsx } from 'clsx';
 import { useState } from 'react';
+import { Dialog, Field, inputClass } from '../components/Dialog.js';
 import { OfflineActivationDialog } from '../components/OfflineActivationDialog.js';
-import { Card, CardHeader, EmptyState, SecondaryButton, StatusPill } from '../components/ui.js';
+import {
+	AccentButton,
+	Card,
+	CardHeader,
+	EmptyState,
+	SecondaryButton,
+	StatusPill,
+} from '../components/ui.js';
 import { formatDate, formatDateTime } from '../lib/dates.js';
 import { deviceLabel } from '../lib/device-label.js';
 import { formatEntitlements } from '../lib/entitlements.js';
-import { useLicenseDetail, useSetLicenseStatus } from '../lib/queries.js';
+import { useExtendLicense, useLicenseDetail, useSetLicenseStatus } from '../lib/queries.js';
+
+/** Default the extend picker to one year past the current expiry (or today, if none). */
+function defaultExtendDate(expiresAt: string | null): string {
+	const base = expiresAt ? new Date(expiresAt) : new Date();
+	base.setUTCFullYear(base.getUTCFullYear() + 1);
+	return base.toISOString().slice(0, 10);
+}
+
+function ExtendDialog({
+	licenseKey,
+	expiresAt,
+	onClose,
+}: {
+	licenseKey: string;
+	expiresAt: string | null;
+	onClose: () => void;
+}) {
+	const extend = useExtendLicense();
+	const [date, setDate] = useState(defaultExtendDate(expiresAt));
+	return (
+		<Dialog
+			title="Extend expiry"
+			lede="For manual renewals — the customer paid, the licence lives on."
+			onClose={onClose}
+			footer={
+				<>
+					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+					<AccentButton
+						disabled={!date || extend.isPending}
+						onClick={() =>
+							extend.mutate(
+								// End of the chosen day: an expiry the operator picked should not
+								// lapse at midnight the moment that date arrives.
+								{ key: licenseKey, expires_at: `${date}T23:59:59.000Z` },
+								{ onSuccess: onClose },
+							)
+						}
+					>
+						{extend.isPending ? 'Extending…' : 'Extend'}
+					</AccentButton>
+				</>
+			}
+		>
+			<Field
+				label="New expiry date"
+				hint="Any future date. The running app picks it up on its next online check; until then a cached token keeps its old date, which the offline buffer already covers."
+			>
+				<input
+					type="date"
+					value={date}
+					onChange={(e) => setDate(e.target.value)}
+					className={inputClass}
+				/>
+			</Field>
+		</Dialog>
+	);
+}
 
 function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
 	return (
@@ -32,6 +97,7 @@ export function LicenseDetailPage() {
 	const detail = useLicenseDetail(key ?? '');
 	const setStatus = useSetLicenseStatus();
 	const [offline, setOffline] = useState(false);
+	const [extending, setExtending] = useState(false);
 
 	if (detail.isLoading) return <EmptyState>Loading…</EmptyState>;
 	if (!detail.data) return <EmptyState>No license with that key.</EmptyState>;
@@ -49,6 +115,13 @@ export function LicenseDetailPage() {
 		<div className="cbin max-w-[1020px]">
 			{offline ? (
 				<OfflineActivationDialog licenseKey={license.key} onClose={() => setOffline(false)} />
+			) : null}
+			{extending ? (
+				<ExtendDialog
+					licenseKey={license.key}
+					expiresAt={license.expires_at}
+					onClose={() => setExtending(false)}
+				/>
 			) : null}
 			<Link
 				to="/licenses"
@@ -78,6 +151,11 @@ export function LicenseDetailPage() {
 				<div className="flex w-full gap-2.5 sm:w-auto">
 					{license.status === 'active' ? (
 						<SecondaryButton onClick={() => setOffline(true)}>Offline activation</SecondaryButton>
+					) : null}
+					{/* Perpetual has nothing to extend; a lapsed trial does (the server re-enables
+					    it when the new date supersedes the lapse), so kind is the only gate. */}
+					{license.kind !== 'perpetual' ? (
+						<SecondaryButton onClick={() => setExtending(true)}>Extend expiry</SecondaryButton>
 					) : null}
 					{license.status === 'active' ? (
 						<SecondaryButton

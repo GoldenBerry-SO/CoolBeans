@@ -131,6 +131,31 @@ key.command('disable <key>').action(async (keyArg, _opts, cmd) => {
 	}
 });
 
+key
+	.command('extend <key>')
+	.requiredOption('--until <date>', 'New expiry, ISO date or datetime (e.g. 2027-08-03)')
+	.action(async (keyArg, opts, cmd) => {
+		const { client, json } = ctx(cmd);
+		// Checked here for the same reason as --seats: an unparseable date would reach the
+		// server as "Invalid Date" and the complaint would not point at the typo.
+		const until = new Date(opts.until);
+		if (Number.isNaN(until.getTime())) {
+			fail(new Error(`--until is not a date I can read: ${opts.until}`));
+			return;
+		}
+		try {
+			const res = await apiRequest(
+				client,
+				'POST',
+				`/admin/keys/${encodeURIComponent(keyArg)}/extend`,
+				{ expires_at: until.toISOString() },
+			);
+			out(json, `Extended ${keyArg} until ${until.toISOString()}`, res);
+		} catch (err) {
+			fail(err);
+		}
+	});
+
 key.command('enable <key>').action(async (keyArg, _opts, cmd) => {
 	const { client, json } = ctx(cmd);
 	try {

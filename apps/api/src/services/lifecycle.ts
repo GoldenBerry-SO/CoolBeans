@@ -6,6 +6,7 @@ import { licenseRevocations, licenses } from '@coolbeans/db';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
+import { validationError } from '../http/errors.js';
 import { DEFAULT_ACCOUNT_ID } from '../store/accounts.js';
 import { writeAudit } from '../store/audit.js';
 import { getProductById } from '../store/products.js';
@@ -150,6 +151,48 @@ export async function restoreLicense(
 		return args.license;
 	}
 	return await enableLicense(deps, { license: args.license, actor: args.actor });
+}
+
+/**
+ * Set a new expiry on a subscription or trial licence (issue #93) — the manual-yearly
+ * renewal verb. Perpetual is a category error (the kind/expiry CHECK would refuse the row
+ * anyway), a past date is what disable is for, and a licence disabled for anything other
+ * than its own lapse must be re-enabled deliberately, not resurrected as a side effect.
+ */
+export async function extendLicense(
+	deps: AppDeps,
+	args: { license: License; expiresAt: string; actor: string },
+): Promise<License> {
+	if (args.license.kind === 'perpetual') {
+		throw validationError('A perpetual licence never expires, so there is nothing to extend.');
+	}
+	const target = new Date(args.expiresAt);
+	if (Number.isNaN(target.getTime()) || target.getTime() <= nowDate(deps).getTime()) {
+		throw validationError(
+			'The new expiry must be a date in the future. To end access now, disable the key instead.',
+		);
+	}
+	if (args.license.status === 'disabled' && args.license.disabledReason !== 'trial_expired') {
+		throw validationError('This key is disabled. Re-enable it first, then extend the expiry.');
+	}
+	const expiresAt = target.toISOString();
+	const from = args.license.expiresAt;
+	await deps.db.update(licenses).set({ expiresAt }).where(eq(licenses.id, args.license.id));
+	let updated: License = { ...args.license, expiresAt };
+	if (updated.status === 'disabled') {
+		// A trial that lapsed on its own: the new expiry supersedes the lapse. The expiry is
+		// already in the future here, so the lazy-expiry check cannot immediately re-disable.
+		updated = await enableLicense(deps, { license: updated, actor: args.actor });
+	}
+	await writeAudit(deps.db, {
+		action: 'license.expiry_extended',
+		actor: args.actor,
+		accountId: await accountIdOf(deps, args.license),
+		productId: args.license.productId,
+		licenseId: args.license.id,
+		detail: { from, to: expiresAt },
+	});
+	return updated;
 }
 
 /** Re-enable a disabled license, clearing the disabled fields. */

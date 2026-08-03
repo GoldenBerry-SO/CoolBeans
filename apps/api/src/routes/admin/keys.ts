@@ -20,7 +20,7 @@ import { serializeLicense } from '../../http/serializers.js';
 import { sendKeyEmail } from '../../services/email.js';
 import { issueManual, subscriptionExpiry, trialExpiry } from '../../services/issuance.js';
 import { seatLimit } from '../../services/licensing.js';
-import { disableLicense, enableLicense } from '../../services/lifecycle.js';
+import { disableLicense, enableLicense, extendLicense } from '../../services/lifecycle.js';
 import { issueOfflineActivation } from '../../services/offline-activation.js';
 import { enqueue } from '../../services/outbox.js';
 import { planUsage, withinLimit } from '../../services/plan-limits.js';
@@ -38,6 +38,12 @@ import {
 const offlineActivationBody = z.object({
 	/** Whatever the offline machine shows the user. Opaque to us; we only bind to it. */
 	fingerprint: z.string().min(1).max(200),
+});
+
+// Shape only: whether the date is in the future (and the kind can expire) is extendLicense's
+// call, so its refusals read the same from the API, the console and the CLI.
+const extendBody = z.object({
+	expires_at: z.string().datetime(),
 });
 
 const issueBody = z.object({
@@ -225,6 +231,20 @@ export function registerAdminKeyRoutes(admin: OpenAPIHono, deps: AppDeps): void 
 		const { license, product } = await resolveKey(deps, accountScope(c).id, c.req.param('key'));
 		assertScope(c, product);
 		const updated = await enableLicense(deps, { license, actor: auditActor(c) });
+		return c.json({ ok: true, license: serializeLicense(updated, product) });
+	});
+
+	// The manual-yearly renewal verb (issue #93): a customer pays for another year, the
+	// operator moves the expiry. Kind and date rules live in extendLicense.
+	admin.post('/keys/:key/extend', async (c) => {
+		const { license, product } = await resolveKey(deps, accountScope(c).id, c.req.param('key'));
+		assertScope(c, product);
+		const body = await readBody(c, extendBody);
+		const updated = await extendLicense(deps, {
+			license,
+			expiresAt: body.expires_at,
+			actor: auditActor(c),
+		});
 		return c.json({ ok: true, license: serializeLicense(updated, product) });
 	});
 

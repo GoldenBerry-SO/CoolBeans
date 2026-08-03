@@ -241,10 +241,13 @@ export async function validate(
 	const { license, product, status } = resolved;
 
 	// Count every check that reached a real licence, refusals included: the chart is
-	// traffic, and a spike in refusals is exactly what an operator wants to see.
-	await recordValidation(deps, product.id);
+	// usage, and lapsed keys still phoning home are exactly what an operator wants to
+	// see — which is why the outcome rides along (#101).
+	const record = (refused: boolean) =>
+		recordValidation(deps, { productId: product.id, licenseId: license.id, refused });
 
 	if (status === 'disabled') {
+		await record(true);
 		return { valid: false, license, product, status, activation: null, token: null };
 	}
 
@@ -263,6 +266,7 @@ export async function validate(
 				new Date(activation.leaseExpiresAt).getTime() > now.getTime()));
 
 	if (!activation || !live) {
+		await record(true);
 		return { valid: false, license, product, status, activation: null, token: null };
 	}
 
@@ -279,6 +283,7 @@ export async function validate(
 		displayKey: toDisplayKey(license.key, product.keyPrefix),
 	});
 
+	await record(false);
 	return { valid: true, license, product, status, activation, token };
 }
 

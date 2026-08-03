@@ -13,6 +13,12 @@ export const validationCounters = pgTable(
 		/** UTC calendar day, YYYY-MM-DD. */
 		day: text('day').notNull(),
 		count: integer('count').notNull().default(0),
+		/**
+		 * How many of `count` answered valid:false — a disabled key still being tried, an
+		 * unknown seat. Split out (issue #101) because lapsed keys phoning home is exactly
+		 * the story an operator wants the chart to tell.
+		 */
+		refused: integer('refused').notNull().default(0),
 	},
 	(t) => [primaryKey({ columns: [t.productId, t.day] })],
 );

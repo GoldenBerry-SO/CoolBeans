@@ -210,7 +210,12 @@ export function useStats() {
 
 export interface ValidationDay {
 	day: string;
-	count: number;
+	/** Distinct licences that checked in that day — the bar the vendor reads. */
+	licenses: number;
+	/** Raw check volume (tooltip detail; launches × devices, not customers). */
+	checks: number;
+	/** Checks that answered valid:false — lapsed keys still phoning home. */
+	refused: number;
 }
 
 export function useValidations() {

@@ -181,6 +181,28 @@ describe('delivering events', () => {
 		).toHaveLength(2);
 	});
 
+	it('a reaped floating lease emits activation.deactivated like a manual free', async () => {
+		const { reapFloatingLeases } = await import('./sweep.js');
+		const url = await listen();
+		await addEndpoint(url, ['activation.deactivated']);
+		await createProduct(h.app, {
+			slug: 'floaty',
+			name: 'Floaty',
+			key_prefix: 'FLT',
+			email_from: 'r@clem.test',
+			activation_model: 'floating',
+			floating_lease_minutes: 30,
+		});
+		const key = await issueKey(h.app, { product: 'floaty', email: 'b@x.test', kind: 'perpetual' });
+		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'lapsing' });
+		h.clock.advance(31 * 60_000);
+		expect(await reapFloatingLeases(h.deps)).toBe(1);
+		await drainOutbox(h.deps);
+		expect(received).toHaveLength(1);
+		expect(received[0].headers['x-coolbeans-event']).toBe('activation.deactivated');
+		expect(JSON.parse(received[0].body)).toMatchObject({ reason: 'lease_expired' });
+	});
+
 	it('a disabled endpoint stops receiving immediately', async () => {
 		const url = await listen();
 		const created = await addEndpoint(url, ['license.issued']);
@@ -232,6 +254,11 @@ describe('tenancy', () => {
 			'http://10.0.0.5/h',
 			'http://192.168.1.1/h',
 			'http://169.254.169.254/latest/meta-data',
+			// The IPv6 shapes Codex caught sliding past the v4-only guard.
+			'http://[::1]/h',
+			'http://[fd00::1]/h',
+			'http://[fe80::1]/h',
+			'http://[::ffff:10.0.0.5]/h',
 		]) {
 			const res = await ch.app.request('/admin/webhooks/endpoints', {
 				method: 'POST',

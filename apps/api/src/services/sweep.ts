@@ -43,7 +43,12 @@ export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 		await emitWebhookEvent(deps, {
 			accountId: product.accountId,
 			type: 'license.disabled',
-			license: { ...license, status: 'disabled', disabledReason: 'trial_expired' },
+			license: {
+				...license,
+				status: 'disabled',
+				disabledAt: nowIso,
+				disabledReason: 'trial_expired',
+			},
 			product,
 			detail: { reason: 'trial_expired' },
 		});
@@ -65,7 +70,11 @@ export async function reapFloatingLeases(deps: AppDeps): Promise<number> {
 				sql`${activations.licenseId} IN (SELECT id FROM licenses WHERE product_id IN (SELECT id FROM ${products} WHERE activation_model = 'floating'))`,
 			),
 		)
-		.returning({ id: activations.id, licenseId: activations.licenseId });
+		.returning({
+			id: activations.id,
+			licenseId: activations.licenseId,
+			instanceId: activations.instanceId,
+		});
 	const freed = affected(result);
 	// §16 says every state change is auditable; an automated seat release is a state
 	// change even though no human asked for it. One row per account touched, since the
@@ -73,7 +82,7 @@ export async function reapFloatingLeases(deps: AppDeps): Promise<number> {
 	// but the default account.
 	if (freed > 0) {
 		const owners = await deps.db
-			.select({ licenseId: licenses.id, accountId: products.accountId })
+			.select({ license: licenses, product: products })
 			.from(licenses)
 			.innerJoin(products, eq(products.id, licenses.productId))
 			.where(
@@ -82,12 +91,21 @@ export async function reapFloatingLeases(deps: AppDeps): Promise<number> {
 					result.map((r) => r.licenseId),
 				),
 			);
-		const accountOf = new Map(owners.map((o) => [o.licenseId, o.accountId]));
+		const ownerOf = new Map(owners.map((o) => [o.license.id, o]));
 		const perAccount = new Map<number, number>();
 		for (const row of result) {
-			const accountId = accountOf.get(row.licenseId);
-			if (accountId === undefined) continue;
-			perAccount.set(accountId, (perAccount.get(accountId) ?? 0) + 1);
+			const owner = ownerOf.get(row.licenseId);
+			if (!owner) continue;
+			perAccount.set(owner.product.accountId, (perAccount.get(owner.product.accountId) ?? 0) + 1);
+			// A reaped lease frees a seat exactly as a manual deactivate does, so subscribers
+			// to activation.deactivated hear about it the same way (Codex, #108 review).
+			await emitWebhookEvent(deps, {
+				accountId: owner.product.accountId,
+				type: 'activation.deactivated',
+				license: owner.license,
+				product: owner.product,
+				detail: { instance: { id: row.instanceId }, reason: 'lease_expired' },
+			});
 		}
 		for (const [accountId, seats] of perAccount) {
 			await writeAudit(deps.db, {

@@ -14,7 +14,7 @@ exactly once.
 | `license.reenabled` | A disabled key is restored |
 | `license.expiry_extended` | A subscription/trial expiry moved; `previous_expires_at` rides along |
 | `activation.created` | A device claimed a seat; `instance` carries its id and name |
-| `activation.deactivated` | A seat was freed |
+| `activation.deactivated` | A seat was freed — manual deactivate, the customer portal, or an expired floating lease (`reason: "lease_expired"`) |
 
 Every payload carries `event` (`type`, `created_at`) and the `license` object exactly as the
 public API serializes it (PRD §9): `key`, `status`, `kind`, `plan`, `product`, `expires_at`.

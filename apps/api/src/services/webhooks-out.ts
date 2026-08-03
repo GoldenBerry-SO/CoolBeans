@@ -6,7 +6,7 @@ import type { License, Product, WebhookEndpoint } from '@coolbeans/db';
 import { webhookDeliveries, webhookEndpoints } from '@coolbeans/db';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
-import { nowDate } from '../deps.js';
+import { nowDate, withTx } from '../deps.js';
 import { decryptSecret, encryptSecret } from '../domain/crypto.js';
 import { validationError } from '../http/errors.js';
 import { serializeLicense } from '../http/serializers.js';
@@ -36,10 +36,7 @@ export const DELIVERY_MAX_ATTEMPTS = 5;
  * SSRF shapes (loopback, RFC1918, link-local metadata endpoints) at registration; it is
  * a tripwire, not a proxy-grade egress policy.
  */
-function isForbiddenCloudHost(hostname: string): boolean {
-	const host = hostname.toLowerCase();
-	if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
-	if (host === '::1' || host === '[::1]') return true;
+function isPrivateV4(host: string): boolean {
 	const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
 	if (!v4) return false;
 	const [a, b] = [Number(v4[1]), Number(v4[2])];
@@ -48,6 +45,21 @@ function isForbiddenCloudHost(hostname: string): boolean {
 	if (a === 172 && b >= 16 && b <= 31) return true;
 	if (a === 169 && b === 254) return true;
 	return false;
+}
+
+function isForbiddenCloudHost(hostname: string): boolean {
+	const host = hostname.toLowerCase();
+	if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+	// IPv6 literals arrive bracketed from WHATWG URL parsing. Codex found the bypass here:
+	// only 2000::/3 is global unicast, so everything else (loopback, fe80 link-local, fc/fd
+	// ULA, ::ffff: v4-mapped smuggling a private v4) is refused rather than enumerated.
+	if (host.includes(':')) {
+		const bare = host.replace(/^\[|\]$/g, '');
+		const mapped = bare.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+		if (mapped) return isPrivateV4(mapped[1]);
+		return !(bare.startsWith('2') || bare.startsWith('3'));
+	}
+	return isPrivateV4(host);
 }
 
 function assertUsableUrl(deps: AppDeps, raw: string): URL {
@@ -209,11 +221,16 @@ export async function emitWebhookEvent(deps: AppDeps, args: WebhookEventArgs): P
 			...(args.detail ?? {}),
 		});
 		for (const endpoint of subscribed) {
-			const [row] = await deps.db
-				.insert(webhookDeliveries)
-				.values({ endpointId: endpoint.id, eventType: args.type, payload })
-				.returning({ id: webhookDeliveries.id });
-			if (row) await enqueue(deps, 'deliver_webhook', { deliveryId: row.id });
+			// One transaction per delivery: a row without its outbox job would sit 'pending'
+			// forever, since the drain only ever claims jobs (Codex, #108 review).
+			await deps.db.transaction(async (tx) => {
+				const scoped = withTx(deps, tx as AppDeps['db']);
+				const [row] = await scoped.db
+					.insert(webhookDeliveries)
+					.values({ endpointId: endpoint.id, eventType: args.type, payload })
+					.returning({ id: webhookDeliveries.id });
+				if (row) await enqueue(scoped, 'deliver_webhook', { deliveryId: row.id });
+			});
 		}
 	} catch (err) {
 		deps.logger.error('Webhook emit failed; the triggering call still succeeds', {

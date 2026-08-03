@@ -117,6 +117,29 @@ describe('cross-account reads', () => {
 		}
 	});
 
+	it("404s another account's webhook endpoint on every endpoint route", async () => {
+		const { app, alice, bob } = await twoAccounts();
+		const created = await app.request('/admin/webhooks/endpoints', {
+			method: 'POST',
+			headers: alice,
+			body: JSON.stringify({ url: 'https://alpha.example.com/hooks', events: ['license.issued'] }),
+		});
+		expect(created.status).toBe(200);
+		const id = ((await created.json()) as { endpoint: { id: number } }).endpoint.id;
+
+		for (const [method, path] of [
+			['POST', `/admin/webhooks/endpoints/${id}/rotate`],
+			['DELETE', `/admin/webhooks/endpoints/${id}`],
+			['GET', `/admin/webhooks/endpoints/${id}/deliveries`],
+		] as const) {
+			const res = await app.request(path, { method, headers: bob });
+			expect(res.status, `${method} ${path}`).toBe(404);
+		}
+		// And the list never leaks it.
+		const list = await app.request('/admin/webhooks/endpoints', { headers: bob });
+		expect(((await list.json()) as { endpoints: unknown[] }).endpoints).toHaveLength(0);
+	});
+
 	it('refuses to issue a key against another account product', async () => {
 		const { app, bob } = await twoAccounts();
 		const res = await app.request('/admin/keys', {
@@ -355,6 +378,13 @@ const COVERED = new Set([
 	'POST /admin/keys/:key/disable',
 	'POST /admin/keys/:key/enable',
 	'POST /admin/keys/:key/extend',
+	// Account-agnostic constants: the event-type vocabulary carries no tenant data.
+	'GET /admin/webhooks/event-types',
+	'GET /admin/webhooks/endpoints',
+	'POST /admin/webhooks/endpoints',
+	'POST /admin/webhooks/endpoints/:id/rotate',
+	'DELETE /admin/webhooks/endpoints/:id',
+	'GET /admin/webhooks/endpoints/:id/deliveries',
 	// Cross-account case lives in offline-activation.test.ts alongside the rest of its
 	// behaviour: another account's key is 404 and takes no seat.
 	'POST /admin/keys/:key/offline-activation',

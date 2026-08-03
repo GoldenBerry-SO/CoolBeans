@@ -8,6 +8,7 @@ import { nowDate } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
 import { pruneProviderEvents } from './prune.js';
 import { pruneConnectStates } from './stripe-onboarding.js';
+import { emitWebhookEvent } from './webhooks-out.js';
 
 /** Disable every active trial whose expires_at has passed. Returns the count disabled. */
 export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
@@ -15,7 +16,7 @@ export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 	// The sweep runs instance-wide, so the account comes from each licence's product —
 	// audit rows are account-scoped and a row filed elsewhere is invisible to its vendor.
 	const due = await deps.db
-		.select({ license: licenses, accountId: products.accountId })
+		.select({ license: licenses, product: products })
 		.from(licenses)
 		.innerJoin(products, eq(products.id, licenses.productId))
 		.where(
@@ -26,7 +27,7 @@ export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 				lte(licenses.expiresAt, nowIso),
 			),
 		);
-	for (const { license, accountId } of due) {
+	for (const { license, product } of due) {
 		await deps.db
 			.update(licenses)
 			.set({ status: 'disabled', disabledAt: nowIso, disabledReason: 'trial_expired' })
@@ -34,10 +35,17 @@ export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 		await writeAudit(deps.db, {
 			action: 'license.disabled',
 			actor: 'system',
-			accountId,
+			accountId: product.accountId,
 			productId: license.productId,
 			licenseId: license.id,
 			detail: { reason: 'trial_expired', swept: true },
+		});
+		await emitWebhookEvent(deps, {
+			accountId: product.accountId,
+			type: 'license.disabled',
+			license: { ...license, status: 'disabled', disabledReason: 'trial_expired' },
+			product,
+			detail: { reason: 'trial_expired' },
 		});
 	}
 	return due.length;

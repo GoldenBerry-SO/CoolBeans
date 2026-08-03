@@ -1,7 +1,7 @@
 // ABOUTME: License lifecycle transitions (PRD §9, §13, §16) — disable and re-enable, with audit.
 // ABOUTME: Payment webhooks and the admin API both disable through here so the trail is uniform.
 
-import type { License } from '@coolbeans/db';
+import type { License, Product } from '@coolbeans/db';
 import { licenseRevocations, licenses } from '@coolbeans/db';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
@@ -10,16 +10,21 @@ import { validationError } from '../http/errors.js';
 import { DEFAULT_ACCOUNT_ID } from '../store/accounts.js';
 import { writeAudit } from '../store/audit.js';
 import { getProductById } from '../store/products.js';
+import { emitWebhookEvent } from './webhooks-out.js';
 
 /**
- * The account a licence belongs to, via its product. Lifecycle callers hold only the
- * licence row (webhooks resolve by provider id), so the audit account is looked up here
- * rather than threaded through every caller. Falls back to the default account only if
- * the product row is gone, which the FK makes impossible in practice.
+ * The product (and so the account) a licence belongs to. Lifecycle callers hold only the
+ * licence row (webhooks resolve by provider id), so both are looked up here rather than
+ * threaded through every caller: the audit row needs the account, and the outbound
+ * webhook payload needs the product. The DEFAULT_ACCOUNT_ID fallback only fires if the
+ * product row is gone, which the FK makes impossible in practice.
  */
-async function accountIdOf(deps: AppDeps, license: License): Promise<number> {
+async function productScopeOf(
+	deps: AppDeps,
+	license: License,
+): Promise<{ product: Product | undefined; accountId: number }> {
 	const product = await getProductById(deps.db, license.productId);
-	return product?.accountId ?? DEFAULT_ACCOUNT_ID;
+	return { product, accountId: product?.accountId ?? DEFAULT_ACCOUNT_ID };
 }
 
 export type DisableReason =
@@ -77,15 +82,31 @@ export async function disableLicense(
 		.update(licenses)
 		.set({ status: 'disabled', disabledAt, disabledReason: args.reason })
 		.where(eq(licenses.id, args.license.id));
+	const scope = await productScopeOf(deps, args.license);
 	await writeAudit(db, {
 		action: 'license.disabled',
 		actor: args.actor,
-		accountId: await accountIdOf(deps, args.license),
+		accountId: scope.accountId,
 		productId: args.license.productId,
 		licenseId: args.license.id,
 		detail: { reason: args.reason },
 	});
-	return { ...args.license, status: 'disabled', disabledAt, disabledReason: args.reason };
+	const disabled: License = {
+		...args.license,
+		status: 'disabled',
+		disabledAt,
+		disabledReason: args.reason,
+	};
+	if (scope.product) {
+		await emitWebhookEvent(deps, {
+			accountId: scope.accountId,
+			type: 'license.disabled',
+			license: disabled,
+			product: scope.product,
+			detail: { reason: args.reason },
+		});
+	}
+	return disabled;
 }
 
 /**
@@ -184,14 +205,24 @@ export async function extendLicense(
 		// already in the future here, so the lazy-expiry check cannot immediately re-disable.
 		updated = await enableLicense(deps, { license: updated, actor: args.actor });
 	}
+	const scope = await productScopeOf(deps, args.license);
 	await writeAudit(deps.db, {
 		action: 'license.expiry_extended',
 		actor: args.actor,
-		accountId: await accountIdOf(deps, args.license),
+		accountId: scope.accountId,
 		productId: args.license.productId,
 		licenseId: args.license.id,
 		detail: { from, to: expiresAt },
 	});
+	if (scope.product) {
+		await emitWebhookEvent(deps, {
+			accountId: scope.accountId,
+			type: 'license.expiry_extended',
+			license: updated,
+			product: scope.product,
+			detail: { previous_expires_at: from },
+		});
+	}
 	return updated;
 }
 
@@ -213,12 +244,27 @@ export async function enableLicense(
 		.update(licenses)
 		.set({ status: 'active', disabledAt: null, disabledReason: null })
 		.where(eq(licenses.id, args.license.id));
+	const scope = await productScopeOf(deps, args.license);
 	await writeAudit(db, {
 		action: 'license.reenabled',
 		actor: args.actor,
-		accountId: await accountIdOf(deps, args.license),
+		accountId: scope.accountId,
 		productId: args.license.productId,
 		licenseId: args.license.id,
 	});
-	return { ...args.license, status: 'active', disabledAt: null, disabledReason: null };
+	const enabled: License = {
+		...args.license,
+		status: 'active',
+		disabledAt: null,
+		disabledReason: null,
+	};
+	if (scope.product) {
+		await emitWebhookEvent(deps, {
+			accountId: scope.accountId,
+			type: 'license.reenabled',
+			license: enabled,
+			product: scope.product,
+		});
+	}
+	return enabled;
 }

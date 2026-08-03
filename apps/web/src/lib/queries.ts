@@ -147,6 +147,92 @@ export function useProviderEvents() {
 	});
 }
 
+export interface WebhookEndpoint {
+	id: number;
+	url: string;
+	events: string[];
+	status: 'active' | 'disabled';
+	created_at: string;
+}
+
+export interface WebhookDeliveryRow {
+	id: number;
+	event_type: string;
+	status: 'pending' | 'delivered' | 'failed';
+	attempts: number;
+	last_error: string | null;
+	delivered_at: string | null;
+	created_at: string;
+}
+
+export function useWebhookEventTypes() {
+	return useQuery({
+		queryKey: ['webhook-event-types'],
+		queryFn: () =>
+			api<{ event_types: string[] }>('GET', '/admin/webhooks/event-types').then(
+				(r) => r.event_types,
+			),
+	});
+}
+
+export function useWebhookEndpoints() {
+	return useQuery({
+		queryKey: ['webhook-endpoints'],
+		queryFn: () =>
+			api<{ endpoints: WebhookEndpoint[] }>('GET', '/admin/webhooks/endpoints').then(
+				(r) => r.endpoints,
+			),
+	});
+}
+
+export function useWebhookDeliveries(endpointId: number | null) {
+	return useQuery({
+		queryKey: ['webhook-deliveries', endpointId],
+		enabled: endpointId !== null,
+		queryFn: () =>
+			api<{ deliveries: WebhookDeliveryRow[] }>(
+				'GET',
+				`/admin/webhooks/endpoints/${endpointId}/deliveries`,
+			).then((r) => r.deliveries),
+	});
+}
+
+export function useCreateWebhookEndpoint() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (input: { url: string; events: string[] }) =>
+			api<{ endpoint: WebhookEndpoint & { secret: string } }>(
+				'POST',
+				'/admin/webhooks/endpoints',
+				input,
+			).then((r) => r.endpoint),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ['webhook-endpoints'] }),
+		onError: (err) => toast.error('Could not add that endpoint', { description: message(err) }),
+	});
+}
+
+export function useRotateWebhookSecret() {
+	return useMutation({
+		mutationFn: (id: number) =>
+			api<{ secret: string }>('POST', `/admin/webhooks/endpoints/${id}/rotate`).then(
+				(r) => r.secret,
+			),
+		onError: (err) => toast.error('Could not rotate the secret', { description: message(err) }),
+	});
+}
+
+export function useDisableWebhookEndpoint() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (id: number) => api('DELETE', `/admin/webhooks/endpoints/${id}`),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['webhook-endpoints'] });
+			toast.success('Endpoint removed', { description: 'Its delivery history is kept.' });
+		},
+		onError: (err) => toast.error('Could not remove that endpoint', { description: message(err) }),
+	});
+}
+
 export interface ProviderStatus {
 	name: string;
 	configured: boolean;

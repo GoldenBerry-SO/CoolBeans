@@ -10,8 +10,8 @@ import {
 	claimEventStatus,
 	completeEvent,
 	ensureLicense,
+	failEvent,
 	findLicenseByProviderId,
-	releaseEvent,
 } from './payments.js';
 import type { PayPalEvent } from './paypal-gateway.js';
 import { recordPendingRevocation } from './reconcile.js';
@@ -74,7 +74,7 @@ export async function handlePayPalEvent(deps: AppDeps, event: PayPalEvent): Prom
 	try {
 		await processPayPalEvent(deps, event);
 	} catch (err) {
-		await releaseEvent(deps, event.id, claim.token);
+		await failEvent(deps, event.id, claim.token, err);
 		throw err;
 	}
 	await completeEvent(deps, event.id, claim.token);

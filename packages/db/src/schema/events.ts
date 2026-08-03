@@ -15,11 +15,17 @@ export const providerEvents = pgTable('provider_events', {
 	accountId: integer('account_id').references(() => accounts.id, { onDelete: 'set null' }),
 	provider: text('provider').notNull(),
 	type: text('type').notNull(),
-	// 'processing' while a handler owns the event, 'done' once it fully succeeded.
-	// A row is deleted when a handler fails so the provider's retry can re-enter.
-	status: text('status', { enum: ['processing', 'done'] })
+	// 'processing' while a handler owns the event, 'done' once it fully succeeded, 'failed'
+	// when a handler threw (#34). Failed rows stay — deleting them made failures invisible —
+	// and are immediately claimable, so the provider's retry still re-enters.
+	status: text('status', { enum: ['processing', 'done', 'failed'] })
 		.notNull()
 		.default('done'),
+	// How many handlers have failed on this event, and what the latest one said. History
+	// survives a later success: attempts on a 'done' row tell the operator it was a rough
+	// ride even though it ended well.
+	attempts: integer('attempts').notNull().default(0),
+	lastError: text('last_error'),
 	claimedAt: text('claimed_at'),
 	// The fence a worker must present to complete or release this claim. A random token,
 	// not the claim timestamp: two stale takeovers in the same millisecond would carry

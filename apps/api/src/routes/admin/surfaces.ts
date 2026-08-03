@@ -70,6 +70,10 @@ export function registerAdminSurfaceRoutes(admin: OpenAPIHono, deps: AppDeps): v
 				provider: e.provider,
 				type: e.type,
 				status: e.status,
+				// The failure trail (#34): how many handlers died on this event and what the
+				// last one said. attempts on a 'done' row means it recovered on a retry.
+				attempts: e.attempts,
+				last_error: e.lastError,
 				received_at: e.receivedAt,
 			})),
 		});

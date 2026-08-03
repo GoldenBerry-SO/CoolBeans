@@ -22,8 +22,8 @@ import {
 	claimEventStatus,
 	completeEvent,
 	ensureLicense,
+	failEvent,
 	findLicenseByProviderId,
-	releaseEvent,
 } from './payments.js';
 import { dropPendingRevocation, recordPendingRevocation } from './reconcile.js';
 import type { StripeEvent } from './stripe-gateway.js';
@@ -215,7 +215,7 @@ export async function handleStripeEvent(
 	try {
 		await processStripeEvent(deps, event, ctx?.connectionId ?? SELF_HOST_CONNECTION_ID);
 	} catch (err) {
-		await releaseEvent(deps, event.id, claim.token);
+		await failEvent(deps, event.id, claim.token, err);
 		throw err;
 	}
 	await completeEvent(deps, event.id, claim.token);

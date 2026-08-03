@@ -219,7 +219,9 @@ export interface Claim {
  */
 export function claimOutcomeForRow(row: { status: string } | undefined): ClaimResult {
 	if (!row) return 'in_flight';
-	return row.status === 'processing' ? 'in_flight' : 'done';
+	// 'failed' is a row another worker just failed between our two statements: open to
+	// retry, so it must read as in-flight — 'done' would tell the provider to stop.
+	return row.status === 'done' ? 'done' : 'in_flight';
 }
 
 /**
@@ -249,13 +251,18 @@ export async function claimEventStatus(deps: AppDeps, event: ClaimableEvent): Pr
 		INSERT INTO provider_events (id, account_id, provider, type, status, claimed_at, claim_token, received_at)
 		VALUES (${event.id}, ${accountId}, ${event.provider}, ${event.type}, 'processing', ${nowIso}, ${token}, ${nowIso})
 		ON CONFLICT(id) DO UPDATE SET
+			status = 'processing',
 			claimed_at = ${nowIso},
 			claim_token = ${token},
 			-- Never blank an attribution we already have: a stale-claim takeover of a row
 			-- first seen on the per-product URL must keep its account.
 			account_id = COALESCE(provider_events.account_id, ${accountId})
-		WHERE provider_events.status = 'processing'
-			AND (provider_events.claimed_at IS NULL OR provider_events.claimed_at < ${staleBefore})
+		WHERE
+			-- A failed row (#34) is open to any retry immediately; an in-flight claim can
+			-- only be taken over once it has gone stale (the holder crashed).
+			provider_events.status = 'failed'
+			OR (provider_events.status = 'processing'
+				AND (provider_events.claimed_at IS NULL OR provider_events.claimed_at < ${staleBefore}))
 		RETURNING claim_token
 	`);
 	if (applied(claimed)) return { result: 'claimed', token };
@@ -308,16 +315,33 @@ export async function completeEvent(
 /**
  * Give up a claim after a failed handler, so the provider's retry re-enters the
  * idempotent path rather than being deduped away with the work half-done.
+ *
+ * This used to DELETE the row, which made every failure invisible (#34): nothing in the
+ * console, no attempt count, no error message. Marking it failed keeps the trail, and the
+ * claim statement treats 'failed' as immediately reclaimable, so the retry semantics are
+ * unchanged — the provider's redelivery walks straight back in.
  */
-export async function releaseEvent(
+export async function failEvent(
 	deps: AppDeps,
 	eventId: string,
-	claimToken?: string,
+	claimToken: string | undefined,
+	error: unknown,
 ): Promise<void> {
-	// Same fence: only the current claimant may hand the event back.
+	// Same fence: only the current claimant may fail its own attempt.
 	const conditions = [eq(providerEvents.id, eventId), eq(providerEvents.status, 'processing')];
 	if (claimToken) conditions.push(eq(providerEvents.claimToken, claimToken));
-	await deps.db.delete(providerEvents).where(and(...conditions));
+	await deps.db
+		.update(providerEvents)
+		.set({
+			status: 'failed',
+			attempts: sql`${providerEvents.attempts} + 1`,
+			// Truncated: provider errors can carry whole response bodies, and this column
+			// is a diagnostic breadcrumb, not a log sink.
+			lastError: String(error instanceof Error ? error.message : error).slice(0, 500),
+			claimedAt: null,
+			claimToken: null,
+		})
+		.where(and(...conditions));
 }
 
 /** Set expires_at on the license tied to a subscription (renewal date advance). */

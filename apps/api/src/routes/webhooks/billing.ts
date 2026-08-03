@@ -8,7 +8,7 @@ import {
 	attributeEvent,
 	claimEventStatus,
 	completeEvent,
-	releaseEvent,
+	failEvent,
 } from '../../services/payments.js';
 
 export function registerBillingWebhook(app: OpenAPIHono, deps: AppDeps): void {
@@ -94,7 +94,7 @@ export function registerBillingWebhook(app: OpenAPIHono, deps: AppDeps): void {
 		} catch (err) {
 			// Hand the claim back so Stripe's retry re-enters rather than being deduped away
 			// with the work half done.
-			await releaseEvent(deps, event.id, claim.token);
+			await failEvent(deps, event.id, claim.token, err);
 			deps.logger.error('Platform billing webhook failed', {
 				event: event.id,
 				type: event.type,

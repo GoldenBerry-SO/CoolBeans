@@ -43,6 +43,13 @@
       "when": 1785792791742,
       "tag": "0005_validation-seen",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785793638273,
+      "tag": "0006_failed-events",
+      "breakpoints": true
     }
   ]
 }

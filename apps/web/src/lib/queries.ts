@@ -134,6 +134,9 @@ export interface ProviderEvent {
 	provider: string;
 	type: string;
 	status: string;
+	/** Handler failures so far; non-zero on a done row means a retry recovered it. */
+	attempts: number;
+	last_error: string | null;
 	received_at: string;
 }
 

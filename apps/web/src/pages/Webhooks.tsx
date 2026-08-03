@@ -104,7 +104,15 @@ export function WebhooksPage() {
 								<span className="font-mono text-[11.5px] text-ink-faint">
 									{formatDateTime(e.received_at)}
 								</span>
-								<span className={clsx('font-semibold text-[11.5px]', s.className)}>{s.label}</span>
+								{/* The error rides the tooltip: one truncated line beats a detail page
+							    nobody would build, and the full text is one hover away. */}
+								<span
+									className={clsx('font-semibold text-[11.5px]', s.className)}
+									title={e.last_error ?? undefined}
+								>
+									{s.label}
+									{e.attempts > 0 ? ` ×${e.attempts}` : ''}
+								</span>
 							</div>
 						);
 					})

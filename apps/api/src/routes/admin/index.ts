@@ -6,6 +6,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import { desc, eq, type SQL, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
+import { nowDate } from '../../deps.js';
 import { badRequest } from '../../http/errors.js';
 import { consoleAuth } from '../../middleware/console-auth.js';
 import { issueProductToken } from '../../services/product-tokens.js';
@@ -61,6 +62,11 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 				),
 				live_activations: await count(
 					sql`SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND a.deactivated_at IS NULL`,
+				),
+				// New seats claimed in the last week — the "is anyone using this" pulse (#99).
+				// ISO-8601 strings in one zone compare correctly as text.
+				activations_7d: await count(
+					sql`SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND a.created_at > ${new Date(nowDate(deps).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()}`,
 				),
 			},
 		});

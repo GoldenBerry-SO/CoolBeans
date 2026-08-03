@@ -198,6 +198,7 @@ export interface Stats {
 	active_licenses: number;
 	total_licenses: number;
 	live_activations: number;
+	activations_7d: number;
 }
 
 export function useStats() {

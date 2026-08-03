@@ -3,6 +3,7 @@
 
 import { Card, EmptyState, TableHead } from '../components/ui.js';
 import { formatDetail } from '../lib/audit-format.js';
+import { formatDateTime } from '../lib/dates.js';
 import { useAudit } from '../lib/queries.js';
 
 export function AuditPage() {
@@ -35,7 +36,9 @@ export function AuditPage() {
 							</span>
 							<span className="truncate text-[12.5px] text-ink-secondary">{formatDetail(e)}</span>
 							<span className="truncate font-mono text-[11px] text-ink-muted">{e.actor}</span>
-							<span className="font-mono text-[11px] text-ink-faint">{e.created_at}</span>
+							<span className="font-mono text-[11px] text-ink-faint">
+								{formatDateTime(e.created_at)}
+							</span>
 						</div>
 					))
 				) : (

@@ -65,7 +65,11 @@ describe('pruneProviderEvents', () => {
 
 	it('leaves the audit log completely alone', async () => {
 		// "Who disabled this key" outliving the row is the whole point (ARCHITECTURE).
-		await writeAudit(h.deps.db, { action: 'license.disabled', actor: 'admin:someone@example.com' });
+		await writeAudit(h.deps.db, {
+			action: 'license.disabled',
+			actor: 'admin:someone@example.com',
+			accountId: 1,
+		});
 		await seedEvent('evt_ancient', PROVIDER_EVENT_RETENTION_DAYS + 100);
 		await pruneProviderEvents(h.deps);
 		// The original entry survives untouched. (The prune adds a row of its own, which

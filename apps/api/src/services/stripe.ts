@@ -3,8 +3,14 @@
 
 import type { License, Product } from '@coolbeans/db';
 import type { AppDeps } from '../deps.js';
+import { DEFAULT_ACCOUNT_ID } from '../store/accounts.js';
 import { writeAudit } from '../store/audit.js';
-import { type GrantMatch, getGrantByPrice, SELF_HOST_CONNECTION_ID } from '../store/grants.js';
+import {
+	type GrantMatch,
+	getConnection,
+	getGrantByPrice,
+	SELF_HOST_CONNECTION_ID,
+} from '../store/grants.js';
 import {
 	lastSubscriptionEventAt,
 	markSubscriptionEventApplied,
@@ -105,6 +111,9 @@ export async function ensureLicenseForSession(
 		await writeAudit(deps.db, {
 			action: 'payment.unfulfilled',
 			actor: `stripe:${actorEventId}`,
+			// No grant matched, so no product names an account — but the connection the
+			// delivery verified against does, and that vendor is who must reconcile it.
+			accountId: (await getConnection(deps.db, connectionId))?.accountId ?? DEFAULT_ACCOUNT_ID,
 			detail: {
 				reason: 'no_grant_for_checkout',
 				checkout_id: str(obj, 'id'),
@@ -161,6 +170,7 @@ export async function ensureLicenseForSession(
 		await writeAudit(deps.db, {
 			action: 'payment.quantity_mismatch',
 			actor: `stripe:${actorEventId}`,
+			accountId: product.accountId,
 			productId: product.id,
 			licenseId: result.license.id,
 			detail: {
@@ -262,6 +272,7 @@ async function processStripeEvent(
 				await writeAudit(deps.db, {
 					action: 'license.partial_refund',
 					actor: `stripe:${event.id}`,
+					accountId: found.product.accountId,
 					productId: found.license.productId,
 					licenseId: found.license.id,
 					detail: { refunded, captured },

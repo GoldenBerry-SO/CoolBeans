@@ -73,6 +73,7 @@ export async function issueLicense(
 		await writeAudit(db, {
 			action: 'license.issued',
 			actor: args.actor,
+			accountId: args.product.accountId,
 			productId: args.product.id,
 			licenseId: license.id,
 			// The key is the credential (§19): the audit trail records only its tail.

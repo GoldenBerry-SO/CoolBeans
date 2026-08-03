@@ -4,6 +4,7 @@
 import { Link } from '@tanstack/react-router';
 import { Card, EmptyState, KindText } from '../components/ui.js';
 import { actionVerb, detailHighlight } from '../lib/audit-format.js';
+import { formatDateTime } from '../lib/dates.js';
 import {
 	useAudit,
 	useProducts,
@@ -47,7 +48,7 @@ function ValidationChart({ days }: { days: ValidationDay[] }) {
 function activityDot(action: string): string {
 	if (action.startsWith('license.issued')) return 'var(--color-positive)';
 	if (action.startsWith('license.disabled')) return 'var(--color-danger)';
-	if (action.startsWith('instance.')) return '#2fa89b';
+	if (action.startsWith('activation.')) return '#2fa89b';
 	return 'var(--color-ink-faint)';
 }
 
@@ -64,7 +65,15 @@ export function OverviewPage() {
 		{ label: 'Products', value: stats.data?.products, hint: 'onboarded' },
 		{ label: 'Active licenses', value: stats.data?.active_licenses, hint: 'across all products' },
 		{ label: 'Total licenses', value: stats.data?.total_licenses, hint: 'issued all-time' },
-		{ label: 'Live activations', value: stats.data?.live_activations, hint: 'seats in use' },
+		{
+			label: 'Live activations',
+			value: stats.data?.live_activations,
+			// The pulse a vendor actually watches (#99): did anyone claim a seat lately?
+			hint:
+				stats.data === undefined
+					? 'seats in use'
+					: `seats in use · ${stats.data.activations_7d} this week`,
+		},
 	];
 
 	return (
@@ -122,7 +131,7 @@ export function OverviewPage() {
 											) : null}
 										</div>
 										<div className="truncate text-[11px] text-ink-faint">
-											{a.actor} · {a.created_at}
+											{a.actor} · {formatDateTime(a.created_at)}
 										</div>
 									</div>
 								</div>
@@ -155,7 +164,7 @@ export function OverviewPage() {
 								<KindText kind={l.kind} />
 							</span>
 							<span className="truncate text-right font-mono text-[11px] text-ink-faint">
-								{l.created_at.slice(0, 16).replace('T', ' ')}
+								{formatDateTime(l.created_at)}
 							</span>
 						</div>
 					))

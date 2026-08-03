@@ -2,6 +2,7 @@
 // ABOUTME: Derived client-side from the license lists; status is Active/Mixed/Disabled.
 
 import { Card, EmptyState, TableHead } from '../components/ui.js';
+import { formatDate } from '../lib/dates.js';
 import { useLicensesAcross, useProducts } from '../lib/queries.js';
 
 const GRID = 'min-w-[720px] grid-cols-[1.9fr_1.3fr_0.6fr_0.9fr_0.9fr]';
@@ -78,7 +79,7 @@ export function CustomersPage() {
 								>
 									{label}
 								</span>
-								<span className="font-mono text-[12px] text-ink-muted">{c.since.slice(0, 10)}</span>
+								<span className="font-mono text-[12px] text-ink-muted">{formatDate(c.since)}</span>
 							</div>
 						);
 					})

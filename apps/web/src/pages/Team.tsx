@@ -12,6 +12,7 @@ import {
 	TableHead,
 } from '../components/ui.js';
 import { getAdminEmail } from '../lib/api.js';
+import { formatDate } from '../lib/dates.js';
 import { useInviteAdmin, useRevokeAdmin, useTeam } from '../lib/queries.js';
 
 const GRID = 'min-w-[680px] grid-cols-[1.6fr_1.2fr_1fr_auto]';
@@ -53,10 +54,10 @@ export function TeamPage() {
 								</div>
 							</div>
 							<span className="font-mono text-[12px] text-ink-muted">
-								{m.created_at.slice(0, 10)}
+								{formatDate(m.created_at)}
 							</span>
 							<span className="font-mono text-[12px] text-ink-muted">
-								{m.last_login_at ? m.last_login_at.slice(0, 10) : 'never'}
+								{m.last_login_at ? formatDate(m.last_login_at) : 'never'}
 							</span>
 							<div className="flex justify-end">
 								{/* Removing the only admin would lock the console out entirely. */}

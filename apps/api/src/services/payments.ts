@@ -333,6 +333,7 @@ export async function advanceSubscriptionExpiry(
 	await writeAudit(deps.db, {
 		action: 'license.expiry_advanced',
 		actor,
+		accountId: found.product.accountId,
 		productId: found.license.productId,
 		licenseId: found.license.id,
 		detail: { from: found.license.expiresAt, to: expiresAt },

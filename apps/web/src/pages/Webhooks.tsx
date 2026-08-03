@@ -3,6 +3,7 @@
 
 import { clsx } from 'clsx';
 import { Card, EmptyState, TableHead } from '../components/ui.js';
+import { formatDateTime } from '../lib/dates.js';
 import { useProviderEvents, useProviders } from '../lib/queries.js';
 
 const GRID = 'min-w-[760px] grid-cols-[0.75fr_1.9fr_1.1fr_0.85fr_0.65fr]';
@@ -61,7 +62,9 @@ export function WebhooksPage() {
 							<ProviderPill provider={e.provider} />
 							<span className="truncate font-mono text-[12px]">{e.type}</span>
 							<span className="truncate font-mono text-[10px] text-ink-faint">{e.id}</span>
-							<span className="font-mono text-[11.5px] text-ink-faint">{e.received_at}</span>
+							<span className="font-mono text-[11.5px] text-ink-faint">
+								{formatDateTime(e.received_at)}
+							</span>
 							<span
 								className={clsx(
 									'font-semibold text-[11.5px]',

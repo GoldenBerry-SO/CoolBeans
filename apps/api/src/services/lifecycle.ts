@@ -6,7 +6,20 @@ import { licenseRevocations, licenses } from '@coolbeans/db';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
+import { DEFAULT_ACCOUNT_ID } from '../store/accounts.js';
 import { writeAudit } from '../store/audit.js';
+import { getProductById } from '../store/products.js';
+
+/**
+ * The account a licence belongs to, via its product. Lifecycle callers hold only the
+ * licence row (webhooks resolve by provider id), so the audit account is looked up here
+ * rather than threaded through every caller. Falls back to the default account only if
+ * the product row is gone, which the FK makes impossible in practice.
+ */
+async function accountIdOf(deps: AppDeps, license: License): Promise<number> {
+	const product = await getProductById(deps.db, license.productId);
+	return product?.accountId ?? DEFAULT_ACCOUNT_ID;
+}
 
 export type DisableReason =
 	| 'refund'
@@ -66,6 +79,7 @@ export async function disableLicense(
 	await writeAudit(db, {
 		action: 'license.disabled',
 		actor: args.actor,
+		accountId: await accountIdOf(deps, args.license),
 		productId: args.license.productId,
 		licenseId: args.license.id,
 		detail: { reason: args.reason },
@@ -159,6 +173,7 @@ export async function enableLicense(
 	await writeAudit(db, {
 		action: 'license.reenabled',
 		actor: args.actor,
+		accountId: await accountIdOf(deps, args.license),
 		productId: args.license.productId,
 		licenseId: args.license.id,
 	});

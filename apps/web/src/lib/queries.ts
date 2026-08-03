@@ -269,6 +269,22 @@ export function useIssueKey() {
 	});
 }
 
+export function useExtendLicense() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({ key, expires_at }: { key: string; expires_at: string }) =>
+			api('POST', `/admin/keys/${encodeURIComponent(key)}/extend`, { expires_at }),
+		onSuccess: (_data, variables) => {
+			qc.invalidateQueries({ queryKey: ['license', variables.key] });
+			qc.invalidateQueries({ queryKey: ['licenses'] });
+			toast.success('Expiry extended', {
+				description: 'The app picks it up on its next check.',
+			});
+		},
+		onError: (err) => toast.error('Could not extend that key', { description: message(err) }),
+	});
+}
+
 export function useSetLicenseStatus() {
 	const qc = useQueryClient();
 	return useMutation({

@@ -102,12 +102,17 @@ describe('cross-account reads', () => {
 
 	it('404s another account key on every key route', async () => {
 		const { app, bob, alphaKey } = await twoAccounts();
-		for (const [method, path] of [
-			['GET', `/admin/keys/${alphaKey}`],
-			['POST', `/admin/keys/${alphaKey}/disable`],
-			['POST', `/admin/keys/${alphaKey}/enable`],
+		for (const [method, path, body] of [
+			['GET', `/admin/keys/${alphaKey}`, undefined],
+			['POST', `/admin/keys/${alphaKey}/disable`, undefined],
+			['POST', `/admin/keys/${alphaKey}/enable`, undefined],
+			[
+				'POST',
+				`/admin/keys/${alphaKey}/extend`,
+				JSON.stringify({ expires_at: '2030-01-01T00:00:00.000Z' }),
+			],
 		] as const) {
-			const res = await app.request(path, { method, headers: bob });
+			const res = await app.request(path, { method, headers: bob, body });
 			expect(res.status, `${method} ${path}`).toBe(404);
 		}
 	});
@@ -349,6 +354,7 @@ const COVERED = new Set([
 	'GET /admin/licenses',
 	'POST /admin/keys/:key/disable',
 	'POST /admin/keys/:key/enable',
+	'POST /admin/keys/:key/extend',
 	// Cross-account case lives in offline-activation.test.ts alongside the rest of its
 	// behaviour: another account's key is 404 and takes no seat.
 	'POST /admin/keys/:key/offline-activation',

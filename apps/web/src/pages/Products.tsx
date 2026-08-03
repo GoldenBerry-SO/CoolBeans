@@ -265,6 +265,7 @@ export function ProductDialog({ product, onClose }: { product?: Product; onClose
 			title={product ? 'Edit product' : 'New product'}
 			lede="Slug, prefix, seat model and email identity."
 			onClose={onClose}
+			wide
 			footer={
 				<>
 					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>

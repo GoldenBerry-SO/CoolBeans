@@ -66,6 +66,7 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 			title="Issue a key"
 			lede="Manually issue a license — reissues, comps, or testing."
 			onClose={onClose}
+			wide
 			footer={
 				<>
 					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
@@ -93,61 +94,63 @@ export function IssueKeyDialog({ onClose }: { onClose: () => void }) {
 				</>
 			}
 		>
-			<Field label="Product">
-				<select value={slug} onChange={(e) => setSlug(e.target.value)} className={inputClass}>
-					{products.data?.map((p) => (
-						<option key={p.slug} value={p.slug}>
-							{p.name}
-						</option>
-					))}
-				</select>
-			</Field>
-			<Field label="Kind" hint={KIND_HINTS[kind]}>
-				<select value={kind} onChange={(e) => setKind(e.target.value)} className={inputClass}>
-					<option value="perpetual">Perpetual</option>
-					<option value="subscription">Subscription</option>
-					<option value="trial">Trial</option>
-				</select>
-			</Field>
-			<Field label="Customer email">
-				<input
-					value={email}
-					onChange={(e) => setEmail(e.target.value)}
-					placeholder="buyer@example.com"
-					className={inputClass}
-				/>
-			</Field>
-			<Field
-				label="Plan label (optional)"
-				hint="What the customer calls this, e.g. Pro. Display only — never gate a feature on it."
-			>
-				<input
-					value={plan}
-					onChange={(e) => setPlan(e.target.value)}
-					placeholder="Pro"
-					className={inputClass}
-				/>
-			</Field>
-			<Field label="Seats (optional)" hint="Blank inherits the product's limit.">
-				<input
-					value={seats}
-					onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ''))}
-					placeholder="10"
-					inputMode="numeric"
-					className={inputClass}
-				/>
-			</Field>
-			<Field
-				label="What it unlocks (optional)"
-				hint="Names you invent for features that differ between your tiers — your app checks the same names via state.entitlements. A bare name means on; name=value sets a limit. Leave blank if every licence unlocks the same app."
-			>
-				<input
-					value={capabilities}
-					onChange={(e) => setCapabilities(e.target.value)}
-					placeholder="pro_reports, seat_limit=5"
-					className={inputClass}
-				/>
-			</Field>
+			<div className="grid grid-cols-1 gap-[15px] sm:grid-cols-2">
+				<Field label="Product">
+					<select value={slug} onChange={(e) => setSlug(e.target.value)} className={inputClass}>
+						{products.data?.map((p) => (
+							<option key={p.slug} value={p.slug}>
+								{p.name}
+							</option>
+						))}
+					</select>
+				</Field>
+				<Field label="Kind" hint={KIND_HINTS[kind]}>
+					<select value={kind} onChange={(e) => setKind(e.target.value)} className={inputClass}>
+						<option value="perpetual">Perpetual</option>
+						<option value="subscription">Subscription</option>
+						<option value="trial">Trial</option>
+					</select>
+				</Field>
+				<Field label="Customer email">
+					<input
+						value={email}
+						onChange={(e) => setEmail(e.target.value)}
+						placeholder="buyer@example.com"
+						className={inputClass}
+					/>
+				</Field>
+				<Field
+					label="Plan label (optional)"
+					hint="What the customer calls this, e.g. Pro. Display only — never gate a feature on it."
+				>
+					<input
+						value={plan}
+						onChange={(e) => setPlan(e.target.value)}
+						placeholder="Pro"
+						className={inputClass}
+					/>
+				</Field>
+				<Field label="Seats (optional)" hint="Blank inherits the product's limit.">
+					<input
+						value={seats}
+						onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ''))}
+						placeholder="10"
+						inputMode="numeric"
+						className={inputClass}
+					/>
+				</Field>
+				<Field
+					label="What it unlocks (optional)"
+					hint="Names you invent for features that differ between your tiers — your app checks the same names via state.entitlements. A bare name means on; name=value sets a limit. Leave blank if every licence unlocks the same app."
+				>
+					<input
+						value={capabilities}
+						onChange={(e) => setCapabilities(e.target.value)}
+						placeholder="pro_reports, seat_limit=5"
+						className={inputClass}
+					/>
+				</Field>
+			</div>
 			{parsed.error ? <p className="m-0 text-[12.5px] text-danger">{parsed.error}</p> : null}
 			{issue.error ? (
 				<p className="m-0 text-[12.5px] text-danger">{(issue.error as Error).message}</p>

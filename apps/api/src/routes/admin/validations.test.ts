@@ -26,7 +26,10 @@ const publicPost = (path: string, body: unknown) =>
 
 async function chart() {
 	const res = await h.app.request('/admin/validations', { headers: h.adminHeaders });
-	return (await res.json()) as { ok: boolean; validations: Array<{ day: string; count: number }> };
+	return (await res.json()) as {
+		ok: boolean;
+		validations: Array<{ day: string; licenses: number; checks: number; refused: number }>;
+	};
 }
 
 describe('GET /admin/validations', () => {
@@ -34,10 +37,17 @@ describe('GET /admin/validations', () => {
 		const body = await chart();
 		expect(body.ok).toBe(true);
 		expect(body.validations).toHaveLength(16);
-		expect(body.validations.every((d) => typeof d.count === 'number')).toBe(true);
+		expect(
+			body.validations.every(
+				(d) =>
+					typeof d.checks === 'number' &&
+					typeof d.licenses === 'number' &&
+					typeof d.refused === 'number',
+			),
+		).toBe(true);
 	});
 
-	it('counts a real validation against today', async () => {
+	it('counts a real validation against today, distinct licences and all (#101)', async () => {
 		const key = await issueKey(h.app, {
 			product: 'clementine',
 			email: 'buyer@example.com',
@@ -49,10 +59,14 @@ describe('GET /admin/validations', () => {
 		});
 		const { instance } = (await activated.json()) as { instance: { id: string } };
 
-		const before = (await chart()).validations.at(-1)?.count ?? 0;
+		const before = (await chart()).validations.at(-1);
 		await publicPost('/v1/validate', { license_key: key, instance_id: instance.id });
 		await publicPost('/v1/validate', { license_key: key, instance_id: instance.id });
-		expect((await chart()).validations.at(-1)?.count).toBe(before + 2);
+		const today = (await chart()).validations.at(-1);
+		expect(today?.checks).toBe((before?.checks ?? 0) + 2);
+		// Two launches, one customer: exactly the distinction the chart exists to draw.
+		expect(today?.licenses).toBe(1);
+		expect(today?.refused).toBe(before?.refused ?? 0);
 	});
 
 	it('needs an admin token like every other console surface', async () => {

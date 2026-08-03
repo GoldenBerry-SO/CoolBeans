@@ -14,11 +14,18 @@ import {
 	type ValidationDay,
 } from '../lib/queries.js';
 
-/** Bars for the 16-day validation window. A day with no traffic still gets a slot. */
+/**
+ * Bars for the 16-day window. The bar is DISTINCT LICENCES seen that day (#101): raw check
+ * volume is launches × devices, which one chatty install inflates, so it lives in the
+ * tooltip instead. The red strip underneath marks days with refused checks — lapsed or
+ * revoked keys still phoning home. Days recorded before the seen-set existed show zero
+ * licences while still carrying checks in the tooltip.
+ */
 function ValidationChart({ days }: { days: ValidationDay[] }) {
-	const peak = Math.max(...days.map((d) => d.count), 1);
-	const total = days.reduce((sum, d) => sum + d.count, 0);
-	if (total === 0) {
+	const peak = Math.max(...days.map((d) => d.licenses), 1);
+	const peakRefused = Math.max(...days.map((d) => d.refused), 1);
+	const totalChecks = days.reduce((sum, d) => sum + d.checks, 0);
+	if (totalChecks === 0) {
 		return (
 			<div className="flex h-[150px] items-center justify-center text-[12.5px] text-ink-faint">
 				No validations yet. This fills in as customers run your software.
@@ -33,11 +40,22 @@ function ValidationChart({ days }: { days: ValidationDay[] }) {
 				<div key={d.day} className="group relative flex h-full flex-1 flex-col justify-end">
 					<div
 						className="w-full rounded-[3px] bg-meter-ok transition-[height]"
-						// A day with traffic keeps a visible sliver rather than vanishing.
-						style={{ height: `${d.count === 0 ? 0 : Math.max((d.count / peak) * 100, 4)}%` }}
+						// A day with a customer keeps a visible sliver rather than vanishing.
+						style={{
+							height: `${d.licenses === 0 ? 0 : Math.max((d.licenses / peak) * 92, 4)}%`,
+						}}
 					/>
+					{d.refused > 0 ? (
+						<div
+							className="mt-[2px] w-full rounded-[2px] bg-danger"
+							style={{ height: `${Math.max((d.refused / peakRefused) * 8, 3)}px` }}
+						/>
+					) : (
+						<div className="mt-[2px] h-[3px] w-full" />
+					)}
 					<div className="-translate-x-1/2 pointer-events-none absolute bottom-full left-1/2 mb-1 hidden whitespace-nowrap rounded-[5px] bg-ink px-2 py-1 font-mono text-[11px] text-white group-hover:block">
-						{d.day} · {d.count}
+						{d.day} · {d.licenses} {d.licenses === 1 ? 'licence' : 'licences'} · {d.checks} checks
+						{d.refused > 0 ? ` · ${d.refused} refused` : ''}
 					</div>
 				</div>
 			))}
@@ -97,9 +115,12 @@ export function OverviewPage() {
 				<Card className="px-5 pt-[18px] pb-4">
 					<div className="mb-[18px] flex items-baseline justify-between">
 						<div>
-							<div className="font-semibold text-[13px]">Validations</div>
+							<div className="font-semibold text-[13px]">Licences seen</div>
 							<div className="text-[11.5px] text-ink-faint">
-								last 16 days · {validations.data?.reduce((s, d) => s + d.count, 0) ?? 0} checks
+								last 16 days · {validations.data?.reduce((s, d) => s + d.checks, 0) ?? 0} checks
+								{(validations.data?.reduce((s, d) => s + d.refused, 0) ?? 0) > 0
+									? ` · ${validations.data?.reduce((s, d) => s + d.refused, 0)} refused`
+									: ''}
 							</div>
 						</div>
 					</div>

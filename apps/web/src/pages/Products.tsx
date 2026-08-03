@@ -54,6 +54,10 @@ export function ProductsPage() {
 	const [showNew, setShowNew] = useState(false);
 	const [editing, setEditing] = useState<Product | null>(null);
 	const [connecting, setConnecting] = useState<Product | null>(null);
+	// Cloud shows a pre-flight note before the OAuth redirect: Stripe's authorize page
+	// happily creates a brand-new account when it doesn't know which one you meant, and a
+	// vendor who lands there unprimed connects the wrong thing (#102).
+	const [preConnect, setPreConnect] = useState<Product | null>(null);
 	// On cloud a vendor authorizes their own Stripe through Connect, so "Connect Stripe" sends
 	// them to Stripe rather than asking for price ids. Self-host has one Stripe key in its own
 	// env and nothing to authorize, so it keeps the paste-two-prices dialog.
@@ -65,7 +69,10 @@ export function ProductsPage() {
 		const outcome = params.get('stripe');
 		if (!outcome) return;
 		if (outcome === 'connected') {
-			toast.success('Stripe connected', { description: 'Now map the prices you sell.' });
+			toast.success('Stripe connected', {
+				description:
+					'Now map the prices you sell. Create them in your Stripe dashboard first if you haven’t.',
+			});
 		} else if (outcome === 'cancelled') {
 			toast.message('Stripe authorization cancelled');
 		} else {
@@ -175,7 +182,7 @@ export function ProductsPage() {
 										<button
 											type="button"
 											disabled={startConnect.isPending}
-											onClick={() => (isCloud ? startConnect.mutate() : setConnecting(p))}
+											onClick={() => (isCloud ? setPreConnect(p) : setConnecting(p))}
 											className="cursor-pointer rounded-[8px] border border-stripe bg-stripe px-3 py-[7px] font-semibold text-[12.5px] text-white disabled:opacity-60"
 										>
 											{startConnect.isPending ? 'Opening Stripe…' : 'Connect Stripe'}
@@ -201,6 +208,14 @@ export function ProductsPage() {
 			)}
 			{showNew ? <ProductDialog onClose={() => setShowNew(false)} /> : null}
 			{editing ? <ProductDialog product={editing} onClose={() => setEditing(null)} /> : null}
+			{preConnect ? (
+				<CloudConnectDialog
+					product={preConnect}
+					pending={startConnect.isPending}
+					onContinue={() => startConnect.mutate()}
+					onClose={() => setPreConnect(null)}
+				/>
+			) : null}
 			{connecting ? (
 				<ConnectStripeDialog product={connecting} onClose={() => setConnecting(null)} />
 			) : null}
@@ -390,12 +405,17 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 					))
 				) : (
 					<p className="m-0 text-[12.5px] text-ink-muted">
-						No prices mapped yet. Add one below, or use Connect Stripe to wire the webhook first.
+						No prices mapped yet. Prices are created in your Stripe dashboard, not here — make one
+						there, then paste its id below. (Self-hosting? Use Connect Stripe to wire the webhook
+						first.)
 					</p>
 				)}
 			</div>
 
-			<Field label="Add a price mapping">
+			<Field
+				label="Add a price mapping"
+				hint="The price must already exist and be active in your Stripe account. Copy its id from Stripe's product catalogue."
+			>
 				<input
 					className={inputClass}
 					placeholder="price_1QabcXYZ"
@@ -477,6 +497,51 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 			{create.error ? (
 				<p className="m-0 text-[12.5px] text-danger">{create.error.message}</p>
 			) : null}
+		</Dialog>
+	);
+}
+
+function CloudConnectDialog({
+	product,
+	pending,
+	onContinue,
+	onClose,
+}: {
+	product: Product;
+	pending: boolean;
+	onContinue: () => void;
+	onClose: () => void;
+}) {
+	return (
+		<Dialog
+			title="Connect Stripe"
+			lede={`${product.name} · authorize the Stripe account you sell with`}
+			onClose={onClose}
+			footer={
+				<>
+					<SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+					<button
+						type="button"
+						disabled={pending}
+						onClick={onContinue}
+						className="cursor-pointer rounded-[9px] border border-stripe bg-stripe px-4 py-[9px] font-semibold text-[13px] text-white disabled:opacity-60"
+					>
+						{pending ? 'Opening Stripe…' : 'Continue to Stripe'}
+					</button>
+				</>
+			}
+		>
+			<p className="m-0 text-[12.5px] text-ink-secondary leading-[1.55]">
+				You'll be sent to Stripe to authorize access. If you already have a Stripe account, sign in
+				there and <strong>pick that account at the top of Stripe's page</strong> — when Stripe
+				doesn't know which account you meant, it offers to create a brand-new one instead. If you
+				don't have one yet, that form is exactly how you create it.
+			</p>
+			<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
+				Your products and prices live in Stripe, not here. Cool Beans never creates or edits them —
+				after connecting, create each price in your Stripe dashboard, then map it to a licence in
+				the Stripe prices dialog.
+			</p>
 		</Dialog>
 	);
 }

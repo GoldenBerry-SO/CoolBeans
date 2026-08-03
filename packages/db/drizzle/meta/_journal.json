@@ -50,6 +50,13 @@
       "when": 1785793638273,
       "tag": "0006_failed-events",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785793954092,
+      "tag": "0007_outbound-webhooks",
+      "breakpoints": true
     }
   ]
 }

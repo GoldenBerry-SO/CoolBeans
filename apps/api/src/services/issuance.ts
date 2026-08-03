@@ -8,6 +8,7 @@ import { nowDate, withTx } from '../deps.js';
 import { generateKey, normalizedKey, parseKey } from '../domain/keygen.js';
 import { writeAudit } from '../store/audit.js';
 import { isUniqueConstraintError } from '../store/db-errors.js';
+import { emitWebhookEvent } from './webhooks-out.js';
 
 const MAX_KEY_RETRIES = 3;
 
@@ -78,6 +79,12 @@ export async function issueLicense(
 			licenseId: license.id,
 			// The key is the credential (§19): the audit trail records only its tail.
 			detail: { kind: args.kind, key_suffix: display.slice(-4) },
+		});
+		await emitWebhookEvent(deps, {
+			accountId: args.product.accountId,
+			type: 'license.issued',
+			license,
+			product: args.product,
 		});
 		return license;
 	}

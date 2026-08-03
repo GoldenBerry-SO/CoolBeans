@@ -20,6 +20,7 @@ import { getProductById, listPrefixes } from '../store/products.js';
 import { assertKeyNotThrottled, clearKeyFailures, recordKeyFailure } from './key-throttle.js';
 import { mintToken } from './signing.js';
 import { recordValidation } from './validation-stats.js';
+import { emitWebhookEvent } from './webhooks-out.js';
 
 /**
  * Seats this licence gets: its own snapshot if it has one, otherwise the product's limit.
@@ -102,6 +103,13 @@ export async function resolveLicenseUnthrottled(
 			accountId: product.accountId,
 			productId: product.id,
 			licenseId: license.id,
+			detail: { reason: 'trial_expired' },
+		});
+		await emitWebhookEvent(deps, {
+			accountId: product.accountId,
+			type: 'license.disabled',
+			license,
+			product,
 			detail: { reason: 'trial_expired' },
 		});
 	}
@@ -217,6 +225,15 @@ export async function activate(
 		licenseId: license.id,
 		detail: { instance_id: activation.instanceId, name: instanceName },
 	});
+	// Best-effort by construction (emitWebhookEvent swallows failures): a vendor's webhook
+	// configuration must never fail a customer's activate on the frozen path.
+	await emitWebhookEvent(deps, {
+		accountId: product.accountId,
+		type: 'activation.created',
+		license,
+		product,
+		detail: { instance: { id: activation.instanceId, name: instanceName } },
+	});
 
 	return { license, product, activation, displayKey: toDisplayKey(license.key, product.keyPrefix) };
 }
@@ -315,6 +332,13 @@ export async function deactivate(
 			productId: resolved.product.id,
 			licenseId: resolved.license.id,
 			detail: { instance_id: instanceId },
+		});
+		await emitWebhookEvent(deps, {
+			accountId: resolved.product.accountId,
+			type: 'activation.deactivated',
+			license: resolved.license,
+			product: resolved.product,
+			detail: { instance: { id: instanceId } },
 		});
 	}
 }

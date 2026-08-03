@@ -7,11 +7,15 @@ import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { sendKeyEmail } from './email.js';
 
-export type JobKind = 'send_key_email';
+export type JobKind = 'send_key_email' | 'deliver_webhook';
 
 export interface SendKeyEmailPayload {
 	licenseId: number;
 	email: string;
+}
+
+export interface DeliverWebhookPayload {
+	deliveryId: number;
 }
 
 /** Enqueue a job. Idempotent side effects are the job handler's responsibility. */
@@ -115,6 +119,13 @@ export async function processJob(
 					.limit(1);
 				if (product) await sendKeyEmail(deps, { license, product, email: payload.email });
 			}
+		}
+		if (job.kind === 'deliver_webhook') {
+			const payload = JSON.parse(job.payload) as DeliverWebhookPayload;
+			// Throwing is the retry signal; deliverWebhook mirrors the trail onto the
+			// delivery row so the console never has to read the outbox.
+			const { deliverWebhook } = await import('./webhooks-out.js');
+			await deliverWebhook(deps, payload.deliveryId);
 		}
 		await markDone(deps, job.id);
 	} catch (err) {

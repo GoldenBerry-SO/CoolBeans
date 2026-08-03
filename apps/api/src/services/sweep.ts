@@ -8,6 +8,7 @@ import { nowDate } from '../deps.js';
 import { writeAudit } from '../store/audit.js';
 import { pruneProviderEvents } from './prune.js';
 import { pruneConnectStates } from './stripe-onboarding.js';
+import { emitWebhookEvent } from './webhooks-out.js';
 
 /** Disable every active trial whose expires_at has passed. Returns the count disabled. */
 export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
@@ -15,7 +16,7 @@ export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 	// The sweep runs instance-wide, so the account comes from each licence's product —
 	// audit rows are account-scoped and a row filed elsewhere is invisible to its vendor.
 	const due = await deps.db
-		.select({ license: licenses, accountId: products.accountId })
+		.select({ license: licenses, product: products })
 		.from(licenses)
 		.innerJoin(products, eq(products.id, licenses.productId))
 		.where(
@@ -26,7 +27,7 @@ export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 				lte(licenses.expiresAt, nowIso),
 			),
 		);
-	for (const { license, accountId } of due) {
+	for (const { license, product } of due) {
 		await deps.db
 			.update(licenses)
 			.set({ status: 'disabled', disabledAt: nowIso, disabledReason: 'trial_expired' })
@@ -34,10 +35,22 @@ export async function sweepExpiredTrials(deps: AppDeps): Promise<number> {
 		await writeAudit(deps.db, {
 			action: 'license.disabled',
 			actor: 'system',
-			accountId,
+			accountId: product.accountId,
 			productId: license.productId,
 			licenseId: license.id,
 			detail: { reason: 'trial_expired', swept: true },
+		});
+		await emitWebhookEvent(deps, {
+			accountId: product.accountId,
+			type: 'license.disabled',
+			license: {
+				...license,
+				status: 'disabled',
+				disabledAt: nowIso,
+				disabledReason: 'trial_expired',
+			},
+			product,
+			detail: { reason: 'trial_expired' },
 		});
 	}
 	return due.length;
@@ -57,7 +70,11 @@ export async function reapFloatingLeases(deps: AppDeps): Promise<number> {
 				sql`${activations.licenseId} IN (SELECT id FROM licenses WHERE product_id IN (SELECT id FROM ${products} WHERE activation_model = 'floating'))`,
 			),
 		)
-		.returning({ id: activations.id, licenseId: activations.licenseId });
+		.returning({
+			id: activations.id,
+			licenseId: activations.licenseId,
+			instanceId: activations.instanceId,
+		});
 	const freed = affected(result);
 	// §16 says every state change is auditable; an automated seat release is a state
 	// change even though no human asked for it. One row per account touched, since the
@@ -65,7 +82,7 @@ export async function reapFloatingLeases(deps: AppDeps): Promise<number> {
 	// but the default account.
 	if (freed > 0) {
 		const owners = await deps.db
-			.select({ licenseId: licenses.id, accountId: products.accountId })
+			.select({ license: licenses, product: products })
 			.from(licenses)
 			.innerJoin(products, eq(products.id, licenses.productId))
 			.where(
@@ -74,12 +91,21 @@ export async function reapFloatingLeases(deps: AppDeps): Promise<number> {
 					result.map((r) => r.licenseId),
 				),
 			);
-		const accountOf = new Map(owners.map((o) => [o.licenseId, o.accountId]));
+		const ownerOf = new Map(owners.map((o) => [o.license.id, o]));
 		const perAccount = new Map<number, number>();
 		for (const row of result) {
-			const accountId = accountOf.get(row.licenseId);
-			if (accountId === undefined) continue;
-			perAccount.set(accountId, (perAccount.get(accountId) ?? 0) + 1);
+			const owner = ownerOf.get(row.licenseId);
+			if (!owner) continue;
+			perAccount.set(owner.product.accountId, (perAccount.get(owner.product.accountId) ?? 0) + 1);
+			// A reaped lease frees a seat exactly as a manual deactivate does, so subscribers
+			// to activation.deactivated hear about it the same way (Codex, #108 review).
+			await emitWebhookEvent(deps, {
+				accountId: owner.product.accountId,
+				type: 'activation.deactivated',
+				license: owner.license,
+				product: owner.product,
+				detail: { instance: { id: row.instanceId }, reason: 'lease_expired' },
+			});
 		}
 		for (const [accountId, seats] of perAccount) {
 			await writeAudit(deps.db, {

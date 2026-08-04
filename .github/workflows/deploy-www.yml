@@ -1,0 +1,56 @@
+# ABOUTME: Deploys the marketing site (apps/www) to Cloudflare Pages — mirrors pleasehold's flow.
+# ABOUTME: Push to main = production; PRs get preview URLs; nothing here touches the k8s deploy.
+#
+# One-time manual prerequisites (not automated on purpose):
+#   1. Create the Cloudflare Pages project `coolbeans-www` (dashboard → Workers & Pages).
+#   2. Add repo secrets CLOUDFLARE_API_TOKEN (Pages:Edit) and CLOUDFLARE_ACCOUNT_ID.
+#   3. Attach coolbeans.tools as the project's custom domain.
+
+name: Deploy www
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/www/**'
+      - '.github/workflows/deploy-www.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/www/**'
+      - '.github/workflows/deploy-www.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    env:
+      # Secrets aren't readable in step `if:` directly; hoisting them into env makes the
+      # deploy step skip cleanly until the Cloudflare prerequisites above are done,
+      # instead of failing every PR before then. The build still runs and gates the PR.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @coolbeans/www build
+
+      - if: env.CLOUDFLARE_API_TOKEN != ''
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/www
+          command: pages deploy dist --project-name=coolbeans-www --branch=${{ github.head_ref || github.ref_name }}

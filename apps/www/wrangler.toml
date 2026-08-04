@@ -1,0 +1,6 @@
+# ABOUTME: Cloudflare Pages config for the marketing site — static output from Astro.
+# ABOUTME: Deployed by .github/workflows/deploy-www.yml; previews come from PR branches.
+
+name = "coolbeans-www"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-07-01"

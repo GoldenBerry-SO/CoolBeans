@@ -1,0 +1,179 @@
+---
+// ABOUTME: Hero — playful headline, CTAs, the npm-install copy chip, and the licence-card visual.
+// ABOUTME: The conic gradient blob and floating "validated" chip are pure CSS, no JS.
+---
+
+<section id="top" class="relative">
+	<div
+		class="mx-auto grid max-w-[1180px] items-center gap-14 px-6 pt-18 pb-10 lg:grid-cols-[1.02fr_0.98fr] lg:px-10"
+	>
+		<div class="animate-[cbrise_.5s_ease_both]">
+			<span
+				class="mb-5.5 inline-flex items-center gap-2 rounded-[20px] border border-ink/8 bg-cream py-[5px] pr-3 pl-2 font-medium text-[13px] text-slate-warm"
+				><span class="inline-flex size-4 items-center justify-center rounded-[5px] bg-lime"
+					><svg
+						width="10"
+						height="10"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="#1a1a19"
+						stroke-width="3.4"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg
+					></span
+				>Open source licensing for indie devs</span
+			>
+			<h1
+				class="m-0 font-semibold text-[clamp(40px,5.2vw,62px)] text-ink leading-[1.02] tracking-[-0.032em]"
+			>
+				License your software.<br /><span class="text-sage">Keep your cool.</span>
+			</h1>
+			<p class="mt-5.5 mb-0 max-w-[520px] text-[19px] text-smoke leading-[1.55]">
+				CoolBeans issues your license keys, tracks seats, and meters usage, all wired to Stripe.
+				Self host it or run it on our cloud. Either way, you own the whole layer, source and all.
+			</p>
+			<div class="mt-7.5 flex flex-wrap gap-3">
+				<a
+					href="https://app.coolbeans.tools"
+					class="inline-flex items-center gap-2 rounded-[10px] border border-lime-deep bg-lime px-5.5 py-[13px] font-semibold text-[16px] text-ink shadow-xs hover:bg-lime-hover"
+					>Start free<svg
+						width="16"
+						height="16"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.4"
+						stroke-linecap="round"
+						aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg
+					></a
+				>
+				<a
+					href="/docs"
+					class="inline-flex items-center gap-2 rounded-[10px] border border-ink/16 bg-white px-5.5 py-[13px] font-semibold text-[16px] text-ink hover:border-ink/34"
+					>Read the docs</a
+				>
+			</div>
+			<button
+				type="button"
+				data-copy="const state = await cb.open(licenseKey)"
+				data-copy-toast="Copied. Cool beans."
+				title="Copy"
+				class="mt-5.5 inline-flex cursor-pointer items-center gap-3 rounded-[10px] border border-ink/10 bg-shell py-[11px] pr-3 pl-4 font-mono text-[14px] hover:border-ink/24"
+				><span class="text-ash">›</span><span class="text-ink"
+					>const state = await cb.<span class="text-moss">open</span>(licenseKey)</span
+				><span
+					class="inline-flex size-7 items-center justify-center rounded-[7px] border border-ink/10 bg-white text-[#6e6e68]"
+					><svg
+						width="14"
+						height="14"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						aria-hidden="true"
+						><rect x="9" y="9" width="11" height="11" rx="2"></rect><path
+							d="M5 15V5a2 2 0 012-2h10"></path></svg
+					></span
+				></button
+			>
+		</div>
+
+		<div class="relative flex min-h-[440px] items-center justify-center">
+			<div
+				class="-inset-y-10 pointer-events-none absolute right-[-80px] left-0 z-0 rounded-[48%_52%_60%_40%/50%_45%_55%_50%] opacity-60 blur-[46px]"
+				style="background:conic-gradient(from 200deg at 62% 38%, #c8ff4d 0deg, #8fe6a6 70deg, #46c9c2 150deg, #cdd94f 240deg, #e8c25a 300deg, #c8ff4d 360deg);transform:rotate(-12deg)"
+			>
+			</div>
+			<div
+				class="relative z-1 w-full max-w-[392px] animate-[cbrise_.6s_.08s_ease_both] rounded-[18px] border border-ink/9 bg-white p-5.5 shadow-[0_24px_60px_rgba(26,26,25,0.16),0_6px_16px_rgba(26,26,25,0.07)]"
+			>
+				<div class="mb-4 flex items-center justify-between">
+					<div class="flex items-center gap-[9px]">
+						<span class="size-[9px] rounded-xs bg-[#e8863a]"></span><span
+							class="font-semibold text-[14px]">Acme</span
+						>
+					</div>
+					<span
+						class="inline-flex items-center rounded-[20px] border border-[#d4e9a6] bg-chip px-2.5 py-[3px] font-semibold text-[#3d6b16] text-[11.5px]"
+						>Active</span
+					>
+				</div>
+				<div class="mb-1 font-mono font-semibold text-[19px] text-ink tracking-tight">
+					ACME-A2B3-C4D5-E6F7
+				</div>
+				<div class="mb-4 text-[12.5px] text-ash">Yearly · renews Jul 17, 2027</div>
+				<div class="mb-4 flex gap-2.5">
+					<div class="flex-1 rounded-[10px] border border-ink/6 bg-paper px-3 py-2.5">
+						<div class="font-medium text-[11px] text-ash">SEATS</div>
+						<div class="font-mono font-semibold text-[16px]">2 / 3</div>
+					</div>
+					<div class="flex-1 rounded-[10px] border border-ink/6 bg-paper px-3 py-2.5">
+						<div class="font-medium text-[11px] text-ash">API CALLS</div>
+						<div class="font-mono font-semibold text-[16px]">9.8k</div>
+					</div>
+				</div>
+				<div class="flex flex-col gap-2.5">
+					<div class="flex items-center gap-2.5">
+						<span class="size-2 flex-none rounded-full bg-[#4d6b16]"></span><span
+							class="flex-1 text-[13px]">Work laptop</span
+						><span class="font-mono text-[11px] text-ash">12 min ago</span>
+					</div>
+					<div class="flex items-center gap-2.5">
+						<span class="size-2 flex-none rounded-full bg-[#4d6b16]"></span><span
+							class="flex-1 text-[13px]">Home desktop</span
+						><span class="font-mono text-[11px] text-ash">3 days ago</span>
+					</div>
+				</div>
+			</div>
+			<div
+				class="absolute bottom-5.5 left-0.5 z-2 flex animate-[cbfloat_4s_ease-in-out_infinite] items-center gap-2 rounded-[11px] bg-ink px-[13px] py-[9px] text-bone shadow-[0_12px_30px_rgba(26,26,25,0.24)]"
+			>
+				<svg
+					width="15"
+					height="15"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="#c8ff4d"
+					stroke-width="2.6"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg
+				>
+				<span class="font-mono text-[12px]">validated · 12ms</span>
+			</div>
+		</div>
+	</div>
+
+	<div class="mx-auto max-w-[1180px] px-6 pt-2 pb-16 lg:px-10">
+		<div
+			class="flex flex-wrap items-center justify-center gap-4 rounded-[14px] border border-ink/8 bg-paper px-6 py-4.5"
+		>
+			<span class="inline-flex size-[38px] flex-none items-center justify-center rounded-[10px] bg-ink"
+				><svg width="20" height="20" viewBox="0 0 24 24" fill="#c8ff4d" aria-hidden="true"
+					><path
+						d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.46-1.19-1.11-1.5-1.11-1.5-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.35 9.35 0 015 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9 0 1.37-.01 2.47-.01 2.81 0 .27.18.6.69.49A10.02 10.02 0 0022 12.25C22 6.58 17.52 2 12 2z"
+					></path></svg
+				></span
+			>
+			<span class="font-medium text-[#3a3a36] text-[15.5px]"
+				>Open source and yours to run. Read every line, self host in one command, and never get
+				locked in.</span
+			>
+			<a
+				href="https://github.com/GoldenBerry-SO/coolbeans"
+				class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-ink/16 bg-white px-[15px] py-[9px] font-semibold text-[14px] text-ink hover:border-ink/34"
+				>View on GitHub<svg
+					width="14"
+					height="14"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.4"
+					stroke-linecap="round"
+					aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg
+				></a
+			>
+		</div>
+	</div>
+</section>

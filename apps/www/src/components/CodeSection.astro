@@ -1,0 +1,146 @@
+---
+// ABOUTME: Developer section — the five-line pitch and a tabbed, copyable code panel.
+// ABOUTME: Snippets match the real SDKs (Node + Swift) and the real keyless REST endpoint.
+
+const snippets = {
+	node: `import { CoolBeans } from '@coolbeans/sdk'
+
+const cb = new CoolBeans({ product: 'acme', storage })
+
+const state = await cb.open(licenseKey)
+
+if (state.decision === 'deny') lockApp(state.reason)`,
+	swift: `import CoolBeans
+
+let cb = CoolBeans(product: "acme")
+
+let state = try await cb.open(licenseKey: key)
+
+if state.decision == .deny { lockApp(state.reason) }`,
+	curl: `curl https://app.coolbeans.tools/v1/validate \\
+  -d license_key=ACME-A2B3-C4D5-E6F7 \\
+  -d instance_id=$MACHINE_ID
+
+# → { "valid": true, "license": { "kind": "subscription", "plan": "Yearly" } }`,
+};
+---
+
+<section
+	id="code"
+	class="mx-auto grid max-w-[1180px] items-center gap-14 px-6 py-22 lg:grid-cols-[0.92fr_1.08fr] lg:px-10"
+>
+	<div>
+		<div class="mb-3 font-semibold text-[14px] text-moss">Developer-first</div>
+		<h2 class="m-0 font-semibold text-[clamp(32px,4vw,44px)] leading-[1.08] tracking-[-0.025em]">
+			One call. One decision.
+		</h2>
+		<p class="mt-4 mb-0 text-[17px] text-smoke leading-[1.55]">
+			Call open() on launch and branch on the decision — nothing else. Activation, offline
+			tokens, seats, and renewals all happen behind that one call, online or not.
+		</p>
+		<div class="mt-6.5 flex flex-col gap-[13px]">
+			{
+				[
+					['Typed SDKs', ' for Node and Swift, one REST endpoint for everything else.'],
+					['The key is the credential.', ' No service secret ever ships in your app.'],
+					['No phone-home required.', ' Verify signatures locally.'],
+				].map(([strong, rest]) => (
+					<div class="flex items-start gap-[11px]">
+						<svg
+							width="20"
+							height="20"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="#3f6b12"
+							stroke-width="2.2"
+							class="mt-px flex-none"
+							aria-hidden="true"
+						>
+							<path d="M20 6L9 17l-5-5" />
+						</svg>
+						<span class="text-[#3a3a36] text-[15px]">
+							<strong class="font-semibold">{strong}</strong>
+							{rest}
+						</span>
+					</div>
+				))
+			}
+		</div>
+		<a
+			href="/docs"
+			class="mt-6 inline-flex items-center gap-1.5 font-semibold text-[15px] text-moss hover:text-moss-dark"
+			>Read the docs<svg
+				width="15"
+				height="15"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2.4"
+				stroke-linecap="round"
+				aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg
+			></a
+		>
+	</div>
+
+	<div
+		class="overflow-hidden rounded-2xl border border-white/8 bg-coal shadow-[0_24px_60px_rgba(26,26,25,0.22)]"
+	>
+		<div class="flex items-center gap-1 border-white/8 border-b px-4 py-3">
+			{
+				(['node', 'swift', 'curl'] as const).map((tab) => (
+					<button
+						type="button"
+						data-code-tab={tab}
+						class="cursor-pointer rounded-[7px] border-none bg-transparent px-[13px] py-1.5 font-medium font-sans text-[13px] text-[#8a8a82] data-active:bg-lime/16 data-active:text-lime"
+					>
+						{tab === 'node' ? 'Node' : tab === 'swift' ? 'Swift' : 'cURL'}
+					</button>
+				))
+			}
+			<div class="flex-1"></div>
+			<button
+				type="button"
+				data-code-copy
+				data-copy-toast="Snippet copied."
+				title="Copy"
+				class="inline-flex size-[30px] cursor-pointer items-center justify-center rounded-[7px] border border-white/14 bg-transparent text-[#b8b8af] hover:border-white/34 hover:text-white"
+				><svg
+					width="14"
+					height="14"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+					><rect x="9" y="9" width="11" height="11" rx="2"></rect><path
+						d="M5 15V5a2 2 0 012-2h10"></path></svg
+				></button
+			>
+		</div>
+		<div class="overflow-x-auto px-5.5 py-5 font-mono text-[13.5px] leading-[1.85]">
+			<pre data-code-panel="node" class="m-0 text-[#e8e7e0]"><span class="text-lime">import</span> {'{'} CoolBeans {'}'} <span class="text-lime">from</span> <span class="text-[#e2b07a]">'@coolbeans/sdk'</span>
+
+<span class="text-lime">const</span> cb = <span class="text-lime">new</span> <span class="text-[#a8e05f]">CoolBeans</span>({'{'} product: <span class="text-[#e2b07a]">'acme'</span>, storage {'}'})
+
+<span class="text-lime">const</span> state = <span class="text-lime">await</span> cb.<span class="text-[#a8e05f]">open</span>(licenseKey)
+
+<span class="text-lime">if</span> (state.decision === <span class="text-[#e2b07a]">'deny'</span>) <span class="text-[#a8e05f]">lockApp</span>(state.reason)</pre>
+			<pre data-code-panel="swift" hidden class="m-0 text-[#e8e7e0]"><span class="text-lime">import</span> CoolBeans
+
+<span class="text-lime">let</span> cb = <span class="text-[#a8e05f]">CoolBeans</span>(product: <span class="text-[#e2b07a]">"acme"</span>)
+
+<span class="text-lime">let</span> state = <span class="text-lime">try await</span> cb.<span class="text-[#a8e05f]">open</span>(licenseKey: key)
+
+<span class="text-lime">if</span> state.decision == .deny {'{'} <span class="text-[#a8e05f]">lockApp</span>(state.reason) {'}'}</pre>
+			<pre data-code-panel="curl" hidden class="m-0 text-[#e8e7e0]"><span class="text-[#a8e05f]">curl</span> https://app.coolbeans.tools/v1/validate \
+  -d license_key=ACME-A2B3-C4D5-E6F7 \
+  -d instance_id=$MACHINE_ID
+
+<span class="text-[#6b7a52]"># → {'{'} "valid": true, "license": {'{'} "kind": "subscription", "plan": "Yearly" {'}'} {'}'}</span></pre>
+		</div>
+	</div>
+</section>
+
+<script is:inline define:vars={{ snippets }}>
+	window.__cbSnippets = snippets;
+</script>

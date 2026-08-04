@@ -1,0 +1,99 @@
+---
+// ABOUTME: Shared shell for every marketing/docs page — head metadata, fonts, toast, and the
+// ABOUTME: tiny vanilla behaviours (nav dropdown, copy chips) every page reuses.
+
+import '../styles/global.css';
+
+interface Props {
+	title: string;
+	description: string;
+	/** Path for the canonical URL, e.g. "/" or "/docs/quickstart". */
+	path?: string;
+}
+
+const { title, description, path = '/' } = Astro.props;
+const canonical = new URL(path, Astro.site ?? 'https://coolbeans.tools').toString();
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="icon" href="/cool-beans-icon.png" type="image/png" />
+		<title>{title}</title>
+		<meta name="description" content={description} />
+		<link rel="canonical" href={canonical} />
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="Cool Beans" />
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		<meta property="og:url" content={canonical} />
+		<meta property="og:image" content={new URL('/cool-beans-icon.png', canonical).toString()} />
+		<meta name="twitter:card" content="summary" />
+		<meta name="twitter:title" content={title} />
+		<meta name="twitter:description" content={description} />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+			rel="stylesheet"
+		/>
+	</head>
+	<body
+		class="overflow-x-hidden bg-white font-sans text-[16px] text-ink antialiased leading-normal"
+	>
+		<slot />
+
+		<div
+			data-toast
+			hidden
+			class="fixed bottom-7 left-1/2 z-60 -translate-x-1/2 animate-[cbtoast_.25s_ease] rounded-[10px] bg-ink px-4.5 py-[11px] font-medium text-[13px] text-white shadow-[0_8px_30px_rgba(0,0,0,0.22)]"
+		>
+		</div>
+
+		<script>
+			// Shared page behaviours: toast, copy chips, and the nav dropdown. The code-tab
+			// logic lives on the landing page, the only place tabs exist.
+			const toastEl = document.querySelector<HTMLElement>('[data-toast]');
+			let toastTimer: ReturnType<typeof setTimeout> | undefined;
+			function toast(message: string) {
+				if (!toastEl) return;
+				toastEl.textContent = message;
+				toastEl.hidden = false;
+				clearTimeout(toastTimer);
+				toastTimer = setTimeout(() => {
+					toastEl.hidden = true;
+				}, 1900);
+			}
+			(window as { __cbToast?: (m: string) => void }).__cbToast = toast;
+
+			for (const el of document.querySelectorAll<HTMLElement>('[data-copy]')) {
+				el.addEventListener('click', () => {
+					const text = el.dataset.copy ?? '';
+					navigator.clipboard?.writeText(text).catch(() => {});
+					toast(el.dataset.copyToast ?? 'Copied.');
+				});
+			}
+
+			const navToggle = document.querySelector<HTMLElement>('[data-nav-toggle]');
+			const navMenu = document.querySelector<HTMLElement>('[data-nav-menu]');
+			function setNav(open: boolean) {
+				if (!navToggle || !navMenu) return;
+				navMenu.hidden = !open;
+				if (open) navToggle.dataset.open = '';
+				else delete navToggle.dataset.open;
+			}
+			navToggle?.addEventListener('click', (e) => {
+				e.stopPropagation();
+				setNav(navMenu ? navMenu.hidden === true : false);
+			});
+			document.addEventListener('click', (e) => {
+				if (navMenu && !navMenu.hidden && !navMenu.contains(e.target as Node)) setNav(false);
+			});
+			for (const link of document.querySelectorAll('[data-nav-close]')) {
+				link.addEventListener('click', () => setNav(false));
+			}
+		</script>
+	</body>
+</html>

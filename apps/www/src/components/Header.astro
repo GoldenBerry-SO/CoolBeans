@@ -1,0 +1,168 @@
+---
+// ABOUTME: Sticky nav — logo, Product dropdown, anchor links, sign-in and the lime CTA.
+// ABOUTME: The dropdown is driven by the tiny vanilla script in index.astro (data-nav-*).
+
+const items = [
+	{
+		href: '/#features',
+		title: 'Issue keys',
+		sub: 'Signed keys on every sale',
+		icon: 'M10.5 11 L20 20.5 M17 17.5 L19.5 15',
+		circle: true,
+	},
+	{
+		href: '/#features',
+		title: 'Seats & activations',
+		sub: 'Node-locked or floating',
+		icon: 'M8 20h8M12 16v4',
+		rect: 'M3 4h18v12H3z',
+	},
+	{
+		href: '/#features',
+		title: 'Metered usage',
+		sub: 'Atomic caps at the edge',
+		icon: 'M5 19V11 M12 19V5 M19 19V14',
+	},
+	{
+		href: '/#integrations',
+		title: 'Payments wired',
+		sub: 'Stripe & PayPal webhooks',
+		icon: 'M8 7.5C13 9 15.5 12 16.5 16',
+		dots: true,
+	},
+	{
+		href: '/docs/offline',
+		title: 'Offline validation',
+		sub: 'ed25519, no phone-home',
+		icon: 'M9 6l-5 6 5 6M15 6l5 6-5 6',
+	},
+	{
+		href: '/#selfhost',
+		title: 'Self-host',
+		sub: 'One command, your infra',
+		icon: 'M7 7.5h.01M7 16.5h.01',
+		racks: true,
+	},
+];
+---
+
+<header
+	class="sticky top-0 z-40 border-ink/8 border-b bg-white/85 backdrop-blur-xl"
+>
+	<div class="mx-auto flex h-16 max-w-[1180px] items-center gap-6.5 px-6 lg:px-10">
+		<a href="/" class="flex items-center gap-2.5">
+			<img
+				src="/cool-beans-icon.png"
+				alt="Cool Beans"
+				width="31"
+				height="31"
+				class="size-[31px] rounded-lg object-cover"
+			/>
+			<span class="font-semibold text-[16px] text-ink tracking-tight">Cool Beans</span>
+		</a>
+		<nav class="relative hidden items-center gap-0.5 md:flex">
+			<button
+				type="button"
+				data-nav-toggle
+				class="flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 font-medium text-[14.5px] text-slate-warm hover:bg-ink/4 hover:text-ink data-open:bg-ink/4 data-open:text-ink"
+			>
+				Product<svg
+					width="13"
+					height="13"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.2"
+					class="transition-transform duration-150 in-data-open:rotate-180"
+					aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg
+				>
+			</button>
+			<a
+				href="/#code"
+				class="rounded-lg px-3 py-2 font-medium text-[14.5px] text-slate-warm hover:bg-ink/4 hover:text-ink"
+				>Developers</a
+			>
+			<a
+				href="/#pricing"
+				class="rounded-lg px-3 py-2 font-medium text-[14.5px] text-slate-warm hover:bg-ink/4 hover:text-ink"
+				>Pricing</a
+			>
+			<a
+				href="/#selfhost"
+				class="rounded-lg px-3 py-2 font-medium text-[14.5px] text-slate-warm hover:bg-ink/4 hover:text-ink"
+				>Self-host</a
+			>
+			<a
+				href="/docs"
+				class="rounded-lg px-3 py-2 font-medium text-[14.5px] text-slate-warm hover:bg-ink/4 hover:text-ink"
+				>Docs</a
+			>
+
+			<div
+				data-nav-menu
+				hidden
+				class="absolute top-[46px] left-0 grid w-[540px] animate-[cbrise_.16s_ease_both] grid-cols-2 gap-1 rounded-[14px] border border-ink/10 bg-white p-3.5 shadow-[0_18px_50px_rgba(26,26,25,0.16)]"
+			>
+				{
+					items.map((item) => (
+						<a href={item.href} data-nav-close class="flex gap-[11px] rounded-[10px] p-[11px] hover:bg-cream">
+							<span class="inline-flex size-[34px] flex-none items-center justify-center rounded-lg bg-chip">
+								<svg
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="#3f6b12"
+									stroke-width="1.8"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									aria-hidden="true"
+								>
+									{item.circle && <circle cx="7.5" cy="8" r="4" />}
+									{item.rect && <rect x="3" y="4" width="18" height="12" rx="2" />}
+									{item.dots && (
+										<>
+											<circle cx="6" cy="6" r="2.6" />
+											<circle cx="18" cy="18" r="2.6" />
+										</>
+									)}
+									{item.racks && (
+										<>
+											<rect x="3" y="4" width="18" height="7" rx="2" />
+											<rect x="3" y="13" width="18" height="7" rx="2" />
+										</>
+									)}
+									<path d={item.icon} />
+								</svg>
+							</span>
+							<span>
+								<span class="block font-semibold text-[14px] text-ink">{item.title}</span>
+								<span class="block text-[12.5px] text-fog">{item.sub}</span>
+							</span>
+						</a>
+					))
+				}
+			</div>
+		</nav>
+		<div class="flex-1"></div>
+		<a
+			href="https://app.coolbeans.tools"
+			class="font-medium text-[14.5px] text-slate-warm hover:text-ink"
+			>Sign in</a
+		>
+		<a
+			href="https://app.coolbeans.tools"
+			class="inline-flex items-center gap-[7px] rounded-[9px] border border-lime-deep bg-lime px-4 py-[9px] font-semibold text-[14.5px] text-ink shadow-xs hover:bg-lime-hover"
+			>Start free<svg
+				width="14"
+				height="14"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2.4"
+				stroke-linecap="round"
+				aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg
+			></a
+		>
+	</div>
+</header>

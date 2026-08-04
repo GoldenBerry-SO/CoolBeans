@@ -1,0 +1,184 @@
+---
+// ABOUTME: Docs shell — the site header, a fixed sidebar of every docs page, and prose styling
+// ABOUTME: for the markdown body. Markdown pages opt in via `layout:` frontmatter.
+
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import Layout from './Layout.astro';
+
+interface Props {
+	frontmatter: { title: string; description: string };
+	url?: string;
+}
+
+const { frontmatter } = Astro.props;
+const current = Astro.url.pathname.replace(/\/$/, '') || '/docs';
+
+const nav = [
+	{
+		title: 'Start here',
+		pages: [
+			['/docs', 'What Cool Beans is'],
+			['/docs/quickstart', 'Quickstart'],
+			['/docs/self-hosting', 'Self-hosting'],
+		],
+	},
+	{
+		title: 'Libraries',
+		pages: [
+			['/docs/sdk-typescript', 'TypeScript SDK'],
+			['/docs/sdk-swift', 'Swift SDK'],
+			['/docs/cli', 'beans CLI'],
+			['/docs/http-api', 'HTTP API'],
+		],
+	},
+	{
+		title: 'Selling & events',
+		pages: [
+			['/docs/payments', 'Payments'],
+			['/docs/webhooks', 'Outbound webhooks'],
+			['/docs/offline', 'Offline & air-gapped'],
+			['/docs/migrate-from-lemonsqueezy', 'Migrate from LemonSqueezy'],
+		],
+	},
+];
+---
+
+<Layout
+	title={`${frontmatter.title} · Cool Beans docs`}
+	description={frontmatter.description}
+	path={current}
+>
+	<Header />
+	<div class="mx-auto flex max-w-[1180px] gap-10 px-6 py-10 lg:px-10">
+		<aside class="hidden w-[220px] flex-none md:block">
+			<nav class="sticky top-24 flex flex-col gap-6">
+				{
+					nav.map((group) => (
+						<div>
+							<div class="mb-2 font-semibold text-[12px] text-ash uppercase tracking-wide">
+								{group.title}
+							</div>
+							<ul class="m-0 flex list-none flex-col gap-0.5 p-0">
+								{group.pages.map(([href, label]) => (
+									<li>
+										<a
+											href={href}
+											class={`block rounded-lg px-2.5 py-1.5 text-[14px] no-underline ${
+												current === href
+													? 'bg-chip font-semibold text-moss'
+													: 'text-slate-warm hover:bg-ink/4 hover:text-ink'
+											}`}
+										>
+											{label}
+										</a>
+									</li>
+								))}
+							</ul>
+						</div>
+					))
+				}
+			</nav>
+		</aside>
+		<main class="docs-prose min-w-0 max-w-[760px] flex-1 pb-16">
+			<h1 class="mt-0 mb-2 font-semibold text-[34px] text-ink leading-[1.12] tracking-[-0.02em]">
+				{frontmatter.title}
+			</h1>
+			<p class="mt-0 mb-8 text-[17px] text-smoke leading-[1.55]">{frontmatter.description}</p>
+			<slot />
+		</main>
+	</div>
+	<Footer />
+</Layout>
+
+<style is:global>
+	/* Prose styling for the markdown body — element selectors, no typography plugin. */
+	.docs-prose h2 {
+		margin: 2.2em 0 0.6em;
+		font-size: 23px;
+		font-weight: 600;
+		letter-spacing: -0.015em;
+		line-height: 1.25;
+	}
+	.docs-prose h3 {
+		margin: 1.8em 0 0.5em;
+		font-size: 18px;
+		font-weight: 600;
+	}
+	.docs-prose p,
+	.docs-prose li {
+		font-size: 15.5px;
+		line-height: 1.65;
+		color: var(--color-slate-warm);
+	}
+	.docs-prose ul,
+	.docs-prose ol {
+		padding-left: 1.4em;
+		margin: 0.8em 0;
+	}
+	.docs-prose li {
+		margin: 0.35em 0;
+	}
+	.docs-prose a {
+		color: var(--color-moss);
+		font-weight: 500;
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+	.docs-prose a:hover {
+		color: var(--color-moss-dark);
+	}
+	.docs-prose code {
+		font-family: var(--font-mono);
+		font-size: 0.88em;
+		background: var(--color-cream);
+		border: 1px solid rgba(26, 26, 25, 0.08);
+		border-radius: 5px;
+		padding: 0.1em 0.35em;
+	}
+	.docs-prose pre {
+		background: var(--color-coal);
+		color: var(--color-bone);
+		border-radius: 12px;
+		padding: 16px 18px;
+		overflow-x: auto;
+		font-size: 13.5px;
+		line-height: 1.6;
+		margin: 1em 0 1.4em;
+	}
+	.docs-prose pre code {
+		background: none;
+		border: none;
+		padding: 0;
+		font-size: inherit;
+		color: inherit;
+	}
+	.docs-prose table {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 1em 0 1.4em;
+		font-size: 14.5px;
+	}
+	.docs-prose th {
+		text-align: left;
+		font-weight: 600;
+		border-bottom: 2px solid rgba(26, 26, 25, 0.12);
+		padding: 8px 10px;
+	}
+	.docs-prose td {
+		border-bottom: 1px solid rgba(26, 26, 25, 0.07);
+		padding: 8px 10px;
+		vertical-align: top;
+	}
+	.docs-prose blockquote {
+		margin: 1em 0;
+		padding: 2px 0 2px 16px;
+		border-left: 3px solid var(--color-lime-deep);
+		color: var(--color-smoke);
+	}
+	.docs-prose hr {
+		border: none;
+		border-top: 1px solid rgba(26, 26, 25, 0.09);
+		margin: 2.4em 0;
+	}
+</style>

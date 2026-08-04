@@ -1,0 +1,104 @@
+---
+// ABOUTME: The real pricing table, kept in step with PRD §7 — three columns, no asterisks.
+// ABOUTME: Free's caps are stated plainly; caps gate creation only, never existing licences.
+
+const tiers = [
+	{
+		name: 'Self-host',
+		price: 'Free forever',
+		sub: 'MIT licensed',
+		bullets: [
+			'Every feature, no caps',
+			'Your Postgres, your keys, your data',
+			'One docker compose up',
+			'Community support on GitHub',
+		],
+		cta: { label: 'Read the guide', href: '/docs/self-hosting', primary: false },
+	},
+	{
+		name: 'Cloud Free',
+		price: '$0',
+		sub: 'while you’re small',
+		bullets: [
+			'1 product',
+			'500 active licences',
+			'Unlimited validations',
+			'Hitting a cap never disables an issued licence',
+		],
+		cta: { label: 'Start free', href: 'https://app.coolbeans.tools', primary: true },
+	},
+	{
+		name: 'Cloud Pro',
+		price: '$99',
+		sub: 'per year, flat',
+		bullets: [
+			'Unlimited products and licences',
+			'No per-seat, per-licence, or percentage fees',
+			'Same flat price at any scale',
+			'Email support',
+		],
+		cta: { label: 'Upgrade in the console', href: 'https://app.coolbeans.tools', primary: false },
+	},
+];
+---
+
+<section id="pricing" class="border-ink/7 border-t">
+	<div class="mx-auto max-w-[1180px] px-6 py-22 lg:px-10">
+		<div class="mx-auto mb-12 max-w-[640px] text-center">
+			<div class="mb-3 font-semibold text-[14px] text-moss">Pricing</div>
+			<h2 class="m-0 font-semibold text-[clamp(32px,4vw,44px)] leading-[1.08] tracking-[-0.025em]">
+				Your growth is not our upsell
+			</h2>
+			<p class="mt-4 mb-0 text-[17px] text-smoke leading-[1.55]">
+				We don’t charge per licence. Sell ten keys or ten thousand on the same flat price — or
+				run the whole thing yourself for nothing.
+			</p>
+		</div>
+		<div class="mx-auto grid max-w-[980px] gap-5 md:grid-cols-3">
+			{
+				tiers.map((tier) => (
+					<div
+						class={`flex flex-col rounded-2xl border p-7 ${
+							tier.cta.primary ? 'border-lime-deep bg-white shadow-md' : 'border-ink/10 bg-white'
+						}`}
+					>
+						<div class="mb-1 font-semibold text-[14px] text-moss">{tier.name}</div>
+						<div class="font-semibold text-[30px] text-ink tracking-tight">{tier.price}</div>
+						<div class="mb-5 text-[13px] text-ash">{tier.sub}</div>
+						<ul class="m-0 mb-6 flex flex-1 list-none flex-col gap-2.5 p-0">
+							{tier.bullets.map((line) => (
+								<li class="flex items-start gap-2.5 text-[14.5px] text-smoke leading-normal">
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="#3f6b12"
+										stroke-width="2.4"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="mt-[3px] flex-none"
+										aria-hidden="true"
+									>
+										<path d="M5 12.5l4.5 4.5L19 7" />
+									</svg>
+									{line}
+								</li>
+							))}
+						</ul>
+						<a
+							href={tier.cta.href}
+							class={`inline-flex items-center justify-center gap-[7px] rounded-[10px] px-4.5 py-[11px] text-center font-semibold text-[15px] no-underline ${
+								tier.cta.primary
+									? 'border border-lime-deep bg-lime text-ink hover:bg-lime-hover'
+									: 'border border-ink/18 bg-white text-ink hover:border-ink/36'
+							}`}
+						>
+							{tier.cta.label}
+						</a>
+					</div>
+				))
+			}
+		</div>
+	</div>
+</section>

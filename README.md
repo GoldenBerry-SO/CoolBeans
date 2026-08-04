@@ -34,6 +34,7 @@ apps/
   api/          Hono API server (Node)
   worker/       BullMQ background-job processor
   web/          React SPA (Vite) — the admin dashboard
+  www/          Astro marketing site + docs — coolbeans.tools (Cloudflare Pages)
 packages/
   auth/         Better Auth factory — admin sessions for the dashboard only
   cli/          beans — the admin CLI

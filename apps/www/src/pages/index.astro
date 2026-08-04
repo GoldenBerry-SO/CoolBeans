@@ -1,0 +1,79 @@
+---
+// ABOUTME: The Cool Beans landing page, implemented from the Claude Design file
+// ABOUTME: "Cool Beans Landing.dc.html" — sections as components, one small vanilla script.
+
+import CodeSection from '../components/CodeSection.astro';
+import Cta from '../components/Cta.astro';
+import Features from '../components/Features.astro';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import Hero from '../components/Hero.astro';
+import Integrations from '../components/Integrations.astro';
+import Libraries from '../components/Libraries.astro';
+import Pricing from '../components/Pricing.astro';
+import SelfHost from '../components/SelfHost.astro';
+import Stats from '../components/Stats.astro';
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+	title="Cool Beans — the open source license layer"
+	description="Cool Beans issues your license keys, tracks seats, and meters usage, all wired to Stripe. Self host it or run it on our cloud."
+	path="/"
+>
+	<!-- Announcement -->
+	<div class="bg-ink text-[13.5px] text-bone">
+		<div
+			class="mx-auto flex max-w-[1180px] items-center justify-center gap-2.5 px-6 py-2.5 text-center lg:px-10"
+		>
+			<span
+				class="inline-flex items-center gap-1.5 rounded-[20px] bg-lime/16 px-[9px] py-0.5 font-mono font-semibold text-[11.5px] text-lime"
+				>NEW</span
+			>
+			<span>Outbound webhooks: get told the moment a licence is issued.</span>
+			<a href="/docs/webhooks" class="font-semibold text-lime hover:text-[#d9ff85]">See how →</a>
+		</div>
+	</div>
+
+	<Header />
+	<main>
+		<Hero />
+		<Features />
+		<CodeSection />
+		<Libraries />
+		<Integrations />
+		<Stats />
+		<SelfHost />
+		<Pricing />
+		<Cta />
+	</main>
+	<Footer />
+
+	<script>
+		// Landing-only behaviour: the code tabs. Everything shared (toast, copy chips, nav
+		// dropdown) lives in the Layout.
+		const tabs = document.querySelectorAll<HTMLElement>('[data-code-tab]');
+		const panels = document.querySelectorAll<HTMLElement>('[data-code-panel]');
+		let activeTab = 'node';
+		function setTab(name: string) {
+			activeTab = name;
+			for (const tab of tabs) {
+				if (tab.dataset.codeTab === name) tab.dataset.active = '';
+				else delete tab.dataset.active;
+			}
+			for (const panel of panels) panel.hidden = panel.dataset.codePanel !== name;
+		}
+		for (const tab of tabs) {
+			tab.addEventListener('click', () => setTab(tab.dataset.codeTab ?? 'node'));
+		}
+		setTab('node');
+
+		document.querySelector<HTMLElement>('[data-code-copy]')?.addEventListener('click', (e) => {
+			const snippets = (window as { __cbSnippets?: Record<string, string> }).__cbSnippets;
+			const text = snippets?.[activeTab] ?? '';
+			navigator.clipboard?.writeText(text).catch(() => {});
+			const toast = (window as { __cbToast?: (m: string) => void }).__cbToast;
+			toast?.((e.currentTarget as HTMLElement).dataset.copyToast ?? 'Copied.');
+		});
+	</script>
+</Layout>

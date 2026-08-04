@@ -12,7 +12,9 @@ COPY packages ./packages
 RUN pnpm install --frozen-lockfile
 
 FROM installer AS builder
-RUN pnpm build
+# The marketing site (apps/www) deploys to Cloudflare Pages, never into this image —
+# skipping its Astro build keeps the api/worker image lean and fast.
+RUN pnpm exec turbo build --filter='!@coolbeans/www'
 
 FROM base AS runtime
 ENV NODE_ENV=production

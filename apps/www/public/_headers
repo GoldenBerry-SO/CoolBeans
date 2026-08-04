@@ -1,0 +1,11 @@
+# ABOUTME: Cloudflare Pages headers — immutable caching for hashed assets, basic hardening.
+# ABOUTME: Astro fingerprints everything under /_astro/, so a year of immutable is safe.
+
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()

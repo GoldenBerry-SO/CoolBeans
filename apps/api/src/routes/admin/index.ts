@@ -21,6 +21,7 @@ import { registerAdminExportRoutes } from './export.js';
 import { registerAdminGrantRoutes } from './grants.js';
 import { registerAdminKeyRoutes } from './keys.js';
 import { registerAdminProductRoutes } from './products.js';
+import { registerAdminRescueRoutes } from './rescue.js';
 import { registerAdminSurfaceRoutes } from './surfaces.js';
 import { registerAdminTeamRoutes } from './team.js';
 import { accountScope, auditActor, readBody, requireProduct } from './util.js';
@@ -38,6 +39,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	registerAdminTeamRoutes(admin, deps);
 	registerAdminSurfaceRoutes(admin, deps);
 	registerAdminWebhookRoutes(admin, deps);
+	registerAdminRescueRoutes(admin, deps);
 
 	// Raw SQL, so it sidesteps every store helper and type-level guard in the scoping
 	// layer. Each count therefore has to carry its own account filter — licences and

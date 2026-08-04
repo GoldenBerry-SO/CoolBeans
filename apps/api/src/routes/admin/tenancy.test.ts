@@ -383,6 +383,11 @@ const COVERED = new Set([
 	'DELETE /admin/products/:slug/icon',
 	// Cross-account case lives in stripe-prices.test.ts beside the picker's behaviour.
 	'GET /admin/products/:slug/stripe/prices',
+	// Unfulfilled reads audit_log filtered by accountScope (same scoping /admin/audit
+	// covers); rescue fetches through the account's OWN connection, so a foreign checkout
+	// id is a natural 404 — pinned in rescue.test.ts.
+	'GET /admin/rescue/unfulfilled',
+	'POST /admin/rescue/checkout',
 	// Account-agnostic constants: the event-type vocabulary carries no tenant data.
 	'GET /admin/webhooks/event-types',
 	'GET /admin/webhooks/endpoints',

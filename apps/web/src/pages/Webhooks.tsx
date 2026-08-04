@@ -12,12 +12,76 @@ import {
 	useDisableWebhookEndpoint,
 	useProviderEvents,
 	useProviders,
+	useRescueCheckout,
 	useRotateWebhookSecret,
+	useUnfulfilled,
 	useWebhookDeliveries,
 	useWebhookEndpoints,
 	useWebhookEventTypes,
 	type WebhookEndpoint,
 } from '../lib/queries.js';
+
+/** "€49.00" from Stripe's minor units; falls back to nothing when Stripe gave no amount. */
+function moneyLabel(amount: number | null, currency: string | null): string | null {
+	if (amount === null || !currency) return null;
+	return new Intl.NumberFormat(undefined, {
+		style: 'currency',
+		currency: currency.toUpperCase(),
+	}).format(amount / 100);
+}
+
+/**
+ * Money taken, nothing shipped (pricing-UX plan phase 3): a paid checkout matched no
+ * mapping. The card exists to make this impossible to miss and one click to make right —
+ * after mapping the price on the product, Rescue runs the sale through the same
+ * idempotent path the webhook would have.
+ */
+function MissedSalesCard() {
+	const unfulfilled = useUnfulfilled();
+	const rescueMutation = useRescueCheckout();
+	const open = (unfulfilled.data ?? []).filter((u) => !u.fulfilled);
+	if (open.length === 0) return null;
+	return (
+		<Card className="mb-4 overflow-hidden border-danger/40">
+			<div className="border-ink/8 border-b px-[18px] py-[15px]">
+				<div className="font-semibold text-[13px] text-danger">
+					{open.length === 1
+						? 'A payment took money but issued no key'
+						: `${open.length} payments took money but issued no key`}
+				</div>
+				<div className="mt-0.5 text-[11.5px] text-ink-muted">
+					Each paid for a Stripe price that is not mapped to a product. Map the price (product →
+					what you sell), then rescue the sale to issue and email the key.
+				</div>
+			</div>
+			{open.map((u) => (
+				<div
+					key={u.checkout_id}
+					className="flex flex-wrap items-center gap-3 border-ink/5 border-b px-[18px] py-3 last:border-b-0"
+				>
+					<span className="min-w-0 flex-1 text-[12.5px]">
+						<strong>{u.email ?? 'unknown buyer'}</strong>
+						{moneyLabel(u.amount_total, u.currency) ? (
+							<span className="text-ink-muted">
+								{' '}
+								· paid {moneyLabel(u.amount_total, u.currency)}
+							</span>
+						) : null}
+						<span className="text-ink-faint"> · {formatDateTime(u.when)}</span>
+					</span>
+					<span className="font-mono text-[10.5px] text-ink-faint">{u.checkout_id}</span>
+					<SecondaryButton
+						className="px-3 py-[6px] text-[12px]"
+						disabled={rescueMutation.isPending}
+						onClick={() => rescueMutation.mutate(u.checkout_id)}
+					>
+						{rescueMutation.isPending ? 'Rescuing…' : 'Rescue this sale'}
+					</SecondaryButton>
+				</div>
+			))}
+		</Card>
+	);
+}
 
 const GRID = 'min-w-[760px] grid-cols-[0.75fr_1.9fr_1.1fr_0.85fr_0.65fr]';
 
@@ -277,6 +341,8 @@ export function WebhooksPage() {
 			)}
 			{adding ? <AddEndpointDialog onClose={() => setAdding(false)} onSecret={setSecret} /> : null}
 			{secret ? <SecretDialog secret={secret} onClose={() => setSecret(null)} /> : null}
+
+			<MissedSalesCard />
 
 			{/* Outbound (#108): the vendor's own URLs, fed by us. The mirror image of the
 			    incoming list below. */}

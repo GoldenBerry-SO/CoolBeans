@@ -224,12 +224,27 @@ export function createStripeGateway(
 			}
 		},
 		async listPrices() {
-			const prices = await stripe.prices.list(
-				{ active: true, limit: 100, expand: ['data.product'] },
-				req,
-			);
+			// Follow has_more (Codex, phase-3 review): an account with over 100 active prices
+			// would otherwise get a silently truncated picker and fall back to pasting ids —
+			// the exact flow this replaces. Bounded at 1000 as a runaway stop.
+			const data: Stripe.Price[] = [];
+			let startingAfter: string | undefined;
+			for (let page = 0; page < 10; page += 1) {
+				const batch = await stripe.prices.list(
+					{
+						active: true,
+						limit: 100,
+						expand: ['data.product'],
+						...(startingAfter ? { starting_after: startingAfter } : {}),
+					},
+					req,
+				);
+				data.push(...batch.data);
+				if (!batch.has_more || batch.data.length === 0) break;
+				startingAfter = batch.data[batch.data.length - 1]?.id;
+			}
 			return (
-				prices.data
+				data
 					// A price whose product was archived can never be bought; hide it like an
 					// archived price, or the picker offers dead inventory.
 					.filter((p) => {

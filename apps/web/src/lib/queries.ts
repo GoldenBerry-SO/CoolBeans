@@ -233,6 +233,43 @@ export function useDisableWebhookEndpoint() {
 	});
 }
 
+export interface UnfulfilledPayment {
+	checkout_id: string;
+	email: string | null;
+	amount_total: number | null;
+	currency: string | null;
+	when: string;
+	fulfilled: boolean;
+}
+
+/** Payments that took money but matched no mapping — the worst list to have entries on. */
+export function useUnfulfilled() {
+	return useQuery({
+		queryKey: ['unfulfilled'],
+		queryFn: () =>
+			api<{ unfulfilled: UnfulfilledPayment[] }>(
+				'GET',
+				// The server caps at 500; asking for the max keeps a mapping-outage backlog
+				// fully reachable from the card.
+				'/admin/rescue/unfulfilled?limit=500',
+			).then((r) => r.unfulfilled),
+	});
+}
+
+export function useRescueCheckout() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (checkout_id: string) => api('POST', '/admin/rescue/checkout', { checkout_id }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['unfulfilled'] });
+			qc.invalidateQueries({ queryKey: ['licenses'] });
+			qc.invalidateQueries({ queryKey: ['stats'] });
+			toast.success('Sale fulfilled', { description: 'The key was issued and emailed.' });
+		},
+		onError: (err) => toast.error('Could not fulfill that sale', { description: message(err) }),
+	});
+}
+
 export interface ProviderStatus {
 	name: string;
 	configured: boolean;

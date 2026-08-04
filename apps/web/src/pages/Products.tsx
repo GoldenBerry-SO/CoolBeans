@@ -69,15 +69,16 @@ export function ProductsPage() {
 	const startConnect = useStartStripeConnect();
 	// Stripe sends the vendor back here with the outcome in the URL. Say how it went, then
 	// clean the query so a refresh does not repeat the message.
+	const [openPickerAfterConnect, setOpenPickerAfterConnect] = useState(false);
 	useEffect(() => {
 		const params = new URLSearchParams(window.location.search);
 		const outcome = params.get('stripe');
 		if (!outcome) return;
 		if (outcome === 'connected') {
-			toast.success('Stripe connected', {
-				description:
-					'Now map the prices you sell. Create them in your Stripe dashboard first if you haven’t.',
-			});
+			toast.success('Stripe connected', { description: 'Pick the price you sell next.' });
+			// The natural next step should appear, not be described (plan phase 4): once the
+			// products load, the picker opens itself on the first product not selling yet.
+			setOpenPickerAfterConnect(true);
 		} else if (outcome === 'cancelled') {
 			toast.message('Stripe authorization cancelled');
 		} else {
@@ -87,6 +88,11 @@ export function ProductsPage() {
 	}, []);
 	const [managing, setManaging] = useState<Product | null>(null);
 	const [archiving, setArchiving] = useState<Product | null>(null);
+	useEffect(() => {
+		if (!openPickerAfterConnect || !products.data?.length) return;
+		setManaging(products.data.find((p) => !p.connected) ?? products.data[0]);
+		setOpenPickerAfterConnect(false);
+	}, [openPickerAfterConnect, products.data]);
 
 	// Surface the cap where it actually bites, rather than letting the create dialog 409.
 	// A raced click still reads fine: the 409 flows through the toast path in queries.ts.

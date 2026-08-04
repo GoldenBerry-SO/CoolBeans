@@ -28,3 +28,4 @@ coverage/
 .DS_Store
 *.log
 .claude/worktrees/
+apps/www/.astro

@@ -108,16 +108,41 @@ const columns = [
 	</div>
 </footer>
 
+<style>
+	[data-rotate-emoji] {
+		display: inline-block;
+		transition:
+			transform 0.22s ease,
+			opacity 0.22s ease;
+	}
+	[data-rotate-emoji].is-leaving {
+		transform: translateY(-7px);
+		opacity: 0;
+	}
+</style>
+
 <script is:inline>
-	// The quik.so footer bit: the heart cycles so the strip feels alive.
+	// The quik.so footer bit: the heart cycles so the strip feels alive. Each swap slides
+	// the old emoji up and out, then the new one rises in from below.
 	(() => {
 		const el = document.querySelector('[data-rotate-emoji]');
 		if (!el) return;
 		const emojis = ['❤️', '☕', '🥐', '💪', '🍰', '🎵', '🌻', '🐶'];
 		let i = 0;
 		setInterval(() => {
-			i = (i + 1) % emojis.length;
-			el.textContent = emojis[i];
-		}, 900);
+			el.classList.add('is-leaving');
+			setTimeout(() => {
+				i = (i + 1) % emojis.length;
+				el.textContent = emojis[i];
+				el.style.transition = 'none';
+				el.style.transform = 'translateY(7px)';
+				el.style.opacity = '0';
+				void el.offsetHeight;
+				el.style.transition = '';
+				el.classList.remove('is-leaving');
+				el.style.transform = '';
+				el.style.opacity = '';
+			}, 220);
+		}, 1600);
 	})();
 </script>

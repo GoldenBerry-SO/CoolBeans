@@ -25,14 +25,18 @@ import Layout from '../layouts/Layout.astro';
 	<!-- Announcement -->
 	<div class="bg-ink text-[13.5px] text-bone">
 		<div
-			class="mx-auto flex max-w-[1180px] items-center justify-center gap-2.5 px-6 py-2.5 text-center lg:px-10"
+			class="mx-auto flex max-w-[1180px] items-center justify-center gap-2.5 px-4 py-2.5 text-center sm:px-6 lg:px-10"
 		>
 			<span
 				class="inline-flex items-center gap-1.5 rounded-[20px] bg-lime/16 px-[9px] py-0.5 font-mono font-semibold text-[11.5px] text-lime"
 				>NEW</span
 			>
-			<span>Outbound webhooks: get told the moment a licence is issued.</span>
-			<a href="/docs/webhooks" class="font-semibold text-lime hover:text-[#d9ff85]">See how →</a>
+			<span class="hidden sm:inline">Outbound webhooks: get told the moment a licence is issued.</span>
+			<span class="sm:hidden">Outbound webhooks are here.</span>
+			<a
+				href="/docs/webhooks"
+				class="whitespace-nowrap font-semibold text-lime hover:text-[#d9ff85]">See how →</a
+			>
 		</div>
 	</div>
 

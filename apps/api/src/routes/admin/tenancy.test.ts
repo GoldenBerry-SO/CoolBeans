@@ -378,6 +378,9 @@ const COVERED = new Set([
 	'POST /admin/keys/:key/disable',
 	'POST /admin/keys/:key/enable',
 	'POST /admin/keys/:key/extend',
+	// Cross-account case lives in product-icons.test.ts beside the rest of its behaviour.
+	'PUT /admin/products/:slug/icon',
+	'DELETE /admin/products/:slug/icon',
 	// Account-agnostic constants: the event-type vocabulary carries no tenant data.
 	'GET /admin/webhooks/event-types',
 	'GET /admin/webhooks/endpoints',

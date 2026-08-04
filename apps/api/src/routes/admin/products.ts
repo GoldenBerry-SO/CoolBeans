@@ -9,6 +9,7 @@ import type { AppDeps } from '../../deps.js';
 import { nowDate } from '../../deps.js';
 import { badRequest, conflict, planLimitReached } from '../../http/errors.js';
 import { limitsFor } from '../../services/plan-limits.js';
+import { deleteProductIcon, setProductIcon } from '../../services/product-icons.js';
 import { issueProductToken } from '../../services/product-tokens.js';
 import { getOrCreateActiveKey } from '../../services/signing.js';
 import { writeAudit } from '../../store/audit.js';
@@ -43,6 +44,12 @@ const createProductBody = z.object({
 	paypal_plan_yearly: z.string().optional(),
 	paypal_sku_lifetime: z.string().optional(),
 	archived: z.boolean().optional(),
+});
+
+// Shape only: size cap, mime whitelist and magic-byte sniffing live in setProductIcon.
+const iconBody = z.object({
+	mime: z.string().min(1),
+	data_base64: z.string().min(1),
 });
 
 const metricBody = z.object({
@@ -251,6 +258,34 @@ export function registerAdminProductRoutes(admin: OpenAPIHono, deps: AppDeps): v
 
 	admin.get('/products/:slug', async (c) => {
 		return c.json({ ok: true, product: await requireProduct(c, deps, c.req.param('slug')) });
+	});
+
+	// The vendor's logo (issue #115): validated and stored here, served publicly from /v1,
+	// shown on licence emails. PUT because replacing in place is the whole lifecycle.
+	admin.put('/products/:slug/icon', async (c) => {
+		const product = await requireProduct(c, deps, c.req.param('slug'));
+		const body = await readBody(c, iconBody);
+		await setProductIcon(deps, product, { mime: body.mime, dataBase64: body.data_base64 });
+		await writeAudit(deps.db, {
+			action: 'product.icon_set',
+			actor: auditActor(c),
+			accountId: product.accountId,
+			productId: product.id,
+			detail: { mime: body.mime },
+		});
+		return c.json({ ok: true });
+	});
+
+	admin.delete('/products/:slug/icon', async (c) => {
+		const product = await requireProduct(c, deps, c.req.param('slug'));
+		await deleteProductIcon(deps, product);
+		await writeAudit(deps.db, {
+			action: 'product.icon_removed',
+			actor: auditActor(c),
+			accountId: product.accountId,
+			productId: product.id,
+		});
+		return c.json({ ok: true });
 	});
 
 	admin.post('/products/:slug/metrics', async (c) => {

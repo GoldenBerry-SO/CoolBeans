@@ -17,6 +17,7 @@ import {
 } from '../../services/licensing.js';
 import { findByCheckoutId } from '../../services/payments.js';
 import { ensureLicenseForOrder } from '../../services/paypal.js';
+import { getProductIcon } from '../../services/product-icons.js';
 import { productForToken } from '../../services/product-tokens.js';
 import { publicKeysFor } from '../../services/signing.js';
 import { ensureLicenseForSession } from '../../services/stripe.js';
@@ -91,6 +92,22 @@ export function registerPublicRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		const body = await readJson(c, validateBody);
 		const result = await heartbeat(deps, body.license_key, body.instance_id);
 		return c.json({ ok: true, lease_expires_at: result.leaseExpiresAt });
+	});
+
+	// The product icon (issue #115). Public by design: mail clients fetch images from the
+	// recipient's machine, and a logo is not a secret. The mime was sniffed at upload, so
+	// serving it back under that content-type is safe.
+	app.get('/v1/products/:slug/icon', async (c) => {
+		const product = await getProductBySlugGlobal(deps.db, c.req.param('slug'));
+		if (!product) throw notFound('No product with that slug.');
+		const icon = await getProductIcon(deps, product.id);
+		if (!icon) throw notFound('This product has no icon.');
+		return c.body(new Uint8Array(icon.bytes), 200, {
+			'Content-Type': icon.mime,
+			// An hour of caching keeps mail-client refetches cheap; a replaced logo catches
+			// up on the next open, which is the right trade for an email asset.
+			'Cache-Control': 'public, max-age=3600',
+		});
 	});
 
 	// Public signing keys for offline token verification (SDK embeds these). PRD §11.

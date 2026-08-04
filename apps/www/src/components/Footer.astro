@@ -80,7 +80,11 @@ const columns = [
 		<div
 			class="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-3 px-6 py-5 lg:px-10"
 		>
-			<div class="font-mono text-[13px] text-ash">© 2026 Cool Beans · coolbeans.tools</div>
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[13px] text-ash">
+				<span>© 2026 Cool Beans</span>
+				<a href="https://goldenberry.so" class="hover:text-ink">A GoldenBerry product</a>
+				<span>Made with <span data-rotate-emoji>❤️</span> in Berlin 🇪🇺</span>
+			</div>
 			<div class="flex items-center gap-4">
 				<a
 					href="https://github.com/GoldenBerry-SO/coolbeans"
@@ -103,3 +107,17 @@ const columns = [
 		</div>
 	</div>
 </footer>
+
+<script is:inline>
+	// The quik.so footer bit: the heart cycles so the strip feels alive.
+	(() => {
+		const el = document.querySelector('[data-rotate-emoji]');
+		if (!el) return;
+		const emojis = ['❤️', '🧡', '💛', '💚', '💙', '💜', '🫘'];
+		let i = 0;
+		setInterval(() => {
+			i = (i + 1) % emojis.length;
+			el.textContent = emojis[i];
+		}, 900);
+	})();
+</script>

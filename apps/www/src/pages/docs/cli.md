@@ -18,6 +18,11 @@ pnpm --filter @coolbeans/cli build
 node packages/cli/dist/index.js key issue --product clementine --email you@example.com
 ```
 
+Every command needs to know where the server is and needs the admin token, so set
+`COOLBEANS_URL` and `COOLBEANS_ADMIN_TOKEN` first (see [Global options](#global-options)) or pass
+`--url` and `--token`. Without a token the CLI stops with `No admin token.`, and with no URL at all
+it targets `http://localhost:3000`.
+
 An alias makes the rest of this page copy-pasteable:
 
 ```sh

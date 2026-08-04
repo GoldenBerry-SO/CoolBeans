@@ -1,11 +1,12 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: Migrating from LemonSqueezy
-description: Parity routes at /v1/licenses/* mean an app built against the LS License API points at Cool Beans with a base-URL change.
+description: Parity routes at /v1/licenses/* mean an app built against the LS License API talks to Cool Beans unchanged. Keys are issued fresh; there is no key import.
 ---
 
 Cool Beans serves alias routes that emulate the Lemon Squeezy License API request and response
-contract exactly. An app already built against LS keys can point at Cool Beans without a rewrite.
+contract exactly. An app already built against the LS License API can point at Cool Beans without a
+rewrite.
 
 ## The routes
 
@@ -15,7 +16,21 @@ POST /v1/licenses/validate
 POST /v1/licenses/deactivate
 ```
 
-Same paths LS uses, same shapes. Change the base URL and you're done.
+Same paths LS uses, same shapes. Change the base URL and the client code is done.
+
+## Keys already out in the wild
+
+The parity is at the API level, not the key level. Cool Beans resolves keys from its own database,
+and **there is no import route today**, so a key Lemon Squeezy issued answers `404 unknown_key`
+here. To an offline-tolerant client that's inconclusive, never a lockout, but it also never
+validates.
+
+Migrating existing customers therefore means issuing them Cool Beans keys. `beans key issue` (or
+`POST /admin/keys`) issues one and emails it to the buyer in the same call, and the
+`--json` flag makes it scriptable over an exported LS customer list. The practical path: keep LS
+answering old keys while it winds down, issue Cool Beans keys to those buyers, and ship the
+base-URL change in the release that expects them. New sales issue Cool Beans keys from day one via
+[Payments](/docs/payments).
 
 Both JSON and form-encoded bodies are accepted, the way LS accepts them.
 

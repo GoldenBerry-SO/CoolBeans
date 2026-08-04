@@ -68,8 +68,21 @@ Either `beans stripe connect --product <slug> --webhook-url <url>` from the CLI,
 **Connect Stripe** action. Both auto-register the connection's webhook endpoint through the Stripe
 API and store the signing secret. Registration is their whole job. No manual dashboard wiring.
 
-Then map prices: one grant per price, in the console under Stripe prices, or by posting to
-`/admin/products/<slug>/grants`.
+Then map prices: one grant per price, in the console under Stripe prices, or over the admin API.
+`GET /admin/products/<slug>/stripe/prices` lists the connected account's active prices with the
+facts a human recognizes (names, amounts, cadence, and what each is already mapped to), then create
+the grant:
+
+```sh
+curl -X POST "$COOLBEANS_URL/admin/products/clementine/grants" \
+  -H "Authorization: Bearer $COOLBEANS_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"stripe_price_id":"price_1Qabc...","plan":"Pro yearly"}'
+```
+
+`stripe_price_id` is the only required field. `kind`, `plan`, `activation_limit` and `entitlements`
+are optional, as described above. (The bearer token is the self-host `ADMIN_TOKEN`; on the hosted
+cloud the admin API is session-authed, so use the console there.)
 
 ## What the webhook does
 

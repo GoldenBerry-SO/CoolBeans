@@ -6,6 +6,11 @@ description: Issue a key, wire three lines into your app, and see the verdict.
 
 Two steps: get a key, then make one call in your app.
 
+This assumes you already have an instance and a product: a cloud account at
+[app.coolbeans.tools](https://app.coolbeans.tools) or a self-hosted box (see
+[Self-hosting](/docs/self-hosting)), with a product created in the console or via
+`beans product create`. The examples use a product whose slug is `clementine`; substitute yours.
+
 ## 1. Issue a key
 
 **In the console.** Sign in, pick the product, and hit **Issue key** in the header. You get a

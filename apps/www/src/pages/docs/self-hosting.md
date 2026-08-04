@@ -24,7 +24,11 @@ Compose needs these in the environment or `.env`, and refuses to start without t
 - `POSTGRES_PASSWORD`: the database password. Compose builds `DATABASE_URL` from it.
 - `ADMIN_TOKEN`: bearer token for admin endpoints and the CLI.
 - `SIGNING_KEY_SECRET`: encrypts offline-token signing private keys at rest.
-- `EMAIL_PROVIDER`: `resend` or `smtp`.
+- `EMAIL_PROVIDER`: `resend` or `smtp`, **plus its credential**: `RESEND_API_KEY` for resend, or at
+  least `SMTP_HOST` (and usually `SMTP_USER` / `SMTP_PASS`) for smtp. Compose only enforces
+  `EMAIL_PROVIDER` itself; with the credential missing the API still starts, it just can't deliver
+  key emails. `console` is also accepted for a local try-out. It logs emails instead of sending
+  them, and is refused in production.
 
 Optional: `PUBLIC_URL` (defaults to `http://localhost:3000`) and `API_PORT` (defaults to `3000`,
 which is the host port mapped to the container's 3000).
@@ -68,12 +72,13 @@ instead.
 
 | Variable | What it does |
 |---|---|
-| `PORT` | Listen port. Default `3000`. |
+| `PORT` | Listen port when running the Node process directly. Default `3000`. Under compose the container always listens on 3000 and the host-side knob is `API_PORT` instead. |
 
 ### Offline tokens
 
 | Variable | What it does |
 |---|---|
+| `OFFLINE_TOKEN_TTL_DAYS` | Lifetime of the signed offline token a normal `validate` returns, in days. Default `7`. |
 | `OFFLINE_TOKEN_BUFFER_DAYS` | Days added to a licence's expiry when it goes into a signed offline token. The SDK ends access when a signed `expires_at` has passed, so the raw expiry would lock out a subscriber who renewed while offline and still holds a stale token. This is the room they get to reconnect. Never applied to trials. Default `14`. |
 | `OFFLINE_ACTIVATION_TTL_DAYS` | TTL for a vendor-issued offline activation, in days. Long because an air-gapped machine can never refresh: it gets one token and lives on it. Always clamped to the licence's own expiry. Note that such a machine cannot be revoked before this elapses. Default `365`. |
 

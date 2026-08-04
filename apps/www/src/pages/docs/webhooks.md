@@ -5,8 +5,23 @@ description: Cool Beans calls your server when licence lifecycle events happen, 
 ---
 
 Cool Beans can call your server when licence lifecycle events happen. Register an endpoint in the
-console (Webhooks, then Your endpoints) or via `POST /admin/webhooks/endpoints`, pick the event
-types you care about, and store the signing secret it returns. It's shown exactly once.
+console (Webhooks, then Your endpoints), pick the event types you care about, and store the signing
+secret it returns. It's shown exactly once.
+
+The same registration over the admin API (self-host, bearer `ADMIN_TOKEN`):
+
+```sh
+curl -X POST "$COOLBEANS_URL/admin/webhooks/endpoints" \
+  -H "Authorization: Bearer $COOLBEANS_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com/hooks/coolbeans","events":["license.issued","license.disabled"]}'
+```
+
+The response carries the endpoint and its signing secret. `GET /admin/webhooks/event-types` lists
+the valid event names, `GET /admin/webhooks/endpoints` lists what's registered, and per endpoint
+there's `POST /admin/webhooks/endpoints/:id/rotate` (returns the new secret, again exactly once),
+`DELETE /admin/webhooks/endpoints/:id`, and `GET /admin/webhooks/endpoints/:id/deliveries` for the
+delivery log.
 
 ## Events
 

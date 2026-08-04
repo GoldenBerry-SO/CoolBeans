@@ -8,8 +8,10 @@ description: The frozen public client contract, for apps in languages we don't s
 skip this page.** It's here for languages we don't ship an SDK for. Wiring these up by hand means
 re-deciding everything `open()` decides, which is exactly where lockouts come from.
 
-All JSON. Every response body carries `ok`, except the Lemon Squeezy compatibility routes, which
-reproduce the LS shape exactly and therefore omit it.
+Every endpoint on this page speaks JSON, and every response body carries `ok`, except the Lemon
+Squeezy compatibility routes, which reproduce the LS shape exactly and therefore omit it. (The
+instance also serves a few non-JSON documents on `/v1`: markdown at `/v1/llms.txt` and
+`/v1/integration/<slug>`, and the product icon image at `/v1/products/<slug>/icon`.)
 
 ## Three rules you cannot get wrong
 

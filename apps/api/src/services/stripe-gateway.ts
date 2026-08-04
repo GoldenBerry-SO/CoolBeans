@@ -190,9 +190,12 @@ export function createStripeGateway(
 				// Stripe returns a recurring object (with an interval) for subscriptions, null
 				// for one-time prices.
 				return { recurring: Boolean(price.recurring), interval: price.recurring?.interval };
-			} catch {
-				// resource_missing (or any lookup failure): treat as "cannot confirm this price".
-				return null;
+			} catch (err) {
+				// Null means exactly "Stripe says no such usable price". Anything else — bad
+				// credential, revoked Connect access, network — propagates, because collapsing
+				// it into null made a refused lookup read as a typo'd id (#118).
+				if ((err as { code?: string }).code === 'resource_missing') return null;
+				throw err;
 			}
 		},
 		async exchangeConnectCode(code) {

@@ -1,7 +1,7 @@
 // ABOUTME: Grant lifecycle (issue #62) — map an arbitrary Stripe price to a product, or retire one.
 // ABOUTME: This is how a vendor prices however they like (monthly, tiers, add-ons); pricing lives in Stripe.
 
-import type { LicenseGrant, Product } from '@coolbeans/db';
+import type { LicenseGrant, Product, StripeConnection } from '@coolbeans/db';
 import { licenseGrants } from '@coolbeans/db';
 import { and, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
@@ -42,16 +42,50 @@ export interface CreateGrantArgs {
  * every sale, and a typo'd id would match nothing at checkout and silently issue no key to a
  * paying buyer. Confirm the price exists and its mode before writing the grant.
  */
+/**
+ * What to tell an operator when a price lookup finds nothing. Live testing (#118) showed
+ * "check the id" is almost never the cure: the id was right, and the price lived in a
+ * DIFFERENT Stripe account than the connected one — easy when one person administers
+ * several — or in the other mode. Naming the connected account turns an hour of doubt
+ * into a ten-second dashboard account-switcher check.
+ */
+export function priceLookupFailureMessage(
+	connection: Pick<StripeConnection, 'mode' | 'stripeAccountId'>,
+	priceId: string,
+): string {
+	if (connection.mode === 'cloud_connect' && connection.stripeAccountId) {
+		return (
+			`No active Stripe price ${priceId} in the connected Stripe account ` +
+			`(${connection.stripeAccountId}). If you administer more than one Stripe account, ` +
+			`check the price was created in that exact account, and that it is active.`
+		);
+	}
+	return (
+		`No active Stripe price ${priceId} in your Stripe account. Check that it exists, ` +
+		`is active, and matches your API key's mode (test vs live).`
+	);
+}
+
 async function assertPriceModeForKind(
 	// The gateway bound to the connection the grant will hang off, NOT deps.stripe: a cloud
 	// vendor's price lives in their connected account and is invisible to the platform key.
 	stripe: StripeGateway,
+	connection: Pick<StripeConnection, 'mode' | 'stripeAccountId'>,
 	priceId: string,
 	kind: 'perpetual' | 'subscription',
 ): Promise<void> {
-	const price = await stripe.getPrice(priceId);
+	let price: Awaited<ReturnType<StripeGateway['getPrice']>>;
+	try {
+		price = await stripe.getPrice(priceId);
+	} catch (err) {
+		// A refused lookup (bad credential, revoked access) is not a missing price, and
+		// telling the operator to "check the id" for it sends them nowhere (#118).
+		throw badRequest(
+			`Stripe refused the price lookup: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
 	if (!price) {
-		throw badRequest(`No active Stripe price ${priceId} in your account. Check the id.`);
+		throw badRequest(priceLookupFailureMessage(connection, priceId));
 	}
 	if (kind === 'perpetual' && price.recurring) {
 		throw badRequest(
@@ -97,7 +131,12 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 	if (!connection) {
 		throw badRequest('Stripe is not connected for this account yet.');
 	}
-	await assertPriceModeForKind(gatewayForConnection(deps, connection), args.priceId, args.kind);
+	await assertPriceModeForKind(
+		gatewayForConnection(deps, connection),
+		connection,
+		args.priceId,
+		args.kind,
+	);
 
 	const [grant] = await deps.db
 		.insert(licenseGrants)

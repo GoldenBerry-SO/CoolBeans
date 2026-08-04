@@ -610,32 +610,37 @@ function GrantsDialog({ product, onClose }: { product: Product; onClose: () => v
 				Grant no capabilities (clears what this price grants from now on)
 			</label>
 			{capabilityError ? <p className="m-0 text-[12.5px] text-danger">{capabilityError}</p> : null}
-			<AccentButton
-				disabled={!canAdd || create.isPending}
-				onClick={() =>
-					create.mutate(
-						{
-							slug: product.slug,
-							stripe_price_id: priceId,
-							kind,
-							plan: plan || undefined,
-							activation_limit: seats ? Number(seats) : undefined,
-							entitlements: entitlementsPayload(capabilities, clearCapabilities),
-						},
-						{
-							onSuccess: () => {
-								setPriceId('');
-								setPlan('');
-								setSeats('');
-								setCapabilities('');
-								setClearCapabilities(false);
+			{/* Right-aligned and content-sized: stretched across a wide dialog this read as a
+			    section divider, not the form's action (#118). */}
+			<div className="flex justify-end">
+				<AccentButton
+					className="w-fit"
+					disabled={!canAdd || create.isPending}
+					onClick={() =>
+						create.mutate(
+							{
+								slug: product.slug,
+								stripe_price_id: priceId,
+								kind,
+								plan: plan || undefined,
+								activation_limit: seats ? Number(seats) : undefined,
+								entitlements: entitlementsPayload(capabilities, clearCapabilities),
 							},
-						},
-					)
-				}
-			>
-				Map price
-			</AccentButton>
+							{
+								onSuccess: () => {
+									setPriceId('');
+									setPlan('');
+									setSeats('');
+									setCapabilities('');
+									setClearCapabilities(false);
+								},
+							},
+						)
+					}
+				>
+					{create.isPending ? 'Mapping…' : 'Map price'}
+				</AccentButton>
+			</div>
 			{create.error ? (
 				<p className="m-0 text-[12.5px] text-danger">{create.error.message}</p>
 			) : null}

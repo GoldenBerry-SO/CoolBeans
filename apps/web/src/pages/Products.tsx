@@ -14,6 +14,7 @@ import {
 	SecondaryButton,
 } from '../components/ui.js';
 import { entitlementsPayload, formatEntitlements, parseEntitlements } from '../lib/entitlements.js';
+import { priceAmount, priceName } from '../lib/price-label.js';
 import {
 	type StripePriceRow,
 	useArchiveProduct,
@@ -479,24 +480,6 @@ export function ProductDialog({ product, onClose }: { product?: Product; onClose
 			{error ? <p className="m-0 text-[12.5px] text-danger">{error.message}</p> : null}
 		</Dialog>
 	);
-}
-
-/** "€49/year", "€120 one-time" — the way a human recognizes a price. */
-function priceAmount(p: StripePriceRow): string {
-	const amount =
-		p.unit_amount !== null && p.currency
-			? new Intl.NumberFormat(undefined, {
-					style: 'currency',
-					currency: p.currency.toUpperCase(),
-					maximumFractionDigits: p.unit_amount % 100 === 0 ? 0 : 2,
-				}).format(p.unit_amount / 100)
-			: null;
-	if (p.recurring) return `${amount ?? 'recurring'}/${p.interval ?? 'period'}`;
-	return `${amount ?? ''} one-time`.trim();
-}
-
-function priceName(p: StripePriceRow): string {
-	return p.nickname ?? p.product_name ?? p.id;
 }
 
 function GrantsDialog({ product, onClose }: { product: Product; onClose: () => void }) {

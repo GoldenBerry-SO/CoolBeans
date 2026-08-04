@@ -24,6 +24,18 @@ export interface StripePriceInfo {
 	interval?: string;
 }
 
+/** A price as the picker shows it (issue #120): the facts a human recognizes it by. */
+export interface StripePriceListing {
+	id: string;
+	nickname: string | null;
+	productName: string | null;
+	/** Minor units (cents); null for prices Stripe reports without a fixed amount. */
+	unitAmount: number | null;
+	currency: string | null;
+	recurring: boolean;
+	interval?: string;
+}
+
 export interface SessionLineItem {
 	priceId: string;
 	quantity: number;
@@ -68,6 +80,19 @@ export interface StripeGateway {
 	 * from another account, which the vendor's key cannot see).
 	 */
 	getPrice(priceId: string): Promise<StripePriceInfo | null>;
+	/**
+	 * The account's active prices with the facts a human picks by (issue #120): product
+	 * name, nickname, amount, cadence. The picker browses these so nobody pastes ids
+	 * across dashboard tabs — and an empty list is itself the answer to "why can't I map
+	 * my price": it is not in this account.
+	 */
+	listPrices(): Promise<StripePriceListing[]>;
+	/**
+	 * A connected account's display name, for telling the operator WHICH account their
+	 * prices must live in. Null when Stripe will not say; never throws — the name is
+	 * garnish on an error message, not load-bearing.
+	 */
+	getAccountName(accountId: string): Promise<string | null>;
 	/**
 	 * Redeem a Stripe Connect authorization code for the account that granted it.
 	 *
@@ -196,6 +221,41 @@ export function createStripeGateway(
 				// it into null made a refused lookup read as a typo'd id (#118).
 				if ((err as { code?: string }).code === 'resource_missing') return null;
 				throw err;
+			}
+		},
+		async listPrices() {
+			const prices = await stripe.prices.list(
+				{ active: true, limit: 100, expand: ['data.product'] },
+				req,
+			);
+			return (
+				prices.data
+					// A price whose product was archived can never be bought; hide it like an
+					// archived price, or the picker offers dead inventory.
+					.filter((p) => {
+						const product = p.product as Stripe.Product | Stripe.DeletedProduct | string;
+						if (typeof product === 'string') return true;
+						return !('deleted' in product && product.deleted) && (product as Stripe.Product).active;
+					})
+					.map((p) => ({
+						id: p.id,
+						nickname: p.nickname ?? null,
+						productName:
+							typeof p.product === 'string' ? null : ((p.product as Stripe.Product).name ?? null),
+						unitAmount: p.unit_amount,
+						currency: p.currency ?? null,
+						recurring: Boolean(p.recurring),
+						interval: p.recurring?.interval,
+					}))
+			);
+		},
+		async getAccountName(accountId: string) {
+			try {
+				const account = await stripe.accounts.retrieve(accountId);
+				return account.settings?.dashboard?.display_name ?? account.business_profile?.name ?? null;
+			} catch {
+				// Garnish, not load-bearing: an error message without the name still works.
+				return null;
 			}
 		},
 		async exchangeConnectCode(code) {

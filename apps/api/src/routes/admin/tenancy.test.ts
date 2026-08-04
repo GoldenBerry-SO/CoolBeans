@@ -381,6 +381,8 @@ const COVERED = new Set([
 	// Cross-account case lives in product-icons.test.ts beside the rest of its behaviour.
 	'PUT /admin/products/:slug/icon',
 	'DELETE /admin/products/:slug/icon',
+	// Cross-account case lives in stripe-prices.test.ts beside the picker's behaviour.
+	'GET /admin/products/:slug/stripe/prices',
 	// Account-agnostic constants: the event-type vocabulary carries no tenant data.
 	'GET /admin/webhooks/event-types',
 	'GET /admin/webhooks/endpoints',

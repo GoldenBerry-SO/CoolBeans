@@ -86,6 +86,18 @@ export function fakeStripeGateway(
 		connectSecret?: string;
 		/** Model referenced prices for connect verification; an absent id reads as not found. */
 		prices?: Record<string, { recurring: boolean; interval?: string }>;
+		/** What listPrices returns for the picker (#120); defaults to entries derived from `prices`. */
+		priceCatalog?: Array<{
+			id: string;
+			nickname: string | null;
+			productName: string | null;
+			unitAmount: number | null;
+			currency: string | null;
+			recurring: boolean;
+			interval?: string;
+		}>;
+		/** Display names getAccountName should answer with. */
+		accountNames?: Record<string, string>;
 		/** Authorization codes Stripe would honour, mapped to the account they belong to. */
 		connectCodes?: Record<string, { stripeAccountId: string; livemode?: boolean }>;
 	} = {},
@@ -127,6 +139,22 @@ export function fakeStripeGateway(
 			if (extras.prices) return extras.prices[priceId] ?? null;
 			const yearly = priceId.toLowerCase().includes('year');
 			return { recurring: yearly, interval: yearly ? 'year' : undefined };
+		},
+		async listPrices() {
+			if (extras.priceCatalog) return extras.priceCatalog;
+			// Derived from `prices` so a test that seeded lookups gets a coherent listing free.
+			return Object.entries(extras.prices ?? {}).map(([id, info]) => ({
+				id,
+				nickname: null,
+				productName: null,
+				unitAmount: null,
+				currency: null,
+				recurring: info.recurring,
+				interval: info.interval,
+			}));
+		},
+		async getAccountName(accountId: string) {
+			return extras.accountNames?.[accountId] ?? null;
 		},
 		async exchangeConnectCode(code: string) {
 			const found = extras.connectCodes?.[code];

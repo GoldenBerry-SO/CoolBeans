@@ -6,6 +6,9 @@ import { z } from 'zod';
 import type { AppDeps } from '../../deps.js';
 import { badRequest } from '../../http/errors.js';
 import { createGrant, listGrantsForProduct, retireGrant } from '../../services/grants.js';
+import { gatewayForConnection } from '../../services/stripe-connection.js';
+import type { StripePriceListing } from '../../services/stripe-gateway.js';
+import { getActiveConnectionForAccount, listGrantsForConnection } from '../../store/grants.js';
 import { auditActor, entitlementsSchema, readBody, requireProduct } from './util.js';
 
 const grantBody = z.object({
@@ -14,7 +17,9 @@ const grantBody = z.object({
 	stripe_price_id: z
 		.string()
 		.regex(/^price_[A-Za-z0-9]+$/, 'Must be a Stripe price id, like price_123'),
-	kind: z.enum(['perpetual', 'subscription']),
+	// Optional (#120): omitted, the kind is inferred from the price itself — recurring is a
+	// subscription, one-time a perpetual. Provided, it must match, and a mismatch refuses.
+	kind: z.enum(['perpetual', 'subscription']).optional(),
 	// Free-form vendor label (e.g. "Pro monthly"), snapshotted onto issued licences. Display only.
 	plan: z.string().min(1).optional(),
 	// Seats this price buys. Omit to inherit the product's limit, which is what every grant did
@@ -38,6 +43,59 @@ export function registerAdminGrantRoutes(admin: OpenAPIHono, deps: AppDeps): voi
 	admin.get('/products/:slug/grants', async (c) => {
 		const product = await requireProduct(c, deps, c.req.param('slug'));
 		return c.json({ ok: true, grants: await listGrantsForProduct(deps.db, product.id) });
+	});
+
+	// The picker's browse list (#120): the connected account's active prices with the facts
+	// a human recognizes — names, amounts, cadence — plus what each is already mapped to.
+	// Pasting ids across dashboard tabs was how #118's wrong-account hour happened.
+	admin.get('/products/:slug/stripe/prices', async (c) => {
+		const product = await requireProduct(c, deps, c.req.param('slug'));
+		const connection = await getActiveConnectionForAccount(deps.db, product.accountId);
+		if (!connection) {
+			throw badRequest('Stripe is not connected for this account yet.');
+		}
+		let prices: StripePriceListing[];
+		try {
+			prices = await gatewayForConnection(deps, connection).listPrices();
+		} catch (err) {
+			// The #119 rule: a refused listing is a credentials/access problem, and saying
+			// anything else sends the operator hunting ghosts.
+			throw badRequest(
+				`Stripe refused the price listing: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+		const grants = await listGrantsForConnection(deps.db, connection.id);
+		const mappedBy = new Map(grants.map((g) => [g.stripePriceId, g]));
+		// The display name turns "your price is in another account" from a riddle into a
+		// glance. Cloud only: self-host's connection is the operator's own key.
+		const accountName =
+			connection.mode === 'cloud_connect' && connection.stripeAccountId && deps.connect
+				? await deps.connect.getAccountName(connection.stripeAccountId)
+				: null;
+		return c.json({
+			ok: true,
+			connection: {
+				mode: connection.mode,
+				stripe_account_id: connection.mode === 'cloud_connect' ? connection.stripeAccountId : null,
+				account_name: accountName,
+			},
+			prices: prices.map((p) => {
+				const grant = mappedBy.get(p.id);
+				return {
+					id: p.id,
+					nickname: p.nickname,
+					product_name: p.productName,
+					unit_amount: p.unitAmount,
+					currency: p.currency,
+					recurring: p.recurring,
+					interval: p.interval ?? null,
+					mapped:
+						grant && grant.status === 'active'
+							? { product: grant.productSlug, plan: grant.plan }
+							: null,
+				};
+			}),
+		});
 	});
 
 	admin.post('/products/:slug/grants', async (c) => {

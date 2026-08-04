@@ -16,7 +16,13 @@ import type { StripeGateway } from './stripe-gateway.js';
 export interface CreateGrantArgs {
 	product: Product;
 	priceId: string;
-	kind: 'perpetual' | 'subscription';
+	/**
+	 * Omitted means "whatever the price is" (#120): recurring issues a subscription,
+	 * one-time a perpetual — the price already knows, so the caller no longer has to.
+	 * Provided, it must still MATCH the price; a stated wrong intent is refused, never
+	 * silently corrected, because it usually means the wrong price id was pasted.
+	 */
+	kind?: 'perpetual' | 'subscription';
 	/** The vendor's free-form plan label, snapshotted onto every licence this grant issues. */
 	plan?: string | null;
 	/** Seats this price buys. Null inherits the product's limit. */
@@ -66,14 +72,14 @@ export function priceLookupFailureMessage(
 	);
 }
 
-async function assertPriceModeForKind(
+async function resolveKindForPrice(
 	// The gateway bound to the connection the grant will hang off, NOT deps.stripe: a cloud
 	// vendor's price lives in their connected account and is invisible to the platform key.
 	stripe: StripeGateway,
 	connection: Pick<StripeConnection, 'mode' | 'stripeAccountId'>,
 	priceId: string,
-	kind: 'perpetual' | 'subscription',
-): Promise<void> {
+	kind?: 'perpetual' | 'subscription',
+): Promise<'perpetual' | 'subscription'> {
 	let price: Awaited<ReturnType<StripeGateway['getPrice']>>;
 	try {
 		price = await stripe.getPrice(priceId);
@@ -97,6 +103,7 @@ async function assertPriceModeForKind(
 			'A subscription grant needs a recurring price, but that Stripe price is one-time.',
 		);
 	}
+	return price.recurring ? 'subscription' : 'perpetual';
 }
 
 /**
@@ -131,7 +138,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 	if (!connection) {
 		throw badRequest('Stripe is not connected for this account yet.');
 	}
-	await assertPriceModeForKind(
+	const kind = await resolveKindForPrice(
 		gatewayForConnection(deps, connection),
 		connection,
 		args.priceId,
@@ -145,7 +152,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			stripeConnectionId: connection.id,
 			stripePriceId: args.priceId,
 			productId: args.product.id,
-			kind: args.kind,
+			kind,
 			plan: args.plan ?? null,
 			activationLimit: args.activationLimit ?? null,
 			entitlements: entitlementsToStore(args.entitlements).value,
@@ -155,7 +162,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 			target: [licenseGrants.stripeConnectionId, licenseGrants.stripePriceId],
 			set: {
 				productId: args.product.id,
-				kind: args.kind,
+				kind,
 				// Omitting these keeps what the price already grants rather than clearing it.
 				// Seats decide what future licences are worth, so a caller who re-maps a price to
 				// change its label must not silently reset Pro's ten seats to the product default.
@@ -185,7 +192,7 @@ export async function createGrant(deps: AppDeps, args: CreateGrantArgs): Promise
 		productId: args.product.id,
 		detail: {
 			price: args.priceId,
-			kind: args.kind,
+			kind,
 			plan: args.plan ?? null,
 			seats: args.activationLimit ?? null,
 			entitlements: args.entitlements ?? null,

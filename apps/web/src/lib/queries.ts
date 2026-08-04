@@ -287,6 +287,35 @@ function bumpIconVersion(qc: ReturnType<typeof useQueryClient>, slug: string): v
 	qc.setQueryData(['icon-version', slug], Date.now());
 }
 
+export interface StripePriceRow {
+	id: string;
+	nickname: string | null;
+	product_name: string | null;
+	unit_amount: number | null;
+	currency: string | null;
+	recurring: boolean;
+	interval: string | null;
+	mapped: { product: string; plan: string | null } | null;
+}
+
+export interface StripePricesResponse {
+	connection: {
+		mode: string;
+		stripe_account_id: string | null;
+		account_name: string | null;
+	};
+	prices: StripePriceRow[];
+}
+
+/** The connected account's active prices, for the picker (#120). */
+export function useStripePrices(slug: string, enabled = true) {
+	return useQuery({
+		queryKey: ['stripe-prices', slug],
+		enabled,
+		queryFn: () => api<StripePricesResponse>('GET', `/admin/products/${slug}/stripe/prices`),
+	});
+}
+
 export function useSetProductIcon() {
 	const qc = useQueryClient();
 	return useMutation({
@@ -547,7 +576,8 @@ export function useGrants(slug: string) {
 export interface CreateGrantInput {
 	slug: string;
 	stripe_price_id: string;
-	kind: 'perpetual' | 'subscription';
+	/** Omitted, the server infers from the price: recurring → subscription (#120). */
+	kind?: 'perpetual' | 'subscription';
 	plan?: string;
 	activation_limit?: number;
 	/** Omitted keeps whatever the price already grants, rather than clearing it. */

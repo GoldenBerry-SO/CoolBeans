@@ -138,3 +138,27 @@ export async function listGrantsForProduct(
 		.where(and(eq(licenseGrants.productId, productId), eq(licenseGrants.status, 'active')))
 		.orderBy(desc(licenseGrants.createdAt));
 }
+
+/**
+ * Every active grant on a connection with the product it points at, for the price picker's
+ * "already mapped" badges (#120). A price is unambiguous within one connection, so this is
+ * the whole mapping picture the picker needs.
+ */
+export async function listGrantsForConnection(
+	db: Database,
+	connectionId: number,
+): Promise<
+	Array<{ stripePriceId: string; status: string; plan: string | null; productSlug: string }>
+> {
+	const rows = await db
+		.select({
+			stripePriceId: licenseGrants.stripePriceId,
+			status: licenseGrants.status,
+			plan: licenseGrants.plan,
+			productSlug: products.slug,
+		})
+		.from(licenseGrants)
+		.innerJoin(products, eq(products.id, licenseGrants.productId))
+		.where(eq(licenseGrants.stripeConnectionId, connectionId));
+	return rows;
+}

@@ -15,6 +15,7 @@ import {
 } from '../components/ui.js';
 import { entitlementsPayload, formatEntitlements, parseEntitlements } from '../lib/entitlements.js';
 import {
+	type StripePriceRow,
 	useArchiveProduct,
 	useBilling,
 	useConnectStripe,
@@ -27,6 +28,7 @@ import {
 	useRetireGrant,
 	useSetProductIcon,
 	useStartStripeConnect,
+	useStripePrices,
 	useUpdateProduct,
 } from '../lib/queries.js';
 import { productColor } from '../lib/scope.js';
@@ -173,7 +175,7 @@ export function ProductsPage() {
 											onClick={() => setManaging(p)}
 											className={`cursor-pointer rounded-[8px] border px-3 py-[7px] font-medium text-[12.5px] ${hasPrices ? 'border-positive-border bg-positive-tint text-positive-deep' : 'border-ink/14 bg-card text-ink'}`}
 										>
-											{hasPrices ? 'Stripe prices' : 'Map prices'}
+											{hasPrices ? 'Selling · prices' : 'Not selling yet — map a price'}
 										</button>
 									) : null}
 									{showConnect ? (
@@ -473,171 +475,276 @@ export function ProductDialog({ product, onClose }: { product?: Product; onClose
 	);
 }
 
+/** "€49/year", "€120 one-time" — the way a human recognizes a price. */
+function priceAmount(p: StripePriceRow): string {
+	const amount =
+		p.unit_amount !== null && p.currency
+			? new Intl.NumberFormat(undefined, {
+					style: 'currency',
+					currency: p.currency.toUpperCase(),
+					maximumFractionDigits: p.unit_amount % 100 === 0 ? 0 : 2,
+				}).format(p.unit_amount / 100)
+			: null;
+	if (p.recurring) return `${amount ?? 'recurring'}/${p.interval ?? 'period'}`;
+	return `${amount ?? ''} one-time`.trim();
+}
+
+function priceName(p: StripePriceRow): string {
+	return p.nickname ?? p.product_name ?? p.id;
+}
+
 function GrantsDialog({ product, onClose }: { product: Product; onClose: () => void }) {
 	const grants = useGrants(product.slug);
+	const prices = useStripePrices(product.slug);
 	const create = useCreateGrant();
 	const retire = useRetireGrant();
-	const [priceId, setPriceId] = useState('');
-	const [kind, setKind] = useState<'perpetual' | 'subscription'>('perpetual');
+	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [manualMode, setManualMode] = useState(false);
+	const [manualId, setManualId] = useState('');
 	const [plan, setPlan] = useState('');
+	const [planTouched, setPlanTouched] = useState(false);
+	const [showOptions, setShowOptions] = useState(false);
 	// Blank inherits the product's limit, which is what every price did before seats could differ.
 	const [seats, setSeats] = useState('');
-	// What this price buys, as `export_4k, batch_limit=100`. Signed into every token it issues,
+	// What this price buys, as `pro_reports, seat_limit=5`. Signed into every token it issues,
 	// so an app can gate a feature on it — which it must never do with the plan label.
 	const [capabilities, setCapabilities] = useState('');
 	// Blank means "keep what this price already grants", so clearing has to be said out loud.
 	const [clearCapabilities, setClearCapabilities] = useState(false);
 	const parsed = parseEntitlements(capabilities);
 	const capabilityError = clearCapabilities ? undefined : parsed.error;
-	// The same shape the API enforces, so a fat-fingered id is caught before the round trip.
-	const canAdd = /^price_[A-Za-z0-9]+$/.test(priceId) && !capabilityError;
+
+	const catalog = prices.data?.prices ?? [];
+	const selected = catalog.find((p) => p.id === selectedId) ?? null;
+	const priceId = manualMode ? manualId : (selectedId ?? '');
+	// Re-mapping is the only time "clear capabilities" means anything.
+	const remapping =
+		Boolean(selected?.mapped) || grants.data?.some((g) => g.stripePriceId === priceId);
+	const canMap = /^price_[A-Za-z0-9]+$/.test(priceId) && !capabilityError && !create.isPending;
+
+	const pick = (p: StripePriceRow) => {
+		setManualMode(false);
+		setSelectedId(p.id);
+		// The plan label defaults to what Stripe already calls it; editing wins after that.
+		if (!planTouched) setPlan(p.nickname ?? p.product_name ?? '');
+	};
+
+	const seatCount = seats || String(product.activationLimit);
+	const preview = selected
+		? `Buying ${priceName(selected)} (${priceAmount(selected)}) issues a ${
+				selected.recurring
+					? 'subscription licence that follows the billing period'
+					: 'perpetual licence that never expires'
+			}${plan ? `, plan “${plan}”` : ''}, ${seatCount} ${seatCount === '1' ? 'seat' : 'seats'}.`
+		: null;
+
+	const submit = () =>
+		create.mutate(
+			{
+				slug: product.slug,
+				stripe_price_id: priceId,
+				plan: plan || undefined,
+				activation_limit: seats ? Number(seats) : undefined,
+				entitlements: entitlementsPayload(capabilities, clearCapabilities),
+			},
+			{
+				onSuccess: () => {
+					setSelectedId(null);
+					setManualId('');
+					setPlan('');
+					setPlanTouched(false);
+					setSeats('');
+					setCapabilities('');
+					setClearCapabilities(false);
+				},
+			},
+		);
 
 	return (
 		<Dialog
-			title="Stripe prices"
-			lede={`${product.name} · map each Stripe price to what it grants`}
+			title="What you sell"
+			lede={`${product.name} · pick a Stripe price; buyers of it get a licence`}
 			onClose={onClose}
 			footer={<SecondaryButton onClick={onClose}>Done</SecondaryButton>}
 			wide
 		>
-			<div className="flex flex-col gap-2">
-				{grants.data?.length ? (
-					grants.data.map((g) => (
-						<div
-							key={g.id}
-							className="flex items-center gap-2 rounded-[8px] border border-ink/8 bg-fill-soft px-3 py-2"
-						>
-							<span className="font-mono text-[12px]">{g.stripePriceId}</span>
-							<span className="rounded-[6px] border border-ink/10 px-2 py-[2px] text-[11px] text-ink-secondary">
-								{g.kind === 'perpetual' ? 'Perpetual' : 'Subscription'}
-							</span>
-							{g.plan ? <span className="text-[11.5px] text-ink-muted">{g.plan}</span> : null}
-							{g.activationLimit ? (
-								<span className="text-[11.5px] text-ink-faint">{g.activationLimit} seats</span>
-							) : null}
-							{g.entitlements ? (
-								<span className="font-mono text-[11px] text-ink-faint">
-									{formatEntitlements(g.entitlements)}
-								</span>
-							) : null}
-							<div className="flex-1" />
-							<button
-								type="button"
-								onClick={() => retire.mutate({ slug: product.slug, id: g.id })}
-								className="cursor-pointer rounded-[7px] border border-ink/12 px-2 py-[4px] text-[11.5px] text-ink-secondary hover:border-danger hover:text-danger"
+			{grants.data?.length ? (
+				<div className="flex flex-col gap-2">
+					<div className="font-semibold text-[12.5px] text-ink-secondary">Selling now</div>
+					{grants.data.map((g) => {
+						const listed = catalog.find((p) => p.id === g.stripePriceId);
+						return (
+							<div
+								key={g.id}
+								className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[8px] border border-ink/8 bg-fill-soft px-3 py-2"
 							>
-								Retire
-							</button>
-						</div>
-					))
+								<span className="text-[12.5px]">
+									<strong>
+										{listed ? `${priceName(listed)} (${priceAmount(listed)})` : g.stripePriceId}
+									</strong>
+									{' → '}
+									{g.kind === 'perpetual' ? 'perpetual licence' : 'subscription licence'}
+									{g.plan ? ` · plan “${g.plan}”` : ''}
+									{` · ${g.activationLimit ?? product.activationLimit} seats`}
+									{g.entitlements ? ` · unlocks ${formatEntitlements(g.entitlements)}` : ''}
+								</span>
+								{listed ? (
+									<span className="font-mono text-[10.5px] text-ink-faint">{g.stripePriceId}</span>
+								) : null}
+								<div className="flex-1" />
+								<button
+									type="button"
+									onClick={() => retire.mutate({ slug: product.slug, id: g.id })}
+									className="cursor-pointer rounded-[7px] border border-ink/12 px-2 py-[4px] text-[11.5px] text-ink-secondary hover:border-danger hover:text-danger"
+								>
+									Stop selling
+								</button>
+							</div>
+						);
+					})}
+				</div>
+			) : null}
+
+			<Field label={grants.data?.length ? 'Add another price' : 'Pick the price you sell'}>
+				{prices.isLoading ? (
+					<p className="m-0 text-[12.5px] text-ink-faint">Loading your Stripe prices…</p>
+				) : prices.error ? (
+					<p className="m-0 text-[12.5px] text-danger">{prices.error.message}</p>
+				) : catalog.length ? (
+					<div className="flex flex-col gap-1.5">
+						{catalog.map((p) => (
+							<label
+								key={p.id}
+								className={`flex cursor-pointer items-center gap-2.5 rounded-[9px] border px-3 py-2.5 ${
+									selectedId === p.id && !manualMode
+										? 'border-positive bg-positive-tint'
+										: 'border-ink/10 hover:border-ink/25'
+								}`}
+							>
+								<input
+									type="radio"
+									name="price"
+									checked={selectedId === p.id && !manualMode}
+									onChange={() => pick(p)}
+								/>
+								<span className="min-w-0 flex-1 text-[13px]">
+									<strong>{priceName(p)}</strong>
+									<span className="text-ink-muted"> · {priceAmount(p)}</span>
+								</span>
+								{p.mapped ? (
+									<span className="rounded-[6px] bg-fill px-2 py-[2px] text-[10.5px] text-ink-muted">
+										mapped to {p.mapped.product}
+									</span>
+								) : null}
+								<span className="font-mono text-[10px] text-ink-faint">{p.id.slice(0, 14)}…</span>
+							</label>
+						))}
+					</div>
 				) : (
-					<p className="m-0 text-[12.5px] text-ink-muted">
-						No prices mapped yet. Prices are created in your Stripe dashboard, not here — make one
-						there, then paste its id below. (Self-hosting? Use Connect Stripe to wire the webhook
-						first.)
+					<p className="m-0 text-[12.5px] text-ink-muted leading-[1.55]">
+						No active prices in
+						{prices.data?.connection.account_name
+							? ` the connected Stripe account “${prices.data.connection.account_name}”`
+							: prices.data?.connection.stripe_account_id
+								? ` the connected Stripe account (${prices.data.connection.stripe_account_id})`
+								: ' your Stripe account'}
+						. Create your product and its price there first — if you administer several Stripe
+						accounts, that exact one is where prices must live.
 					</p>
 				)}
-			</div>
-
-			<Field
-				label="Add a price mapping"
-				hint="The price must already exist and be active in your Stripe account. Copy its id from Stripe's product catalogue."
-			>
-				<input
-					className={inputClass}
-					placeholder="price_1QabcXYZ"
-					value={priceId}
-					onChange={(e) => setPriceId(e.target.value)}
-				/>
-			</Field>
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-				<Field
-					label="Kind"
-					hint="Perpetual issues a key that never expires; Subscription tracks the Stripe period."
-				>
-					<select
-						className={inputClass}
-						value={kind}
-						onChange={(e) => setKind(e.target.value as 'perpetual' | 'subscription')}
+				{manualMode ? (
+					<input
+						className={`${inputClass} mt-2 font-mono text-[13px]`}
+						placeholder="price_1QabcXYZ"
+						value={manualId}
+						onChange={(e) => setManualId(e.target.value)}
+					/>
+				) : (
+					<button
+						type="button"
+						onClick={() => {
+							setManualMode(true);
+							setSelectedId(null);
+						}}
+						className="mt-2 cursor-pointer border-none bg-transparent p-0 text-left text-[11.5px] text-ink-faint underline hover:text-ink"
 					>
-						<option value="perpetual">Perpetual (one-time price)</option>
-						<option value="subscription">Subscription (recurring price)</option>
-					</select>
-				</Field>
-				<Field
-					label="Plan label (optional)"
-					hint="Your own name for what was bought, e.g. Yearly. Display only."
-				>
-					<input
-						className={inputClass}
-						placeholder="Yearly"
-						value={plan}
-						onChange={(e) => setPlan(e.target.value)}
-					/>
-				</Field>
-				<Field
-					label="Seats (optional)"
-					hint="How many devices this price buys. Blank inherits the product's limit."
-				>
-					<input
-						className={inputClass}
-						placeholder={String(product.activationLimit)}
-						inputMode="numeric"
-						value={seats}
-						onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ''))}
-					/>
-				</Field>
-			</div>
-			<Field
-				label="What it unlocks (optional)"
-				hint="Names you invent for features that differ between your tiers — your app checks the same names via state.entitlements. Blank keeps what this price already grants; licences already issued never change either way."
-			>
-				{clearCapabilities ? null : (
-					<input
-						className={inputClass}
-						placeholder="pro_reports, seat_limit=5"
-						value={capabilities}
-						onChange={(e) => setCapabilities(e.target.value)}
-					/>
+						Paste a price id instead
+					</button>
 				)}
 			</Field>
-			<label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-secondary">
-				<input
-					type="checkbox"
-					checked={clearCapabilities}
-					onChange={(e) => setClearCapabilities(e.target.checked)}
-				/>
-				Grant no capabilities (clears what this price grants from now on)
-			</label>
-			{capabilityError ? <p className="m-0 text-[12.5px] text-danger">{capabilityError}</p> : null}
-			{/* Right-aligned and content-sized: stretched across a wide dialog this read as a
-			    section divider, not the form's action (#118). */}
-			<div className="flex justify-end">
-				<AccentButton
-					className="w-fit"
-					disabled={!canAdd || create.isPending}
-					onClick={() =>
-						create.mutate(
-							{
-								slug: product.slug,
-								stripe_price_id: priceId,
-								kind,
-								plan: plan || undefined,
-								activation_limit: seats ? Number(seats) : undefined,
-								entitlements: entitlementsPayload(capabilities, clearCapabilities),
-							},
-							{
-								onSuccess: () => {
-									setPriceId('');
-									setPlan('');
-									setSeats('');
-									setCapabilities('');
-									setClearCapabilities(false);
-								},
-							},
-						)
-					}
+
+			{selected && !manualMode ? (
+				<p className="m-0 rounded-[9px] bg-fill-soft px-3.5 py-2.5 text-[12.5px] leading-[1.55]">
+					{preview}
+				</p>
+			) : null}
+
+			<div>
+				<button
+					type="button"
+					onClick={() => setShowOptions((s) => !s)}
+					className="cursor-pointer border-none bg-transparent p-0 text-[12px] text-ink-muted underline hover:text-ink"
 				>
+					{showOptions ? 'Hide options' : 'Options (plan label, seats, feature unlocks)'}
+				</button>
+				{showOptions ? (
+					<div className="mt-3 flex flex-col gap-3">
+						<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<Field
+								label="Plan label"
+								hint="Your name for what was bought, shown to you and the buyer. Display only."
+							>
+								<input
+									className={inputClass}
+									placeholder="Yearly"
+									value={plan}
+									onChange={(e) => {
+										setPlan(e.target.value);
+										setPlanTouched(true);
+									}}
+								/>
+							</Field>
+							<Field
+								label="Seats"
+								hint={`How many devices this price buys. Blank inherits the product's ${product.activationLimit}.`}
+							>
+								<input
+									className={inputClass}
+									placeholder={String(product.activationLimit)}
+									inputMode="numeric"
+									value={seats}
+									onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ''))}
+								/>
+							</Field>
+						</div>
+						<Field
+							label="What it unlocks"
+							hint="Names you invent for features that differ between your tiers — your app checks the same names via state.entitlements. Blank keeps what this price already grants."
+						>
+							<input
+								className={inputClass}
+								placeholder="pro_reports, seat_limit=5"
+								value={capabilities}
+								onChange={(e) => setCapabilities(e.target.value)}
+							/>
+						</Field>
+						{remapping ? (
+							<label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-secondary">
+								<input
+									type="checkbox"
+									checked={clearCapabilities}
+									onChange={(e) => setClearCapabilities(e.target.checked)}
+								/>
+								Grant no capabilities (clears what this price grants from now on)
+							</label>
+						) : null}
+					</div>
+				) : null}
+			</div>
+
+			{capabilityError ? <p className="m-0 text-[12.5px] text-danger">{capabilityError}</p> : null}
+			<div className="flex justify-end">
+				<AccentButton className="w-fit" disabled={!canMap} onClick={submit}>
 					{create.isPending ? 'Mapping…' : 'Map price'}
 				</AccentButton>
 			</div>

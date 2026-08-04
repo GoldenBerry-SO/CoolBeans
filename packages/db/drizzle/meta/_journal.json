@@ -57,6 +57,13 @@
       "when": 1785793954092,
       "tag": "0007_outbound-webhooks",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785860462730,
+      "tag": "0008_product-icons",
+      "breakpoints": true
     }
   ]
 }

@@ -268,6 +268,38 @@ export function useLicenseDetail(key: string) {
 	});
 }
 
+export function useSetProductIcon() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({
+			slug,
+			mime,
+			data_base64,
+		}: {
+			slug: string;
+			mime: string;
+			data_base64: string;
+		}) => api('PUT', `/admin/products/${slug}/icon`, { mime, data_base64 }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['products'] });
+			toast.success('Icon saved', { description: 'Licence emails now carry your logo.' });
+		},
+		onError: (err) => toast.error('Could not save that icon', { description: message(err) }),
+	});
+}
+
+export function useRemoveProductIcon() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: (slug: string) => api('DELETE', `/admin/products/${slug}/icon`),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ['products'] });
+			toast.success('Icon removed', { description: 'Emails fall back to the Cool Beans logo.' });
+		},
+		onError: (err) => toast.error('Could not remove the icon', { description: message(err) }),
+	});
+}
+
 export function useArchiveProduct() {
 	const qc = useQueryClient();
 	return useMutation({

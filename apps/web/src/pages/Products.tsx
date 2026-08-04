@@ -22,7 +22,9 @@ import {
 	useCreateProduct,
 	useGrants,
 	useProducts,
+	useRemoveProductIcon,
 	useRetireGrant,
+	useSetProductIcon,
 	useStartStripeConnect,
 	useUpdateProduct,
 } from '../lib/queries.js';
@@ -131,12 +133,7 @@ export function ProductsPage() {
 						return (
 							<Card key={p.slug} className="p-4 sm:p-5">
 								<div className="mb-4 flex items-center gap-3">
-									<span
-										className="inline-flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] font-semibold text-white"
-										style={{ background: productColor(i) }}
-									>
-										{p.name.charAt(0)}
-									</span>
+									<ProductMark slug={p.slug} name={p.name} color={productColor(i)} />
 									<div className="flex-1">
 										<div className="font-semibold text-[15px]">{p.name}</div>
 										<div className="font-mono text-[11.5px] text-ink-faint">{p.slug}</div>
@@ -222,6 +219,116 @@ export function ProductsPage() {
 			{managing ? <GrantsDialog product={managing} onClose={() => setManaging(null)} /> : null}
 			{archiving ? <ArchiveDialog product={archiving} onClose={() => setArchiving(null)} /> : null}
 		</div>
+	);
+}
+
+/**
+ * The product's mark: its uploaded icon when one exists, the colored initial when not.
+ * The <img> probes /v1/products/:slug/icon directly and falls back on error, so the list
+ * API never has to carry an has_icon flag and the browser cache does the heavy lifting.
+ */
+function ProductMark({ slug, name, color }: { slug: string; name: string; color: string }) {
+	const [failed, setFailed] = useState(false);
+	if (failed) {
+		return (
+			<span
+				className="inline-flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] font-semibold text-white"
+				style={{ background: color }}
+			>
+				{name.charAt(0)}
+			</span>
+		);
+	}
+	return (
+		<img
+			src={`/v1/products/${encodeURIComponent(slug)}/icon`}
+			alt=""
+			className="h-[38px] w-[38px] flex-none rounded-[10px] object-cover"
+			onError={() => setFailed(true)}
+		/>
+	);
+}
+
+/** Read a picked file as base64, refusing what the server would refuse anyway. */
+function readIconFile(file: File): Promise<{ mime: string; data_base64: string }> {
+	return new Promise((resolve, reject) => {
+		if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+			reject(new Error('Use a PNG, JPEG, or WebP image.'));
+			return;
+		}
+		if (file.size > 256 * 1024) {
+			reject(new Error('The icon is too large — the cap is 256KB.'));
+			return;
+		}
+		const reader = new FileReader();
+		reader.onerror = () => reject(new Error('Could not read that file.'));
+		reader.onload = () => {
+			const url = String(reader.result);
+			resolve({ mime: file.type, data_base64: url.slice(url.indexOf(',') + 1) });
+		};
+		reader.readAsDataURL(file);
+	});
+}
+
+function IconField({ product }: { product: Product }) {
+	const setIcon = useSetProductIcon();
+	const removeIcon = useRemoveProductIcon();
+	const [error, setError] = useState<string | null>(null);
+	// Bust the img cache after a change so the preview shows what was just saved.
+	const [version, setVersion] = useState(0);
+	const [hasIcon, setHasIcon] = useState(true);
+	return (
+		<Field
+			label="Icon"
+			hint="Shown on your licence emails and here in the console. PNG, JPEG, or WebP, up to 256KB. Square looks best."
+		>
+			<div className="flex items-center gap-3">
+				{hasIcon ? (
+					<img
+						src={`/v1/products/${encodeURIComponent(product.slug)}/icon?v=${version}`}
+						alt=""
+						className="h-[44px] w-[44px] rounded-[10px] border border-ink/10 object-cover"
+						onError={() => setHasIcon(false)}
+					/>
+				) : (
+					<span className="inline-flex h-[44px] w-[44px] items-center justify-center rounded-[10px] bg-fill text-[11px] text-ink-faint">
+						none
+					</span>
+				)}
+				<input
+					type="file"
+					accept="image/png,image/jpeg,image/webp"
+					className="text-[12.5px]"
+					onChange={(e) => {
+						const file = e.target.files?.[0];
+						if (!file) return;
+						setError(null);
+						readIconFile(file)
+							.then((payload) =>
+								setIcon.mutate(
+									{ slug: product.slug, ...payload },
+									{
+										onSuccess: () => {
+											setHasIcon(true);
+											setVersion((v) => v + 1);
+										},
+									},
+								),
+							)
+							.catch((err: Error) => setError(err.message));
+					}}
+				/>
+				{hasIcon ? (
+					<SecondaryButton
+						className="px-2.5 py-[5px] text-[11.5px]"
+						onClick={() => removeIcon.mutate(product.slug, { onSuccess: () => setHasIcon(false) })}
+					>
+						Remove
+					</SecondaryButton>
+				) : null}
+			</div>
+			{error ? <p className="m-0 mt-1.5 text-[12.5px] text-danger">{error}</p> : null}
+		</Field>
 	);
 }
 
@@ -343,6 +450,9 @@ export function ProductDialog({ product, onClose }: { product?: Product; onClose
 					className={inputClass}
 				/>
 			</Field>
+			{/* Uploads go straight to the existing product, so the field only exists when
+			    editing — a new product gets its icon right after creation. */}
+			{product ? <IconField product={product} /> : null}
 			{error ? <p className="m-0 text-[12.5px] text-danger">{error.message}</p> : null}
 		</Dialog>
 	);

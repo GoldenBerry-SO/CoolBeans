@@ -17,6 +17,7 @@ import type { Config } from '../config.js';
 import type { AppDeps } from '../deps.js';
 import { nowIso } from '../deps.js';
 import { toDisplayKey } from '../domain/keygen.js';
+import { hasProductIcon } from './product-icons.js';
 
 /** Build an EmailSender from config, or undefined when no provider is set. */
 export function resolveEmailSender(config: Config, logger: Logger): EmailSender | undefined {
@@ -87,6 +88,11 @@ export async function sendKeyEmail(
 	if (!deps.email) return false;
 	const displayKey = toDisplayKey(args.license.key, args.product.keyPrefix);
 	const isSubscription = args.license.kind === 'subscription';
+	// The vendor's own logo fronts the email when they uploaded one (#115) — the licence
+	// email is their brand moment, not ours. Existence check only; the blob never loads.
+	const logoUrl = (await hasProductIcon(deps, args.product.id))
+		? `${deps.config.publicUrl}/v1/products/${args.product.slug}/icon`
+		: `${deps.config.publicUrl}/logo.png`;
 	const html = await render(
 		LicenseKeyEmail({
 			productName: args.product.name,
@@ -95,7 +101,7 @@ export async function sendKeyEmail(
 			renewalDate:
 				isSubscription && args.license.expiresAt ? args.license.expiresAt.slice(0, 10) : undefined,
 			portalUrl: isSubscription ? `${deps.config.publicUrl}/portal` : undefined,
-			logoUrl: `${deps.config.publicUrl}/logo.png`,
+			logoUrl,
 		}),
 	);
 	await deps.email.send({

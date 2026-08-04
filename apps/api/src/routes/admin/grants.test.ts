@@ -97,13 +97,34 @@ describe('POST /admin/products/:slug/grants', () => {
 		expect(res.status).toBe(400);
 	});
 
-	it('rejects a price Stripe does not have', async () => {
+	it('rejects a price Stripe does not have, pointing at mode and existence, not just the id', async () => {
 		h.deps.stripe = fakeStripeGateway(undefined, undefined, { prices: {} });
 		const res = await post('/admin/products/clementine/grants', {
 			stripe_price_id: 'price_ghostCLEM',
 			kind: 'perpetual',
 		});
 		expect(res.status).toBe(400);
+		// Live-tested (#118): "check the id" sent an operator hunting a typo that did not
+		// exist. The real causes are the price living in another account or another mode.
+		expect(JSON.stringify(res.body)).toMatch(/test.+live|exists/i);
+	});
+
+	it('a refused lookup says Stripe refused, not "check the id" (#118)', async () => {
+		const base = fakeStripeGateway();
+		h.deps.stripe = {
+			...base,
+			async getPrice() {
+				throw new Error('Invalid API key provided');
+			},
+		} as typeof base;
+		const res = await post('/admin/products/clementine/grants', {
+			stripe_price_id: 'price_okCLEM',
+			kind: 'perpetual',
+		});
+		expect(res.status).toBe(400);
+		const body = JSON.stringify(res.body);
+		expect(body).toMatch(/refused/i);
+		expect(body).not.toMatch(/check the id/i);
 	});
 
 	it('rejects an id that is not a Stripe price id', async () => {
@@ -167,6 +188,17 @@ describe('POST /admin/products/:slug/grants', () => {
 			body: JSON.stringify({ stripe_price_id: 'price_vendorOnly', kind: 'subscription' }),
 		});
 		expect(res.status, await res.text()).toBe(200);
+
+		// And when the price is NOT there, the message names the connected account (#118):
+		// one operator administering several Stripe accounts is exactly who hits this, and
+		// "check the id" sent them nowhere.
+		const missing = await b.app.request('/admin/products/scoped-app/grants', {
+			method: 'POST',
+			headers: alice,
+			body: JSON.stringify({ stripe_price_id: 'price_elsewhere', kind: 'subscription' }),
+		});
+		expect(missing.status).toBe(400);
+		expect(await missing.text()).toContain('acct_scoped');
 	});
 
 	it('lets a cloud account map a grant on its own connection', async () => {

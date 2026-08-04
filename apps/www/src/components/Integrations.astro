@@ -1,0 +1,76 @@
+---
+// ABOUTME: The integrations band — payments in, events out, and the compatibility story.
+// ABOUTME: LemonSqueezy is listed as what it is: an API-parity migration path, not a provider.
+
+const integrations = [
+	{
+		title: 'Stripe',
+		body: 'Self-host wires your own Stripe account; the cloud connects yours through Stripe Connect. Checkout, refunds, cancellations, and disputes all issue and revoke keys automatically.',
+		href: '/docs/payments',
+		badge: 'payments',
+	},
+	{
+		title: 'PayPal',
+		body: 'Same lifecycle, second rail. PayPal orders and subscription events flow through the identical verified, exactly-once pipeline.',
+		href: '/docs/payments',
+		badge: 'payments',
+	},
+	{
+		title: 'LemonSqueezy compatibility',
+		body: 'Built against LS licence keys? The /v1/licenses/* parity routes accept the same calls, so migrating is repointing a base URL, not a rewrite.',
+		href: '/docs/migrate-from-lemonsqueezy',
+		badge: 'migration',
+	},
+	{
+		title: 'Outbound webhooks',
+		body: 'We call your URL when licences are issued, revoked, extended, or seats change — HMAC-signed, retried with backoff, with a per-delivery log.',
+		href: '/docs/webhooks',
+		badge: 'events out',
+	},
+	{
+		title: 'Email',
+		body: 'Key delivery and recovery emails through Resend or your own SMTP, branded with your product icon.',
+		href: '/docs/self-hosting',
+		badge: 'delivery',
+	},
+	{
+		title: 'Coding agents',
+		body: 'Every instance hosts an agent-readable integration guide (/v1/llms.txt) and a per-product brief — point Claude Code or Cursor at it and the integration writes itself.',
+		href: '/docs/quickstart',
+		badge: 'ai-ready',
+	},
+];
+---
+
+<section id="integrations" class="border-ink/7 border-t bg-paper">
+	<div class="mx-auto max-w-[1180px] px-6 py-22 lg:px-10">
+		<div class="mb-12 max-w-[640px]">
+			<div class="mb-3 font-semibold text-[14px] text-moss">Integrations</div>
+			<h2 class="m-0 font-semibold text-[clamp(32px,4vw,44px)] leading-[1.08] tracking-[-0.025em]">
+				Plays well with your stack
+			</h2>
+			<p class="mt-4 mb-0 text-[17px] text-smoke leading-[1.55]">
+				Money comes in through the processors you already use. Events go out to whatever you
+				build next.
+			</p>
+		</div>
+		<div class="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+			{
+				integrations.map((item) => (
+					<a
+						href={item.href}
+						class="group rounded-[14px] border border-ink/9 bg-white p-6 no-underline hover:border-ink/25"
+					>
+						<div class="mb-2.5 flex items-center justify-between">
+							<h3 class="m-0 font-semibold text-[17px] text-ink">{item.title}</h3>
+							<span class="rounded-[20px] border border-chip-line bg-chip px-2.5 py-[3px] font-mono font-semibold text-[10.5px] text-moss">
+								{item.badge}
+							</span>
+						</div>
+						<p class="m-0 text-[14.5px] text-smoke leading-normal">{item.body}</p>
+					</a>
+				))
+			}
+		</div>
+	</div>
+</section>

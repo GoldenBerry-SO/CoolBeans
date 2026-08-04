@@ -1,0 +1,67 @@
+---
+// ABOUTME: The libraries band — both SDKs and the CLI, with the shared-contract story.
+// ABOUTME: Every claim here is checkable in the repo; install honesty per the npm-publish issue.
+
+const libraries = [
+	{
+		name: '@coolbeans/sdk',
+		lang: 'TypeScript',
+		body: 'Zero runtime dependencies. One class, one open() call, works in the browser, Electron, Tauri, and Node. Verifies signed tokens locally with WebCrypto.',
+		meta: 'npm release coming — use it from the repo today',
+		href: '/docs/sdk-typescript',
+	},
+	{
+		name: 'CoolBeans',
+		lang: 'Swift',
+		body: 'SwiftPM package for macOS 11+ and iOS 14+. CryptoKit signatures, Keychain storage with iCloud sync, and the same one-call surface as TypeScript.',
+		meta: 'swift package add · from 0.1.0',
+		href: '/docs/sdk-swift',
+	},
+	{
+		name: 'beans',
+		lang: 'CLI',
+		body: 'Products, keys, extensions, and Stripe wiring from the terminal. Everything the console does, scriptable with --json.',
+		meta: 'runs from the repo with pnpm',
+		href: '/docs/cli',
+	},
+];
+---
+
+<section id="libraries" class="border-ink/7 border-t">
+	<div class="mx-auto max-w-[1180px] px-6 py-22 lg:px-10">
+		<div class="mb-12 max-w-[640px]">
+			<div class="mb-3 font-semibold text-[14px] text-moss">Libraries</div>
+			<h2 class="m-0 font-semibold text-[clamp(32px,4vw,44px)] leading-[1.08] tracking-[-0.025em]">
+				Two SDKs. One contract.
+			</h2>
+			<p class="mt-4 mb-0 text-[17px] text-smoke leading-[1.55]">
+				The TypeScript and Swift SDKs run the same decision table — a shared fixture file both
+				test suites execute — so an app on either platform makes identical allow/deny calls.
+			</p>
+		</div>
+		<div class="grid gap-5 md:grid-cols-3">
+			{
+				libraries.map((lib) => (
+					<a
+						href={lib.href}
+						class="group flex flex-col rounded-[14px] border border-ink/9 bg-white p-6 no-underline hover:border-ink/25"
+					>
+						<div class="mb-3 flex items-center gap-2.5">
+							<span class="rounded-[7px] border border-chip-line bg-chip px-2 py-[3px] font-semibold text-[11.5px] text-moss">
+								{lib.lang}
+							</span>
+							<span class="font-mono font-semibold text-[15px] text-ink">{lib.name}</span>
+						</div>
+						<p class="m-0 flex-1 text-[14.5px] text-smoke leading-normal">{lib.body}</p>
+						<div class="mt-4 flex items-center justify-between">
+							<span class="font-mono text-[11.5px] text-ash">{lib.meta}</span>
+							<span class="font-semibold text-[13.5px] text-moss group-hover:text-moss-dark">
+								Docs →
+							</span>
+						</div>
+					</a>
+				))
+			}
+		</div>
+	</div>
+</section>

@@ -1,0 +1,71 @@
+/* ABOUTME: Global stylesheet for the marketing site — Tailwind 4 entry and design tokens. */
+/* ABOUTME: Tokens transcribed from the Claude Design file "Cool Beans Landing.dc.html". */
+
+@import 'tailwindcss';
+
+@theme {
+	--font-sans: 'Instrument Sans', system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', monospace;
+
+	/* The landing palette: ink on paper, one loud lime, moss for links. */
+	--color-ink: #1a1a19;
+	--color-coal: #16160f;
+	--color-paper: #faf9f5;
+	--color-cream: #f4f2ec;
+	--color-shell: #fbfaf6;
+	--color-lime: #c8ff4d;
+	--color-lime-deep: #b4ee38;
+	--color-lime-hover: #bcf53f;
+	--color-moss: #3f6b12;
+	--color-moss-dark: #2f5210;
+	--color-chip: #eef7d3;
+	--color-chip-line: #dcecb5;
+	--color-smoke: #54544e;
+	--color-slate-warm: #4a4a44;
+	--color-fog: #7a7a72;
+	--color-ash: #9a9a92;
+	--color-bone: #f2f1ea;
+	--color-sage: #84895f;
+}
+
+html {
+	scroll-behavior: smooth;
+	scroll-padding-top: 80px;
+}
+
+::selection {
+	background: var(--color-lime);
+	color: var(--color-ink);
+}
+
+@keyframes cbfloat {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-7px);
+	}
+}
+
+@keyframes cbtoast {
+	from {
+		opacity: 0;
+		transform: translate(-50%, 10px);
+	}
+	to {
+		opacity: 1;
+		transform: translate(-50%, 0);
+	}
+}
+
+@keyframes cbrise {
+	from {
+		opacity: 0;
+		transform: translateY(14px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}

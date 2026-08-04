@@ -1,0 +1,8 @@
+{
+	// TypeScript is pinned to 6.x here, diverging from the workspace's 7.x on purpose:
+	// `astro check` drives the language server through TS's programmatic API, which the
+	// native 7.x compiler does not ship yet (withastro/roadmap#1321). 6.0.3 is the last 6.x. Re-align when it does.
+	"extends": "astro/tsconfigs/strict",
+	"include": [".astro/types.d.ts", "src/**/*"],
+	"exclude": ["dist"]
+}

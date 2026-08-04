@@ -21,6 +21,7 @@ import {
 	useCreateGrant,
 	useCreateProduct,
 	useGrants,
+	useIconVersion,
 	useProducts,
 	useRemoveProductIcon,
 	useRetireGrant,
@@ -228,6 +229,24 @@ export function ProductsPage() {
  * API never has to carry an has_icon flag and the browser cache does the heavy lifting.
  */
 function ProductMark({ slug, name, color }: { slug: string; name: string; color: string }) {
+	// Bumped by the icon mutations. Keying the inner component on it resets the
+	// failed-latch and busts the browser cache, so an upload shows on the card
+	// immediately instead of after a reload.
+	const version = useIconVersion(slug);
+	return <ProductMarkImage key={version} slug={slug} name={name} color={color} version={version} />;
+}
+
+function ProductMarkImage({
+	slug,
+	name,
+	color,
+	version,
+}: {
+	slug: string;
+	name: string;
+	color: string;
+	version: number;
+}) {
 	const [failed, setFailed] = useState(false);
 	if (failed) {
 		return (
@@ -241,7 +260,7 @@ function ProductMark({ slug, name, color }: { slug: string; name: string; color:
 	}
 	return (
 		<img
-			src={`/v1/products/${encodeURIComponent(slug)}/icon`}
+			src={`/v1/products/${encodeURIComponent(slug)}/icon${version ? `?v=${version}` : ''}`}
 			alt=""
 			className="h-[38px] w-[38px] flex-none rounded-[10px] object-cover"
 			onError={() => setFailed(true)}
@@ -274,8 +293,9 @@ function IconField({ product }: { product: Product }) {
 	const setIcon = useSetProductIcon();
 	const removeIcon = useRemoveProductIcon();
 	const [error, setError] = useState<string | null>(null);
-	// Bust the img cache after a change so the preview shows what was just saved.
-	const [version, setVersion] = useState(0);
+	// The mutations bump this shared version, which busts the img cache here AND on the
+	// product card — one source of truth for "the icon changed".
+	const version = useIconVersion(product.slug);
 	const [hasIcon, setHasIcon] = useState(true);
 	return (
 		<Field
@@ -307,12 +327,7 @@ function IconField({ product }: { product: Product }) {
 							.then((payload) =>
 								setIcon.mutate(
 									{ slug: product.slug, ...payload },
-									{
-										onSuccess: () => {
-											setHasIcon(true);
-											setVersion((v) => v + 1);
-										},
-									},
+									{ onSuccess: () => setHasIcon(true) },
 								),
 							)
 							.catch((err: Error) => setError(err.message));

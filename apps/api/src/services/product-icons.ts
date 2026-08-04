@@ -44,12 +44,15 @@ export async function setProductIcon(
 	if (!(ICON_MIMES as readonly string[]).includes(args.mime)) {
 		throw validationError(`The icon must be one of: ${ICON_MIMES.join(', ')}.`);
 	}
-	let bytes: Buffer;
-	try {
-		bytes = Buffer.from(args.dataBase64, 'base64');
-	} catch {
-		throw validationError('data_base64 is not valid base64.');
+	// Refuse on the base64 length BEFORE decoding: an oversized upload should cost a
+	// string-length compare, not a full decode of whatever was sent. 4/3 is the base64
+	// expansion; the slack covers padding and stray newlines.
+	if (args.dataBase64.length > Math.ceil((ICON_MAX_BYTES * 4) / 3) + 16) {
+		throw validationError('The icon is too large — the cap is 256KB.');
 	}
+	// Buffer.from(.., 'base64') never throws — it skips invalid characters — so garbage
+	// input surfaces as failed magic-byte sniffing below, not as a decode error.
+	const bytes = Buffer.from(args.dataBase64, 'base64');
 	if (bytes.length === 0) throw validationError('The upload is empty.');
 	if (bytes.length > ICON_MAX_BYTES) {
 		throw validationError('The icon is too large — the cap is 256KB.');

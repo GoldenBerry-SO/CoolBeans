@@ -268,6 +268,25 @@ export function useLicenseDetail(key: string) {
 	});
 }
 
+/**
+ * A per-product cache-buster for the icon URL. The card and dialog <img>s key on it, so
+ * bumping it after a mutation makes them refetch (and un-latch a previous 404) without
+ * the products API having to carry an icon flag or version.
+ */
+export function useIconVersion(slug: string): number {
+	const { data } = useQuery({
+		queryKey: ['icon-version', slug],
+		queryFn: () => 0,
+		staleTime: Number.POSITIVE_INFINITY,
+		initialData: 0,
+	});
+	return data;
+}
+
+function bumpIconVersion(qc: ReturnType<typeof useQueryClient>, slug: string): void {
+	qc.setQueryData(['icon-version', slug], Date.now());
+}
+
 export function useSetProductIcon() {
 	const qc = useQueryClient();
 	return useMutation({
@@ -280,8 +299,8 @@ export function useSetProductIcon() {
 			mime: string;
 			data_base64: string;
 		}) => api('PUT', `/admin/products/${slug}/icon`, { mime, data_base64 }),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ['products'] });
+		onSuccess: (_data, variables) => {
+			bumpIconVersion(qc, variables.slug);
 			toast.success('Icon saved', { description: 'Licence emails now carry your logo.' });
 		},
 		onError: (err) => toast.error('Could not save that icon', { description: message(err) }),
@@ -292,8 +311,8 @@ export function useRemoveProductIcon() {
 	const qc = useQueryClient();
 	return useMutation({
 		mutationFn: (slug: string) => api('DELETE', `/admin/products/${slug}/icon`),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ['products'] });
+		onSuccess: (_data, slug) => {
+			bumpIconVersion(qc, slug);
 			toast.success('Icon removed', { description: 'Emails fall back to the Cool Beans logo.' });
 		},
 		onError: (err) => toast.error('Could not remove the icon', { description: message(err) }),

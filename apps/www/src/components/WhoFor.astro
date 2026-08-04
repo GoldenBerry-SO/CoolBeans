@@ -1,0 +1,55 @@
+---
+// ABOUTME: The "who is it for" band: four audiences with the one claim each cares about.
+// ABOUTME: Every claim maps to a shipped feature; no audience we can't actually serve yet.
+
+const audiences = [
+	{
+		emoji: '🧑‍💻',
+		title: 'Indie developers',
+		body: 'Selling a desktop app, a CLI, or an Electron/Tauri build? Keys, activation limits, and trials are one open() call, so you ship the product, not the licensing.',
+	},
+	{
+		emoji: '🍎',
+		title: 'Mac & iOS apps',
+		body: 'The Swift SDK speaks the same contract: Keychain storage, CryptoKit signatures, and offline tokens for laptops that leave the network.',
+	},
+	{
+		emoji: '🏢',
+		title: 'Teams & floating seats',
+		body: 'Concurrent seats with heartbeat leases. A crashed client frees its own seat, and customers release a lost machine themselves in the portal.',
+	},
+	{
+		emoji: '⚡',
+		title: 'Metered products',
+		body: 'Selling by usage? Atomic per-licence quotas enforced at the edge, so a cap is a cap even under a thundering herd of retries.',
+	},
+];
+---
+
+<section id="who" class="mx-auto max-w-[1180px] px-6 py-22 lg:px-10">
+	<div class="mb-13 max-w-[640px]">
+		<div class="mb-3 font-semibold text-[14px] text-moss">Who it's for</div>
+		<h2 class="m-0 font-semibold text-[clamp(32px,4vw,44px)] leading-[1.08] tracking-[-0.025em]">
+			Built for people who'd rather be shipping
+		</h2>
+		<p class="mt-4 mb-0 text-[17px] text-smoke leading-[1.55]">
+			You've built something worth paying for. Deciding who can use it shouldn't take months of
+			webhook plumbing, or a per-seat bill from a licensing platform.
+		</p>
+	</div>
+	<div class="grid gap-5 md:grid-cols-2">
+		{
+			audiences.map((a) => (
+				<div class="flex gap-4 rounded-[14px] border border-ink/9 bg-white p-6">
+					<span class="flex-none text-[26px] leading-none" aria-hidden="true">
+						{a.emoji}
+					</span>
+					<div>
+						<div class="mb-1.5 font-semibold text-[16px] text-ink">{a.title}</div>
+						<p class="m-0 text-[14.5px] text-smoke leading-[1.55]">{a.body}</p>
+					</div>
+				</div>
+			))
+		}
+	</div>
+</section>

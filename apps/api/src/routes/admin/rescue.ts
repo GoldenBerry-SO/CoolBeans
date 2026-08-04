@@ -20,6 +20,13 @@ export function registerAdminRescueRoutes(admin: OpenAPIHono, deps: AppDeps): vo
 	// The money-taken-nothing-shipped list: every payment.unfulfilled this account has,
 	// with whether a later mapping (or this rescue) already made it right.
 	admin.get('/rescue/unfulfilled', async (c) => {
+		// Every missed sale must stay reachable (Codex, phase-3 review): a mapping outage
+		// can pile these up past any default page, so the cap is client-controllable like
+		// /admin/audit's.
+		const requestedLimit = Number(c.req.query('limit') ?? 50);
+		if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+			throw badRequest('limit must be a positive integer.');
+		}
 		const rows = await deps.db
 			.select()
 			.from(auditLog)
@@ -27,7 +34,7 @@ export function registerAdminRescueRoutes(admin: OpenAPIHono, deps: AppDeps): vo
 				and(eq(auditLog.accountId, accountScope(c).id), eq(auditLog.action, 'payment.unfulfilled')),
 			)
 			.orderBy(desc(auditLog.id))
-			.limit(50);
+			.limit(Math.min(requestedLimit, 500));
 		const unfulfilled = [];
 		for (const row of rows) {
 			const detail = (row.detail ? JSON.parse(row.detail) : {}) as Record<string, unknown>;
@@ -58,14 +65,17 @@ export function registerAdminRescueRoutes(admin: OpenAPIHono, deps: AppDeps): vo
 		if (!connection) throw badRequest('Stripe is not connected for this account yet.');
 		// Fetched through the account's OWN connection: a checkout id from another tenant's
 		// Stripe simply does not exist here, so cross-account rescue is a natural 404.
-		const session = await gatewayForConnection(deps, connection).getCheckoutSession(
-			body.checkout_id,
-		);
+		const stripe = gatewayForConnection(deps, connection);
+		const session = await stripe.getCheckoutSession(body.checkout_id);
 		if (!session) {
 			throw notFound('Stripe has no such checkout session on the connected account.');
 		}
+		// The scoped gateway rides INTO the ensure path (same shape as the success-page
+		// route): its line-item and period-end reads must hit the connected account, not the
+		// platform — or every cloud rescue reads someone else's Stripe and finds nothing
+		// (Codex, phase-3 review).
 		const result = await ensureLicenseForSession(
-			deps,
+			{ ...deps, stripe },
 			session,
 			`rescue:${body.checkout_id}`,
 			connection.id,

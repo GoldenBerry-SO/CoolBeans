@@ -134,3 +134,71 @@ describe('POST /admin/rescue/checkout', () => {
 		expect(r.status).toBe(404);
 	});
 });
+
+describe('cloud rescue reads the CONNECTED account end to end', () => {
+	it('fulfills through the connection gateway, never the platform key (Codex P1)', async () => {
+		const { makeHarness: mk } = await import('../../test/harness.js');
+		const { createCloudConnection } = await import('../../services/stripe-connection.js');
+		const { signUp } = await import('../../test/seed.js');
+		const { rawQuery } = await import('../../test/pg.js');
+		const b = await mk({
+			config: {
+				stripe: { secretKey: 'sk', webhookSecret: 'wh' },
+				connect: { secretKey: 'sk_c', webhookSecret: 'wh_c' },
+				billing: { stripeSecretKey: 'sk_b', stripeWebhookSecret: 'wh_b', proPriceId: 'price_pro' },
+				logMagicCodes: true,
+			},
+		});
+		// The platform gateway knows NOTHING. Only the connected account's scope holds the
+		// session and its line items — exactly the split that made the unscoped ensure fail.
+		b.deps.stripe = fakeStripeGateway(undefined, undefined, { prices: {}, sessions: {} });
+		b.deps.connect = fakeStripeGateway(
+			{},
+			{ cs_cloud_1: ['price_cloud_life'] },
+			{
+				prices: { price_cloud_life: { recurring: false } },
+				sessions: {
+					cs_cloud_1: {
+						id: 'cs_cloud_1',
+						mode: 'payment',
+						payment_status: 'paid',
+						customer_email: 'cloudbuyer@example.com',
+						payment_intent: 'pi_cloud_1',
+					},
+				},
+			},
+		);
+		const alice = await signUp(b.app, b.logger, 'alice@cloudrescue.test', 'cloudrescue');
+		const aliceId = (
+			await rawQuery<{ id: number }>("SELECT id FROM accounts WHERE name = 'cloudrescue'")
+		)[0].id;
+		await createCloudConnection(b.deps, {
+			accountId: aliceId,
+			stripeAccountId: 'acct_cloudrescue',
+			actor: 'test',
+		});
+		const product = await createProduct(
+			b.app,
+			{ slug: 'cloud-app', name: 'Cloud', key_prefix: 'CLD', email_from: 'a@cloudrescue.test' },
+			alice,
+		);
+		const [connection] = await rawQuery<{ id: number }>(
+			"SELECT id FROM stripe_connections WHERE stripe_account_id = 'acct_cloudrescue'",
+		);
+		await seedGrant(b.deps, {
+			productId: product.id as number,
+			priceId: 'price_cloud_life',
+			kind: 'perpetual',
+			accountId: aliceId,
+			connectionId: connection.id,
+		});
+		const res = await b.app.request('/admin/rescue/checkout', {
+			method: 'POST',
+			headers: alice,
+			body: JSON.stringify({ checkout_id: 'cs_cloud_1' }),
+		});
+		const body = (await res.json()) as { license?: { kind: string } };
+		expect(res.status, JSON.stringify(body)).toBe(200);
+		expect(body.license?.kind).toBe('perpetual');
+	});
+});

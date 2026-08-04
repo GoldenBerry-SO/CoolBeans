@@ -247,9 +247,12 @@ export function useUnfulfilled() {
 	return useQuery({
 		queryKey: ['unfulfilled'],
 		queryFn: () =>
-			api<{ unfulfilled: UnfulfilledPayment[] }>('GET', '/admin/rescue/unfulfilled').then(
-				(r) => r.unfulfilled,
-			),
+			api<{ unfulfilled: UnfulfilledPayment[] }>(
+				'GET',
+				// The server caps at 500; asking for the max keeps a mapping-outage backlog
+				// fully reachable from the card.
+				'/admin/rescue/unfulfilled?limit=500',
+			).then((r) => r.unfulfilled),
 	});
 }
 

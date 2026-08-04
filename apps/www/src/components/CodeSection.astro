@@ -12,14 +12,14 @@ const state = await cb.open(licenseKey)
 if (state.decision === 'deny') lockApp(state.reason)`,
 	swift: `import CoolBeans
 
-let cb = CoolBeans(product: "acme")
+let cb = CoolBeans(configuration: .init(product: "acme"))
 
-let state = try await cb.open(licenseKey: key)
+let state = await cb.open(licenseKey: key)
 
 if state.decision == .deny { lockApp(state.reason) }`,
 	curl: `curl https://app.coolbeans.tools/v1/validate \\
-  -d license_key=ACME-A2B3-C4D5-E6F7 \\
-  -d instance_id=$MACHINE_ID
+  -H 'Content-Type: application/json' \\
+  -d '{"license_key":"ACME-A2B3-C4D5-E6F7","instance_id":"'"$MACHINE_ID"'"}'
 
 # → { "valid": true, "license": { "kind": "subscription", "plan": "Yearly" } }`,
 };
@@ -127,14 +127,14 @@ if state.decision == .deny { lockApp(state.reason) }`,
 <span class="text-lime">if</span> (state.decision === <span class="text-[#e2b07a]">'deny'</span>) <span class="text-[#a8e05f]">lockApp</span>(state.reason)</pre>
 			<pre data-code-panel="swift" hidden class="m-0 text-[#e8e7e0]"><span class="text-lime">import</span> CoolBeans
 
-<span class="text-lime">let</span> cb = <span class="text-[#a8e05f]">CoolBeans</span>(product: <span class="text-[#e2b07a]">"acme"</span>)
+<span class="text-lime">let</span> cb = <span class="text-[#a8e05f]">CoolBeans</span>(configuration: .<span class="text-[#a8e05f]">init</span>(product: <span class="text-[#e2b07a]">"acme"</span>))
 
-<span class="text-lime">let</span> state = <span class="text-lime">try await</span> cb.<span class="text-[#a8e05f]">open</span>(licenseKey: key)
+<span class="text-lime">let</span> state = <span class="text-lime">await</span> cb.<span class="text-[#a8e05f]">open</span>(licenseKey: key)
 
 <span class="text-lime">if</span> state.decision == .deny {'{'} <span class="text-[#a8e05f]">lockApp</span>(state.reason) {'}'}</pre>
 			<pre data-code-panel="curl" hidden class="m-0 text-[#e8e7e0]"><span class="text-[#a8e05f]">curl</span> https://app.coolbeans.tools/v1/validate \
-  -d license_key=ACME-A2B3-C4D5-E6F7 \
-  -d instance_id=$MACHINE_ID
+  -H <span class="text-[#e2b07a]">'Content-Type: application/json'</span> \
+  -d <span class="text-[#e2b07a]">'{'{'}"license_key":"ACME-A2B3-C4D5-E6F7","instance_id":"'"$MACHINE_ID"'"{'}'}'</span>
 
 <span class="text-[#6b7a52]"># → {'{'} "valid": true, "license": {'{'} "kind": "subscription", "plan": "Yearly" {'}'} {'}'}</span></pre>
 		</div>

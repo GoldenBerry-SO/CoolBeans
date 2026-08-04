@@ -57,9 +57,11 @@ if (state.decision === 'deny') lockOut(state);
 cached signed token when it can't, and holds a floating seat itself. Every inconclusive answer
 keeps the app unlocked. Only a fetched `disabled` or a signed expiry denies.
 
-**Outside a browser, always pass a durable `storage`.** Without it the SDK falls back to memory, a
-fresh device id is minted on every start, and each start consumes another activation seat until the
-customer is locked out of their own licence. The browser gets `localStorage` automatically.
+**Outside a browser, always pass a durable `storage`.** The SDK refuses to construct without one
+(it throws `storage_required`) precisely because a memory fallback would mint a fresh device id on
+every start and consume another activation seat each time, until the customer is locked out of
+their own licence. The browser gets `localStorage` automatically. Tests can opt into the unsafe
+behaviour explicitly with `allowEphemeralStorage: true`.
 
 ## What the verdict looks like
 

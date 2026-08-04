@@ -9,7 +9,7 @@ is the credential. Zero dependencies; Ed25519 verification uses WebCrypto.
 
 ## Installing
 
-**`@coolbeans/sdk` is not on npm yet.** The npm release is coming. Until it lands, don't run
+**`@coolbeans/sdk` is not on npm yet** (publishing is tracked in [#123](https://github.com/GoldenBerry-SO/coolbeans/issues/123)). Until it lands, don't run
 `npm i @coolbeans/sdk`, it won't resolve. Use it from the repo instead, either way works:
 
 **In a pnpm workspace**, add the package as a workspace dependency:

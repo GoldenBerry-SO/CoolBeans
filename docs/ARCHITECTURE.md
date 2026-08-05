@@ -3,9 +3,9 @@
 How this repo is put together and why. The product spec is [`PRD.md`](PRD.md); this doc records the
 engineering decisions, most of them borrowed from two references:
 
-- **pleasehold.dev** (sibling repo): repo structure, tooling, and Hono conventions.
-- **keygate** (`temporal/keygate`, gitignored clone of https://github.com/tabloy/keygate): domain
-  design for a license service. It's AGPL — we copy ideas, never code.
+- **pleasehold.dev** (a sibling project): repo structure, tooling, and Hono conventions.
+- **keygate** (https://github.com/tabloy/keygate): domain design for a license service. It's
+  AGPL, so we study ideas and never copy code.
 
 ## Repo shape (from pleasehold.dev)
 

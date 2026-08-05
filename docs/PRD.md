@@ -218,7 +218,7 @@ never enforced on the client's own clock) and **enforced only for `trial`**. Cli
 
 ### `POST /v1/activate`
 
-Request: `{ "license_key": "CLEM-…", "instance_name": "Chris's MacBook Pro" }`
+Request: `{ "license_key": "CLEM-…", "instance_name": "Dana's MacBook Pro" }`
 
 - `200` `{ "ok": true, "license": {…}, "instance": { "id": "<uuid>", "name": "…" } }`
 - Errors, all `{ "ok": false, "error": "<code>", "message": "<human sentence>" }`:

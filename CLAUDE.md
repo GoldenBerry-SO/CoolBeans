@@ -2,17 +2,12 @@
 
 The open-source license layer. Issue a key, activate it, check it's still good.
 
-## The crew
-
-- The AI on this project goes by **BEANZILLA** (imagine a monster truck made of legumes doing a backflip over a row of flaming laptops).
-- The human goes by **Chrash Bandicoot** (Chris, but 90s). Address him as Chris in normal conversation, Chrash Bandicoot when the moment calls for ceremony.
-
 ## What this is
 
 A small Hono/TypeScript service that issues and validates software license keys and turns
-Stripe/PayPal payment events into license state. One codebase runs on Node (self-host, SQLite or
-Postgres). Deployed to our k8s infra like pleasehold; self-host via docker compose. MIT licensed. See `docs/PRD.md` for the full spec and
-`docs/ARCHITECTURE.md` for the decisions.
+Stripe/PayPal payment events into license state. One codebase runs on Node; the hosted cloud runs
+it on Kubernetes and self-host runs it via docker compose. MIT licensed. See `docs/PRD.md` for the
+full spec and `docs/ARCHITECTURE.md` for the decisions.
 
 ## Ground rules for this repo
 
@@ -58,13 +53,6 @@ the interleavings the author had already thought of. Verify each finding against
 before acting — it over-reports occasionally. When a race can't be staged against the
 synchronous SQLite driver, extract the decision into a pure function and test that, rather
 than shipping a test that can't fail.
-
-## Reference material
-
-- `temporal/keygate` — a Go license service we cloned for domain reference (gitignored). Look at
-  `internal/license/token.go`, `internal/service/license.go`, and its migrations when in doubt about a
-  domain decision. We copy ideas, never code (it's AGPL).
-- `../pleasehold.dev` — sibling repo whose architecture conventions this project follows.
 
 ## Commands
 

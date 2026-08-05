@@ -43,7 +43,7 @@ Errors are `{ "ok": false, "error": "<code>", "message": "<human sentence>" }`.
 ## `POST /v1/activate`
 
 ```json
-{ "license_key": "CLEM-…", "instance_name": "Chris's MacBook Pro" }
+{ "license_key": "CLEM-…", "instance_name": "Dana's MacBook Pro" }
 ```
 
 - `200` `{ "ok": true, "license": {…}, "instance": { "id": "<uuid>", "name": "…" } }`

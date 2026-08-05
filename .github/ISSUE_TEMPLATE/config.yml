@@ -1,0 +1,13 @@
+# ABOUTME: Issue chooser config. Points questions at the docs and discussions instead of issues,
+# ABOUTME: and security reports at private reporting.
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://coolbeans.tools/docs
+    about: Quickstart, self-hosting, SDKs, payments, and the HTTP contract.
+  - name: Questions & ideas
+    url: https://github.com/GoldenBerry-SO/coolbeans/discussions
+    about: Ask anything. If it turns out to be a bug we'll promote it to an issue.
+  - name: Report a security vulnerability
+    url: https://github.com/GoldenBerry-SO/coolbeans/security/advisories/new
+    about: Private reporting. Please never open a public issue for security problems.

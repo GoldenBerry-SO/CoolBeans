@@ -567,7 +567,7 @@ class Component extends DCLogic {
     ],
     licenses: [
       { id:'l1', key:'CLEM-A2B3-C4D5-E6F7', product:'clementine', tier:'yearly', status:'active', name:'Chris Vance', email:'chris@studio.io', expires:'Jul 17, 2027', created:'Jul 17, 2026', provider:'stripe', since:'Jul 2026',
-        activations:[{iid:'inst_8f2c1a4e', name:"Chris's MacBook Pro", meta:'validated 12 min ago', deactivated:false},{iid:'inst_b7d3e921', name:'Studio iMac', meta:'validated 3 days ago', deactivated:false}],
+        activations:[{iid:'inst_8f2c1a4e', name:"Dana's MacBook Pro", meta:'validated 12 min ago', deactivated:false},{iid:'inst_b7d3e921', name:'Studio iMac', meta:'validated 3 days ago', deactivated:false}],
         usage:[{metric:'api_calls', label:'API calls', current:9847, limit:10000, resets:'Aug 1'}] },
       { id:'l2', key:'CLEM-H8JK-M2N3-P4Q5', product:'clementine', tier:'lifetime', status:'active', name:'Fable Labs', email:'dev@fable.app', expires:null, created:'Mar 2, 2025', provider:'stripe', since:'Mar 2025',
         activations:[{iid:'inst_4a1f8c02', name:'fable-build-server', meta:'validated 1 h ago', deactivated:false}], usage:[] },
@@ -753,7 +753,7 @@ class Component extends DCLogic {
     const actionColor=(a)=> a.startsWith('license.issued')?'#3d6b16' : a.startsWith('license.disabled')?'#b42318' : a.startsWith('license.enabled')?'#3d6b16' : '#4a4a44';
     const auditRaw = [
       {action:'license.issued', detail:'CLEM-A2B3-C4D5-E6F7 → chris@studio.io', actor:'stripe:evt_1Pq9', when:'2m ago'},
-      {action:'instance.activated', detail:"Chris's MacBook Pro on CLEM-A2B3…", actor:'system', when:'2m ago'},
+      {action:'instance.activated', detail:"Dana's MacBook Pro on CLEM-A2B3…", actor:'system', when:'2m ago'},
       {action:'license.disabled', detail:'CLEM-Y4Z5… reason=refund', actor:'stripe:evt_1Pq5', when:'5h ago'},
       {action:'product.updated', detail:'hexis activation_limit 3 → 5', actor:'admin:global', when:'8h ago'},
       {action:'license.disabled', detail:'HEX-… reason=subscription_canceled', actor:'paypal:WH-6RA8', when:'1d ago'},

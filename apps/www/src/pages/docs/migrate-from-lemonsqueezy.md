@@ -60,7 +60,7 @@ Request: `license_key`, `instance_name`.
     "created_at": "...",
     "expires_at": null
   },
-  "instance": { "id": "<uuid>", "name": "Chris's MacBook Pro", "created_at": "..." },
+  "instance": { "id": "<uuid>", "name": "Dana's MacBook Pro", "created_at": "..." },
   "meta": {
     "store_id": null,
     "product_id": 42,

@@ -21,11 +21,11 @@ Cool Beans is a small MIT-licensed service that issues and validates software li
 Stripe/PayPal payment events into license state. A customer buys, gets a key, activates it on their
 machines, and Cool Beans is the source of truth for whether that key is still good.
 
-One codebase, two homes:
+You can run it yourself or let us run it for you. It's the same codebase either way.
 
-- **Self-host**, free forever. Node with PostgreSQL 16, up in one `docker compose up`.
-- **Cloud** at [app.coolbeans.tools](https://app.coolbeans.tools), the same codebase run by us, with
-  Stripe Connect so every vendor plugs in their own Stripe account.
+- **Self-host** is free forever: Node with PostgreSQL 16, up in one `docker compose up`.
+- **Cloud** at [app.coolbeans.tools](https://app.coolbeans.tools) is run by us, with Stripe Connect
+  so every vendor plugs in their own Stripe account.
 
 ## The whole integration
 

@@ -1,0 +1,22 @@
+# ABOUTME: Feature request form. Asks for the problem before the solution so we can judge
+# ABOUTME: fit against the frozen client contract and the offline rules.
+name: Feature request
+description: Something Cool Beans should do that it doesn't
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what's in the way? The problem matters more than the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: If you have a shape in mind, sketch it. API, CLI flag, console screen, whatever.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds you've tried

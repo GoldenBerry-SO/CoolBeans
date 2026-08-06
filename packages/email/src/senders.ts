@@ -19,6 +19,18 @@ export function createResendSender(apiKey: string, baseUrl?: string): EmailSende
 				subject: email.subject,
 				html: email.html,
 				...(email.replyTo ? { replyTo: email.replyTo } : {}),
+				...(email.attachments?.length
+					? {
+							attachments: email.attachments.map((a) => ({
+								filename: a.filename,
+								content: a.content,
+								...(a.contentType ? { contentType: a.contentType } : {}),
+								// Resend sends the part inline when contentId is set, which is what
+								// makes `cid:` work in the HTML.
+								...(a.contentId ? { contentId: a.contentId } : {}),
+							})),
+						}
+					: {}),
 			});
 			if (error) throw new Error(`Resend failed: ${error.message}`);
 		},
@@ -61,6 +73,18 @@ export function createSmtpSender(opts: SmtpOptions): EmailSender {
 				subject: email.subject,
 				html: email.html,
 				...(email.replyTo ? { replyTo: email.replyTo } : {}),
+				...(email.attachments?.length
+					? {
+							attachments: email.attachments.map((a) => ({
+								filename: a.filename,
+								content: a.content,
+								...(a.contentType ? { contentType: a.contentType } : {}),
+								// cid + inline disposition is what puts the part in a
+								// multipart/related the client will render in place.
+								...(a.contentId ? { cid: a.contentId, contentDisposition: 'inline' as const } : {}),
+							})),
+						}
+					: {}),
 			});
 		},
 	};

@@ -113,7 +113,7 @@ export function registerPortalRoutes(app: OpenAPIHono, deps: AppDeps): void {
 							product: r.product.name,
 							status: r.license.status,
 						})),
-						logoUrl: `${deps.config.publicUrl}/logo.png`,
+						logoSrc: `${deps.config.publicUrl}/logo.png`,
 					}),
 				);
 				await sender.send({

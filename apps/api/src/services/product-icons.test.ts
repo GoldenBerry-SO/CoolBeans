@@ -98,18 +98,40 @@ describe('uploading and serving a product icon', () => {
 });
 
 describe('the licence email carries the vendor brand', () => {
-	it('uses the product icon when one exists', async () => {
+	it('ships the icon inline as a cid attachment, not a hosted URL', async () => {
+		// A hosted <img> only renders for readers whose client loads remote images, and most
+		// block them by default — the logo showed in Gmail (which proxies them) and nowhere
+		// else. Bytes travelling in the message have nothing to fetch and nothing to block.
 		await upload(pngUpload);
 		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
 		const sent = h.email.sent.at(-1);
-		expect(sent?.html).toContain('/v1/products/clementine/icon');
+		expect(sent?.html).toContain('cid:product-icon');
+		expect(sent?.html).not.toContain('/v1/products/clementine/icon');
+
+		const attachment = sent?.attachments?.[0];
+		expect(attachment?.contentId).toBe('product-icon');
+		expect(attachment?.contentType).toBe('image/png');
+		// The real uploaded bytes, so the reader sees the vendor's actual mark.
+		expect(attachment?.content.equals(PNG_1PX)).toBe(true);
 	});
 
-	it('falls back to the Cool Beans logo when there is none', async () => {
+	it('sends no logo at all when the vendor uploaded none', async () => {
+		// Deliberately not our bean: the Cool Beans mark beside a "Clementine" wordmark reads
+		// as the wrong company. The text wordmark alone is honest.
 		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
 		const sent = h.email.sent.at(-1);
-		expect(sent?.html).toContain('/logo.png');
-		expect(sent?.html).not.toContain('/v1/products/clementine/icon');
+		expect(sent?.html).not.toContain('<img');
+		expect(sent?.attachments ?? []).toHaveLength(0);
+		// The brand still reads, because the product name is a text node.
+		expect(sent?.html.replace(/<[^>]*>/g, ' ')).toContain('Clementine');
+	});
+
+	it('names the product on the From line', async () => {
+		// The buyer's inbox used to show a bare "no-reply@..." that said nothing about what
+		// they bought.
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		const sent = h.email.sent.at(-1);
+		expect(sent?.from).toContain('"Clementine"');
 	});
 });
 

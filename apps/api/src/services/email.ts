@@ -17,7 +17,10 @@ import type { Config } from '../config.js';
 import type { AppDeps } from '../deps.js';
 import { nowIso } from '../deps.js';
 import { toDisplayKey } from '../domain/keygen.js';
-import { hasProductIcon } from './product-icons.js';
+import { getProductIcon } from './product-icons.js';
+
+/** The Content-ID the licence email's <img> references as `cid:`. Arbitrary but stable. */
+const PRODUCT_ICON_CID = 'product-icon';
 
 /** Build an EmailSender from config, or undefined when no provider is set. */
 export function resolveEmailSender(config: Config, logger: Logger): EmailSender | undefined {
@@ -77,6 +80,37 @@ export function resolveEmailIdentity(
 	return { from: productEmailFrom };
 }
 
+/** The addr-spec out of either `Name <a@b>` or a bare `a@b`. */
+function addressOf(sender: string): string {
+	const angle = sender.match(/<([^>]*)>\s*$/);
+	return (angle ? angle[1] : sender).trim();
+}
+
+/**
+ * A display name safe to drop in a From header. Newlines would let a product name inject
+ * extra headers, and an unescaped quote or comma would truncate the name at best and
+ * corrupt the header at worst, so the name is always escaped and always quoted.
+ */
+function quoteDisplayName(name: string): string {
+	const flat = name.replace(/[\r\n]+/g, ' ').trim();
+	return `"${flat.replace(/[\\"]/g, (ch) => `\\${ch}`)}"`;
+}
+
+/**
+ * Put the product's name on the From line, keeping whatever address the identity resolved to.
+ *
+ * A buyer's inbox showed `no-reply@coolbeans.tools` and nothing else, which tells them
+ * nothing about what they just bought and looks like a stranger's mail. The address has to
+ * stay on our verified domain or Resend refuses to send, but the display name is free text,
+ * so the buyer can see "TideGlass" while DKIM still signs for coolbeans.tools.
+ *
+ * Any display name already on the sender is replaced rather than kept: the configured one is
+ * "Cool Beans", which is precisely the wrong answer for a buyer who bought someone's app.
+ */
+export function senderWithProductName(from: string, productName: string): string {
+	return `${quoteDisplayName(productName)} <${addressOf(from)}>`;
+}
+
 /**
  * Send the key-delivery email for a license and stamp email_sent_at on success.
  * Throws on failure so the caller can leave email_sent_at NULL for a retry (PRD §13).
@@ -88,11 +122,18 @@ export async function sendKeyEmail(
 	if (!deps.email) return false;
 	const displayKey = toDisplayKey(args.license.key, args.product.keyPrefix);
 	const isSubscription = args.license.kind === 'subscription';
-	// The vendor's own logo fronts the email when they uploaded one (#115) — the licence
-	// email is their brand moment, not ours. Existence check only; the blob never loads.
-	const logoUrl = (await hasProductIcon(deps, args.product.id))
-		? `${deps.config.publicUrl}/v1/products/${args.product.slug}/icon`
-		: `${deps.config.publicUrl}/logo.png`;
+	/**
+	 * The vendor's own logo fronts the email when they uploaded one (#115) — the licence
+	 * email is their brand moment, not ours.
+	 *
+	 * Sent as an inline attachment, not a hosted URL. A URL only renders for readers whose
+	 * client loads remote images, and most block them by default, so the hosted version was
+	 * visible in Gmail (which proxies) and invisible in Apple Mail and Outlook. Bytes in the
+	 * message have nothing to fetch. No icon means no image at all rather than falling back
+	 * to our bean: the Cool Beans mark beside a "TideGlass" wordmark reads as the wrong
+	 * company, and the wordmark alone is honest.
+	 */
+	const icon = await getProductIcon(deps, args.product.id);
 	const html = await render(
 		LicenseKeyEmail({
 			productName: args.product.name,
@@ -101,14 +142,28 @@ export async function sendKeyEmail(
 			renewalDate:
 				isSubscription && args.license.expiresAt ? args.license.expiresAt.slice(0, 10) : undefined,
 			portalUrl: isSubscription ? `${deps.config.publicUrl}/portal` : undefined,
-			logoUrl,
+			logoSrc: icon ? `cid:${PRODUCT_ICON_CID}` : undefined,
 		}),
 	);
+	const identity = resolveEmailIdentity(deps.config, args.product.emailFrom);
 	await deps.email.send({
-		...resolveEmailIdentity(deps.config, args.product.emailFrom),
+		...identity,
+		from: senderWithProductName(identity.from, args.product.name),
 		to: args.email,
 		subject: `Your ${args.product.name} license key`,
 		html,
+		...(icon
+			? {
+					attachments: [
+						{
+							filename: `icon.${icon.mime === 'image/png' ? 'png' : icon.mime === 'image/webp' ? 'webp' : 'jpg'}`,
+							content: icon.bytes,
+							contentType: icon.mime,
+							contentId: PRODUCT_ICON_CID,
+						},
+					],
+				}
+			: {}),
 	});
 	await deps.db
 		.update(licenses)

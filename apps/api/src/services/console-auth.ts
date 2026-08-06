@@ -108,7 +108,7 @@ export async function requestCode(deps: AppDeps, emailInput: string): Promise<Re
 			MagicCodeEmail({
 				code,
 				expiresMinutes: CODE_TTL_MINUTES,
-				logoUrl: `${deps.config.publicUrl}/logo.png`,
+				logoSrc: `${deps.config.publicUrl}/logo.png`,
 			}),
 		);
 		await deps.email.send({

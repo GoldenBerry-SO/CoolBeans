@@ -30,3 +30,10 @@ coverage/
 .claude/worktrees/
 apps/www/.astro
 CLAUDE.local.md
+
+# graphify: commit the graph + report, not the machine-local build state.
+# Regenerate the viewer any time with: graphify export html
+graphify-out/cache/
+graphify-out/manifest.json
+graphify-out/cost.json
+graphify-out/.graphify_*

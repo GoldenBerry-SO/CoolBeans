@@ -1,9 +1,38 @@
 {
 	"name": "@coolbeans/sdk",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"type": "module",
 	"description": "Drop-in licensing for Node, Electron, Tauri, and the browser. The key is the credential.",
 	"license": "MIT",
+	"author": "GoldenBerry",
+	"homepage": "https://coolbeans.tools",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/GoldenBerry-SO/coolbeans.git",
+		"directory": "packages/sdk"
+	},
+	"bugs": {
+		"url": "https://github.com/GoldenBerry-SO/coolbeans/issues"
+	},
+	"keywords": [
+		"license",
+		"licensing",
+		"license-key",
+		"licence",
+		"activation",
+		"offline",
+		"ed25519",
+		"electron",
+		"tauri",
+		"stripe",
+		"sdk"
+	],
+	"engines": {
+		"node": ">=22"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"exports": {

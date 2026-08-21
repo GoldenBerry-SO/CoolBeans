@@ -1,6 +1,6 @@
 # @coolbeans/sdk
 
-Licence checks for Node, Electron, Tauri and the browser. No service secret in the client — the key
+Licence checks for Node, Electron, Tauri and the browser. No service secret in the client, the key
 is the credential. Zero dependencies; Ed25519 verification uses WebCrypto.
 
 ```ts
@@ -8,7 +8,7 @@ import { CoolBeans } from '@coolbeans/sdk';
 
 const cb = new CoolBeans({
   publicKeys: { '1': 'BASE64_PUBLIC_KEY' }, // bundle these in your app
-  // product: 'clementine',  // required only if you sell more than one product — see below
+  // product: 'clementine',  // required only if you sell more than one product, see below
 });
 
 // On launch, and again whenever the user pastes a key. This is the whole integration.
@@ -27,7 +27,7 @@ cb.stop();
 ### Do you need `product`?
 
 Only if you sell more than one product from one Cool Beans account. Without it the first licence an
-install activates binds the app to that product, and every later key is checked against it — but
+install activates binds the app to that product, and every later key is checked against it, but
 that first key is the one nobody checked, so a customer holding a licence for your other app could
 paste it into a fresh install and unlock this one. Pass the slug and a licence for anything else is
 refused outright.
@@ -48,7 +48,7 @@ It is a union rather than a boolean on purpose. "We have never established an en
 "you were revoked" both mean locked, but they are different screens, and a boolean loses that.
 
 `license` is the frozen §9 object, read off the cached token, so showing "Pro monthly, renews 12
-Aug" costs no extra call. It is display only — never gate a feature on `plan` or `kind`.
+Aug" costs no extra call. It is display only, so never gate a feature on `plan` or `kind`.
 
 ## Gating features: `state.entitlements`
 
@@ -108,14 +108,14 @@ varies per licence, and they come from `state.entitlements`.
 
 **Required outside the browser, and the SDK throws at construction without it.** In-memory storage
 mints a new device id every launch, so every launch takes another activation and a node-locked
-licence is spent in a handful of restarts — on a customer who paid. The browser gets `localStorage`.
+licence is spent in a handful of restarts, on a customer who paid. The browser gets `localStorage`.
 
 ```ts
 const cb = new CoolBeans({ product: 'clementine', storage: myFileBackedStore });
 ```
 
 Two synchronous methods, `getItem(key)` and `setItem(key, value)`. Back it with a file in the user's
-profile, `electron-store`, the Tauri store plugin, the Keychain — anything that survives a restart.
+profile, `electron-store`, the Tauri store plugin, the Keychain, anything that survives a restart.
 `allowEphemeralStorage: true` opts out, for tests and throwaway scripts only.
 
 ## Offline behaviour, and the rules behind it

@@ -1,0 +1,123 @@
+# ABOUTME: Publishes @coolbeans/sdk and @coolbeans/cli to npm when a v* tag is pushed.
+# ABOUTME: Tests gate the publish, and npm provenance ties each tarball to this workflow run.
+#
+# One-time prerequisites (not automated on purpose):
+#   1. Create the npm org `coolbeans` (free for public packages).
+#   2. Create an npm Automation token with publish rights on @coolbeans/*.
+#   3. Add it as the repo secret NPM_TOKEN.
+#
+# To release:
+#   Bump the version in packages/sdk/package.json and packages/cli/package.json to the
+#   same number, merge that, then `git tag v0.1.0 && git push --tags`.
+#
+# The two packages version in lockstep, because one tag cannot match two different
+# versions. If they ever need to diverge, this needs per-package tags instead.
+#
+# The tag is what triggers this. Nothing publishes on a normal merge to main.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Pack only, do not publish'
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for npm provenance: npm exchanges this for a signed attestation
+      # linking the published tarball to this workflow and commit.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Before anything expensive. A mistyped tag should cost seconds, not a full
+      # install, build and test run.
+      - name: Verify the tag matches the package versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          for p in sdk cli; do
+            VER=$(node -p "require('./packages/$p/package.json').version")
+            if [ "$VER" != "$TAG" ]; then
+              echo "::error::tag v$TAG does not match @coolbeans/$p version $VER"
+              exit 1
+            fi
+          done
+          echo "tag and package versions agree: $TAG"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          # Writes the .npmrc that npm publish reads NODE_AUTH_TOKEN from.
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint and typecheck
+        run: pnpm run check
+
+      # Scoped to what is being published rather than the whole monorepo. The tag points
+      # at a commit main's CI already ran the full suite against, so re-running it here
+      # only adds time and exposes the release to an unrelated flake in another package.
+      # The SDK suite includes contract.test.ts, which is the shared fixture set both
+      # SDKs must agree on.
+      - name: Test the publishable packages
+        run: pnpm --filter @coolbeans/sdk --filter @coolbeans/cli test
+
+      - name: Build the publishable packages
+        run: pnpm --filter @coolbeans/sdk --filter @coolbeans/cli build
+
+      # Catches the mistakes that only show up at pack time: a missing LICENSE, an
+      # empty dist, files that were meant to ship and did not.
+      - name: Show what would ship
+        run: |
+          for p in sdk cli; do
+            echo "--- @coolbeans/$p"
+            ( cd "packages/$p" && npm pack --dry-run )
+          done
+
+      # npm, not pnpm. pnpm publish has no --provenance flag (checked against 11.14.0),
+      # so this step would die on an unknown option. npm also reads NODE_AUTH_TOKEN from
+      # the .npmrc setup-node wrote, which pnpm does not reliably do.
+      #
+      # Publishing from the package directory is safe because neither package depends on
+      # a workspace package: the SDK has no runtime dependencies and the CLI only needs
+      # commander from the registry. There is no workspace: protocol to leave unresolved.
+      #
+      # Each package is skipped if that exact version is already on the registry, which
+      # makes the whole step re-runnable. Without the check, an SDK publish that succeeds
+      # followed by a CLI publish that fails (a transient npm error is enough) can never be
+      # repaired by re-running: npm versions are immutable, so the retry dies on the SDK
+      # again, `bash -e` aborts the step, and the loop never reaches the CLI. The release
+      # would sit half-published until someone bumped both versions and re-tagged.
+      #
+      # `npm view` exits non-zero when the version does not exist, including for a package
+      # that has never been published, so a first release falls through to publish. If the
+      # lookup fails for some other reason we still attempt the publish, which is the same
+      # behaviour as before rather than a silent skip.
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
+        run: |
+          for p in sdk cli; do
+            NAME=$(node -p "require('./packages/$p/package.json').name")
+            VER=$(node -p "require('./packages/$p/package.json').version")
+            if npm view "$NAME@$VER" version >/dev/null 2>&1; then
+              echo "$NAME@$VER is already on the registry, skipping"
+              continue
+            fi
+            ( cd "packages/$p" && npm publish --access public --provenance )
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

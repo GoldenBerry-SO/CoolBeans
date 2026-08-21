@@ -1,5 +1,5 @@
 {
-  "id": "2ebf3a9f-f964-4420-9c3c-b5b60c74fe34",
+  "id": "7ffabf3b-a4ec-4316-b7bc-2bb2deb0e294",
   "prevId": "4212d38b-a8fb-43c4-8821-cc0aee5a1b30",
   "version": "7",
   "dialect": "postgresql",
@@ -2510,14 +2510,16 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "webhook_endpoints_product_id_products_id_fk": {
-          "name": "webhook_endpoints_product_id_products_id_fk",
+        "fk_webhook_endpoints_product": {
+          "name": "fk_webhook_endpoints_product",
           "tableFrom": "webhook_endpoints",
           "tableTo": "products",
           "columnsFrom": [
+            "account_id",
             "product_id"
           ],
           "columnsTo": [
+            "account_id",
             "id"
           ],
           "onDelete": "restrict",

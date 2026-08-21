@@ -1,38 +1,57 @@
 // ABOUTME: Outbound webhooks (issue #108) — vendor endpoints and their delivery log.
 // ABOUTME: Deliveries ride the outbox for retries; the endpoint secret is stored encrypted.
 
-import { index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
+import { foreignKey, index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { isoNow } from './columns.js';
 import { products } from './products.js';
 
-export const webhookEndpoints = pgTable('webhook_endpoints', {
-	id: serial('id').primaryKey(),
-	// RESTRICT: an endpoint belongs to a tenant; deleting a populated account should fail
-	// loudly rather than orphan its delivery history.
-	accountId: integer('account_id')
-		.notNull()
-		.references(() => accounts.id, { onDelete: 'restrict' }),
-	/**
-	 * Scope the endpoint to one product, or NULL for every product in the account.
-	 *
-	 * NULL is the pre-existing behaviour, so endpoints created before this column keep
-	 * receiving everything without a backfill. RESTRICT rather than CASCADE: deleting a
-	 * product out from under a live endpoint should fail loudly instead of silently
-	 * widening that endpoint's scope to the whole account.
-	 */
-	productId: integer('product_id').references(() => products.id, { onDelete: 'restrict' }),
-	url: text('url').notNull(),
-	/** JSON array of subscribed event types, e.g. ["license.issued","activation.created"]. */
-	events: text('events').notNull(),
-	/** HMAC signing secret, encrypted with the instance signing key secret. Shown once. */
-	secret: text('secret').notNull(),
-	// Disabled keeps the row and its delivery history; deliveries stop immediately.
-	status: text('status', { enum: ['active', 'disabled'] })
-		.notNull()
-		.default('active'),
-	createdAt: text('created_at').notNull().default(isoNow),
-});
+export const webhookEndpoints = pgTable(
+	'webhook_endpoints',
+	{
+		id: serial('id').primaryKey(),
+		// RESTRICT: an endpoint belongs to a tenant; deleting a populated account should fail
+		// loudly rather than orphan its delivery history.
+		accountId: integer('account_id')
+			.notNull()
+			.references(() => accounts.id, { onDelete: 'restrict' }),
+		/**
+		 * Scope the endpoint to one product, or NULL for every product in the account.
+		 *
+		 * NULL is the pre-existing behaviour, so endpoints created before this column keep
+		 * receiving everything without a backfill. The tenant foreign key below is what
+		 * makes the product a same-account one.
+		 */
+		productId: integer('product_id'),
+		url: text('url').notNull(),
+		/** JSON array of subscribed event types, e.g. ["license.issued","activation.created"]. */
+		events: text('events').notNull(),
+		/** HMAC signing secret, encrypted with the instance signing key secret. Shown once. */
+		secret: text('secret').notNull(),
+		// Disabled keeps the row and its delivery history; deliveries stop immediately.
+		status: text('status', { enum: ['active', 'disabled'] })
+			.notNull()
+			.default('active'),
+		createdAt: text('created_at').notNull().default(isoNow),
+	},
+	(t) => [
+		// Tenant FK, the same shape license_grants uses: an endpoint can only be scoped to a
+		// product in its OWN account, enforced in the database rather than only by the handler
+		// that happens to resolve the slug today. A cross-tenant pair would list as unscoped
+		// while matching no events, so it would be a silently dead endpoint.
+		//
+		// A composite FK is MATCH SIMPLE by default, so a NULL product_id skips the check
+		// entirely. That is exactly what an unscoped endpoint needs.
+		//
+		// RESTRICT rather than CASCADE: deleting a product out from under a live endpoint
+		// should fail loudly instead of silently widening that endpoint to the whole account.
+		foreignKey({
+			columns: [t.accountId, t.productId],
+			foreignColumns: [products.accountId, products.id],
+			name: 'fk_webhook_endpoints_product',
+		}).onDelete('restrict'),
+	],
+);
 
 export const webhookDeliveries = pgTable(
 	'webhook_deliveries',

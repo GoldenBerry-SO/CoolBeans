@@ -168,18 +168,13 @@ export async function disableWebhookEndpoint(
 }
 
 export async function listWebhookEndpoints(deps: AppDeps, accountId: number) {
-	// Left join: an unscoped endpoint has no product row, and it must still be listed.
-	// The account condition is a no-op for correctly written rows, since creation resolves
-	// the slug through the caller's account. It is here because the foreign key only proves
-	// the product exists, not whose it is, so a future writer cannot make this view print
-	// another tenant's slug.
+	// Left join: an unscoped endpoint has no product row, and it must still be listed. No
+	// account condition is needed on the join, because fk_webhook_endpoints_product makes a
+	// cross-tenant scope impossible to store in the first place.
 	const rows = await deps.db
 		.select({ endpoint: webhookEndpoints, productSlug: products.slug })
 		.from(webhookEndpoints)
-		.leftJoin(
-			products,
-			and(eq(products.id, webhookEndpoints.productId), eq(products.accountId, accountId)),
-		)
+		.leftJoin(products, eq(products.id, webhookEndpoints.productId))
 		.where(eq(webhookEndpoints.accountId, accountId))
 		.orderBy(webhookEndpoints.id);
 	// Never the secret: it was shown once at creation, and that is the whole contract.

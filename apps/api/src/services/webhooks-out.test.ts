@@ -366,4 +366,41 @@ describe('per-product endpoint scope (#142)', () => {
 		});
 		expect(res.status).toBe(404);
 	});
+
+	it('the database refuses a cross-tenant scope, not just the handler', async () => {
+		// The handler resolves the slug through the caller's account, so a cross-tenant pair
+		// can only arrive from a future writer or a hand-run SQL fix. It would list as
+		// unscoped while matching no events, so the endpoint would be silently dead.
+		// fk_webhook_endpoints_product is what makes it impossible rather than unlikely.
+		const cloud: Partial<Config> = {
+			billing: { stripeSecretKey: 'sk_billing', proPriceId: 'price_pro' },
+			logMagicCodes: true,
+		};
+		const ch = await makeHarness({ config: cloud });
+		const alice = await signUp(ch.app, ch.logger, 'alice@alpha.test', 'alpha');
+		await signUp(ch.app, ch.logger, 'bob@beta.test', 'beta');
+		await createProduct(
+			ch.app,
+			{ slug: 'alpha-app', name: 'Alpha', key_prefix: 'ALPHA', email_from: 'a@alpha.test' },
+			alice,
+		);
+
+		const [product] = await rawQuery<{ id: number; account_id: number }>(
+			"SELECT id, account_id FROM products WHERE slug = 'alpha-app'",
+		);
+		const [bobAccount] = await rawQuery<{ id: number }>(
+			'SELECT id FROM accounts WHERE id <> $1 ORDER BY id LIMIT 1',
+			[product.account_id],
+		);
+		const insert = `INSERT INTO webhook_endpoints (account_id, product_id, url, events, secret)
+			VALUES ($1, $2, 'https://bob.example.com/h', '["license.issued"]', 'cbw_test')`;
+
+		await expect(rawQuery(insert, [bobAccount.id, product.id])).rejects.toThrow(
+			/fk_webhook_endpoints_product/,
+		);
+
+		// The same insert unscoped succeeds, so what was refused is the tenant pair rather
+		// than the statement. It also pins the NULL behaviour the composite key relies on.
+		await expect(rawQuery(insert, [bobAccount.id, null])).resolves.toBeDefined();
+	});
 });

@@ -10,6 +10,7 @@ import {
 	useBilling,
 	useCreateWebhookEndpoint,
 	useDisableWebhookEndpoint,
+	useProducts,
 	useProviderEvents,
 	useProviders,
 	useRescueCheckout,
@@ -153,6 +154,10 @@ function AddEndpointDialog({
 	const create = useCreateWebhookEndpoint();
 	const [url, setUrl] = useState('');
 	const [events, setEvents] = useState<string[]>([]);
+	// Empty string means every product in the account, which is what an endpoint created
+	// before scoping existed does.
+	const [product, setProduct] = useState('');
+	const products = useProducts();
 	const toggle = (type: string) =>
 		setEvents((current) =>
 			current.includes(type) ? current.filter((t) => t !== type) : [...current, type],
@@ -169,7 +174,7 @@ function AddEndpointDialog({
 						disabled={!url || events.length === 0 || create.isPending}
 						onClick={() =>
 							create.mutate(
-								{ url, events },
+								{ url, events, ...(product ? { product } : {}) },
 								{
 									onSuccess: (endpoint) => {
 										onClose();
@@ -194,6 +199,19 @@ function AddEndpointDialog({
 					placeholder="https://api.your-app.com/coolbeans-hook"
 					className={`${inputClass} font-mono text-[13px]`}
 				/>
+			</Field>
+			<Field
+				label="Product"
+				hint="Scope this endpoint to one product, or leave it on all products to receive events for everything in the account."
+			>
+				<select value={product} onChange={(e) => setProduct(e.target.value)} className={inputClass}>
+					<option value="">All products</option>
+					{(products.data ?? []).map((p) => (
+						<option key={p.slug} value={p.slug}>
+							{p.name}
+						</option>
+					))}
+				</select>
 			</Field>
 			<Field label="Events to receive">
 				<div className="flex flex-col gap-1.5">
@@ -237,6 +255,9 @@ function EndpointRow({
 					)}
 				/>
 				<span className="min-w-0 flex-1 break-all font-mono text-[12.5px]">{endpoint.url}</span>
+				<span className="rounded-[6px] bg-fill px-2 py-[2px] text-[10.5px] text-ink-muted">
+					{endpoint.product ?? 'all products'}
+				</span>
 				<span className="font-mono text-[11px] text-ink-faint">{endpoint.events.join(', ')}</span>
 				<SecondaryButton
 					className="px-2.5 py-[5px] text-[11.5px]"

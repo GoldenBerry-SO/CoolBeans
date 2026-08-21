@@ -3,7 +3,7 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { License, Product, WebhookEndpoint } from '@coolbeans/db';
-import { webhookDeliveries, webhookEndpoints } from '@coolbeans/db';
+import { products, webhookDeliveries, webhookEndpoints } from '@coolbeans/db';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate, withTx } from '../deps.js';
@@ -102,11 +102,13 @@ export interface CreatedEndpoint {
 	events: string[];
 	/** Plaintext, returned exactly once at creation or rotation. */
 	secret: string;
+	/** The product this endpoint is scoped to, or null for every product in the account. */
+	productId: number | null;
 }
 
 export async function createWebhookEndpoint(
 	deps: AppDeps,
-	args: { accountId: number; url: string; events: string[] },
+	args: { accountId: number; url: string; events: string[]; productId?: number | null },
 ): Promise<CreatedEndpoint> {
 	const url = assertUsableUrl(deps, args.url);
 	assertKnownEvents(args.events);
@@ -115,13 +117,16 @@ export async function createWebhookEndpoint(
 		.insert(webhookEndpoints)
 		.values({
 			accountId: args.accountId,
+			// The caller resolves the slug through the account scope, so anything arriving
+			// here is already known to belong to this tenant.
+			productId: args.productId ?? null,
 			url: url.toString(),
 			events: JSON.stringify(args.events),
 			secret: encryptSecret(secret, deps.config.signingKeySecret),
 		})
 		.returning();
 	if (!row) throw new Error('Endpoint insert reported success but returned no row.');
-	return { id: row.id, url: row.url, events: args.events, secret };
+	return { id: row.id, url: row.url, events: args.events, secret, productId: row.productId };
 }
 
 export async function rotateWebhookSecret(
@@ -153,17 +158,21 @@ export async function disableWebhookEndpoint(
 }
 
 export async function listWebhookEndpoints(deps: AppDeps, accountId: number) {
+	// Left join: an unscoped endpoint has no product row, and it must still be listed.
 	const rows = await deps.db
-		.select()
+		.select({ endpoint: webhookEndpoints, productSlug: products.slug })
 		.from(webhookEndpoints)
+		.leftJoin(products, eq(products.id, webhookEndpoints.productId))
 		.where(eq(webhookEndpoints.accountId, accountId))
 		.orderBy(webhookEndpoints.id);
 	// Never the secret: it was shown once at creation, and that is the whole contract.
-	return rows.map((e) => ({
+	return rows.map(({ endpoint: e, productSlug }) => ({
 		id: e.id,
 		url: e.url,
 		events: JSON.parse(e.events) as string[],
 		status: e.status,
+		/** Null means every product in the account. */
+		product: productSlug ?? null,
 		created_at: e.createdAt,
 	}));
 }
@@ -211,8 +220,13 @@ export async function emitWebhookEvent(deps: AppDeps, args: WebhookEventArgs): P
 			.where(
 				and(eq(webhookEndpoints.accountId, args.accountId), eq(webhookEndpoints.status, 'active')),
 			);
-		const subscribed = endpoints.filter((e) =>
-			(JSON.parse(e.events) as string[]).includes(args.type),
+		const subscribed = endpoints.filter(
+			(e) =>
+				(JSON.parse(e.events) as string[]).includes(args.type) &&
+				// A NULL scope means every product in the account, which is what every
+				// endpoint created before scoping existed has, so they keep receiving
+				// everything. A set scope only hears about its own product.
+				(e.productId === null || e.productId === args.product.id),
 		);
 		if (subscribed.length === 0) return;
 		const payload = JSON.stringify({

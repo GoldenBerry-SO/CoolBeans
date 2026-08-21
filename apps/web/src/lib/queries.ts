@@ -152,6 +152,8 @@ export interface WebhookEndpoint {
 	url: string;
 	events: string[];
 	status: 'active' | 'disabled';
+	/** Product slug this endpoint is scoped to, or null for every product. */
+	product: string | null;
 	created_at: string;
 }
 
@@ -200,7 +202,7 @@ export function useWebhookDeliveries(endpointId: number | null) {
 export function useCreateWebhookEndpoint() {
 	const qc = useQueryClient();
 	return useMutation({
-		mutationFn: (input: { url: string; events: string[] }) =>
+		mutationFn: (input: { url: string; events: string[]; product?: string }) =>
 			api<{ endpoint: WebhookEndpoint & { secret: string } }>(
 				'POST',
 				'/admin/webhooks/endpoints',

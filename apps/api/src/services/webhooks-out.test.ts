@@ -59,11 +59,12 @@ afterEach(async () => {
 async function addEndpoint(
 	url: string,
 	events: string[],
+	product?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
 	const res = await h.app.request('/admin/webhooks/endpoints', {
 		method: 'POST',
 		headers: h.adminHeaders,
-		body: JSON.stringify({ url, events }),
+		body: JSON.stringify({ url, events, ...(product ? { product } : {}) }),
 	});
 	return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
@@ -267,5 +268,90 @@ describe('tenancy', () => {
 			});
 			expect(res.status, url).toBeGreaterThanOrEqual(400);
 		}
+	});
+});
+
+describe('per-product endpoint scope (#142)', () => {
+	beforeEach(async () => {
+		await createProduct(h.app, {
+			slug: 'tideglass',
+			name: 'TideGlass',
+			key_prefix: 'TIDE',
+			email_from: 'r@tide.test',
+		});
+	});
+
+	it('a scoped endpoint hears only its own product', async () => {
+		const url = await listen();
+		expect((await addEndpoint(url, ['license.issued'], 'clementine')).status).toBe(200);
+
+		// The other product's event must not reach it.
+		await issueKey(h.app, { product: 'tideglass', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		expect(received).toHaveLength(0);
+
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		expect(received).toHaveLength(1);
+		expect(JSON.parse(received[0].body).license.product).toBe('clementine');
+	});
+
+	it('an unscoped endpoint still hears everything, so existing rows keep working', async () => {
+		const url = await listen();
+		expect((await addEndpoint(url, ['license.issued'])).status).toBe(200);
+
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		await issueKey(h.app, { product: 'tideglass', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+
+		expect(received).toHaveLength(2);
+		expect(received.map((r) => JSON.parse(r.body).license.product).sort()).toEqual([
+			'clementine',
+			'tideglass',
+		]);
+	});
+
+	it('reports the scope on the endpoint list, and null when unscoped', async () => {
+		await addEndpoint('https://a.example.com/h', ['license.issued'], 'tideglass');
+		await addEndpoint('https://b.example.com/h', ['license.issued']);
+
+		const res = await h.app.request('/admin/webhooks/endpoints', { headers: h.adminHeaders });
+		const { endpoints } = (await res.json()) as {
+			endpoints: { url: string; product: string | null }[];
+		};
+		expect(endpoints.find((e) => e.url.includes('a.example.com'))?.product).toBe('tideglass');
+		expect(endpoints.find((e) => e.url.includes('b.example.com'))?.product).toBeNull();
+	});
+
+	it('refuses an unknown product slug', async () => {
+		const r = await addEndpoint('https://a.example.com/h', ['license.issued'], 'nope');
+		expect(r.status).toBe(404);
+	});
+
+	it("refuses another account's product with a 404, never a 403", async () => {
+		// A 403 would confirm the product exists in someone else's account.
+		const cloud: Partial<Config> = {
+			billing: { stripeSecretKey: 'sk_billing', proPriceId: 'price_pro' },
+			logMagicCodes: true,
+		};
+		const ch = await makeHarness({ config: cloud });
+		const alice = await signUp(ch.app, ch.logger, 'alice@alpha.test', 'alpha');
+		const bob = await signUp(ch.app, ch.logger, 'bob@beta.test', 'beta');
+		await createProduct(
+			ch.app,
+			{ slug: 'alpha-app', name: 'Alpha', key_prefix: 'ALPHA', email_from: 'a@alpha.test' },
+			alice,
+		);
+
+		const res = await ch.app.request('/admin/webhooks/endpoints', {
+			method: 'POST',
+			headers: bob,
+			body: JSON.stringify({
+				url: 'https://bob.example.com/h',
+				events: ['license.issued'],
+				product: 'alpha-app',
+			}),
+		});
+		expect(res.status).toBe(404);
 	});
 });

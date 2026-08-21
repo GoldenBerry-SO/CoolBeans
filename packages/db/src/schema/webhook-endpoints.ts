@@ -4,6 +4,7 @@
 import { index, integer, pgTable, serial, text } from 'drizzle-orm/pg-core';
 import { accounts } from './accounts.js';
 import { isoNow } from './columns.js';
+import { products } from './products.js';
 
 export const webhookEndpoints = pgTable('webhook_endpoints', {
 	id: serial('id').primaryKey(),
@@ -12,6 +13,15 @@ export const webhookEndpoints = pgTable('webhook_endpoints', {
 	accountId: integer('account_id')
 		.notNull()
 		.references(() => accounts.id, { onDelete: 'restrict' }),
+	/**
+	 * Scope the endpoint to one product, or NULL for every product in the account.
+	 *
+	 * NULL is the pre-existing behaviour, so endpoints created before this column keep
+	 * receiving everything without a backfill. RESTRICT rather than CASCADE: deleting a
+	 * product out from under a live endpoint should fail loudly instead of silently
+	 * widening that endpoint's scope to the whole account.
+	 */
+	productId: integer('product_id').references(() => products.id, { onDelete: 'restrict' }),
 	url: text('url').notNull(),
 	/** JSON array of subscribed event types, e.g. ["license.issued","activation.created"]. */
 	events: text('events').notNull(),

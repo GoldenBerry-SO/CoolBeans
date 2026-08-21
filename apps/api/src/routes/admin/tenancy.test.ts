@@ -6,7 +6,7 @@ import { createApp } from '../../app.js';
 import type { Config } from '../../config.js';
 import { makeHarness } from '../../test/harness.js';
 import { rawExec, rawQuery } from '../../test/pg.js';
-import { createProduct, issueKey, signUp } from '../../test/seed.js';
+import { createProduct, issueKey, post, signUp } from '../../test/seed.js';
 
 const cloud: Partial<Config> = {
 	// Billing configured is what puts the instance in cloud mode: signup is open, so two
@@ -223,6 +223,43 @@ describe('cross-account listings', () => {
 		const { app, bob } = await twoAccounts();
 		const res = await app.request('/admin/validations', { headers: bob });
 		expect(res.status).toBe(200);
+	});
+
+	it('charts zero for an account that archived everything, not the whole instance', async () => {
+		// Excluding archived products from the chart made "this account has no products to
+		// chart" reachable for an account that merely retired all of them, where before it
+		// needed an account that never had any. This pins the observable result of that
+		// state: your own zero, not the instance's total.
+		//
+		// It passes with or without the early return in recentValidationCounts, because an
+		// empty inArray is already a false predicate. What it defends is the behaviour, so
+		// it still fails if a later refactor of that scoping turns an empty list into no
+		// filter at all.
+		const { app, alice, bob, alphaKey } = await twoAccounts();
+
+		// Validate needs a live instance, so activate first, then check twice.
+		const activated = await post(app, '/v1/activate', {
+			license_key: alphaKey,
+			instance_name: 'alice-mac',
+		});
+		const instanceId = (activated.body as { instance: { id: string } }).instance.id;
+		await post(app, '/v1/validate', { license_key: alphaKey, instance_id: instanceId });
+		await post(app, '/v1/validate', { license_key: alphaKey, instance_id: instanceId });
+
+		const read = async (headers: Record<string, string>) => {
+			const res = await app.request('/admin/validations', { headers });
+			const body = (await res.json()) as {
+				validations: Array<{ licenses: number; checks: number; refused: number }>;
+			};
+			return body.validations.reduce((n, d) => n + d.licenses + d.checks + d.refused, 0);
+		};
+
+		// Alice has traffic, so there is genuinely something for Bob's chart to leak. Without
+		// this the assertion below would pass on an instance where nothing had happened.
+		expect(await read(alice)).toBeGreaterThan(0);
+
+		await app.request('/admin/products/beta-app', { method: 'DELETE', headers: bob });
+		expect(await read(bob)).toBe(0);
 	});
 });
 

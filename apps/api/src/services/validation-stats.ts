@@ -78,8 +78,11 @@ export async function recentValidationCounts(
 	const empty = () => window.map((day) => ({ day, licenses: 0, checks: 0, refused: 0 }));
 
 	const oldest = window[0] ?? dayOf(today);
-	// An empty productIds list means the account owns nothing, which is not the same as
-	// "no filter" — without this it would fall through and total the whole instance.
+	// An empty productIds list means the account has nothing to chart, which is not the same
+	// as "no filter". Returning here is not what currently prevents a cross-account total:
+	// [] is truthy, so the scopes below build inArray(col, []), which is already a false
+	// predicate. It is here to state the intent where it can be read, and as a tripwire for
+	// a refactor that makes those ternaries length-aware and so falls through to no filter.
 	if (args.productIds && args.productIds.length === 0) return empty();
 
 	const counterScope =

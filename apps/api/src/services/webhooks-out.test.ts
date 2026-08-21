@@ -3,22 +3,27 @@
 
 import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { licenses, products } from '@coolbeans/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Config } from '../config.js';
 import { makeHarness, type TestHarness } from '../test/harness.js';
-import { rawQuery } from '../test/pg.js';
+import { rawExec, rawQuery } from '../test/pg.js';
 import { createProduct, issueKey, post, signUp } from '../test/seed.js';
 import { drainOutbox } from './outbox.js';
+import { pruneWebhookDeliveries } from './prune.js';
+import { emitWebhookEvent, WEBHOOK_EVENT_TYPES } from './webhooks-out.js';
 
 let h: TestHarness;
 let server: Server | undefined;
 let received: Array<{ headers: Record<string, string | string[] | undefined>; body: string }>;
 let respondWith = 200;
+let redirectTo: string | null = null;
 
 /** A real local HTTP server: the repo rule is real transports, never mocks. */
 async function listen(): Promise<string> {
 	received = [];
 	respondWith = 200;
+	redirectTo = null;
 	server = createServer((req, res) => {
 		let body = '';
 		req.on('data', (chunk) => {
@@ -26,6 +31,12 @@ async function listen(): Promise<string> {
 		});
 		req.on('end', () => {
 			received.push({ headers: req.headers, body });
+			if (redirectTo) {
+				res.statusCode = 307;
+				res.setHeader('Location', redirectTo);
+				res.end();
+				return;
+			}
 			res.statusCode = respondWith;
 			res.end();
 		});
@@ -268,6 +279,237 @@ describe('tenancy', () => {
 			});
 			expect(res.status, url).toBeGreaterThanOrEqual(400);
 		}
+	});
+});
+
+describe('buyer in the payload (#143)', () => {
+	it('carries buyer.email on every event type, so a consumer never branches', async () => {
+		const url = await listen();
+		await addEndpoint(url, [...WEBHOOK_EVENT_TYPES]);
+		await issueKey(h.app, { product: 'clementine', email: 'buyer@x.test', kind: 'perpetual' });
+
+		// Drive the emitter directly for every type: the six real triggers need six very
+		// different set-ups, and what is under test is that the field is unconditional.
+		const [license] = await h.deps.db.select().from(licenses);
+		const [product] = await h.deps.db.select().from(products);
+		// Flush the delivery the issuance above already queued, so the count below is the
+		// loop's own six and nothing else.
+		await drainOutbox(h.deps);
+		received = [];
+		for (const type of WEBHOOK_EVENT_TYPES) {
+			await emitWebhookEvent(h.deps, { accountId: 1, type, license, product });
+		}
+		await drainOutbox(h.deps);
+
+		expect(received).toHaveLength(WEBHOOK_EVENT_TYPES.length);
+		for (const r of received) {
+			const body = JSON.parse(r.body) as { event: { type: string }; buyer?: { email: string } };
+			expect(body.buyer?.email, `missing on ${body.event.type}`).toBe('buyer@x.test');
+		}
+	});
+
+	it('carries the buyer for a manually issued key', async () => {
+		// Manual issuance still creates a purchase row, so there is no absent-buyer case.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		await issueKey(h.app, { product: 'clementine', email: 'hand@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		expect(JSON.parse(received[0].body).buyer.email).toBe('hand@x.test');
+	});
+
+	it('keeps the email out of the public licence object', async () => {
+		// The `license` object is the frozen §9 shape and the docs promise it matches what
+		// the public API serializes. buyer is assembled in the emitter, never in the shared
+		// serializer, so activate and validate must stay clean.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'private@x.test',
+			kind: 'perpetual',
+		});
+		await drainOutbox(h.deps);
+
+		const delivered = JSON.parse(received[0].body) as {
+			license: Record<string, unknown>;
+			buyer: { email: string };
+		};
+		expect(delivered.buyer.email).toBe('private@x.test');
+		expect(delivered.license).not.toHaveProperty('email');
+
+		const activated = await post(h.app, '/v1/activate', {
+			license_key: key,
+			instance_name: 'their-mac',
+		});
+		const validated = await post(h.app, '/v1/validate', {
+			license_key: key,
+			instance_id: (activated.body as { instance: { id: string } }).instance.id,
+		});
+		expect(JSON.stringify(validated.body)).not.toContain('private@x.test');
+		expect(JSON.stringify(activated.body)).not.toContain('private@x.test');
+	});
+});
+
+describe('buyer email never rides plaintext on cloud (#143)', () => {
+	const cloud: Partial<Config> = {
+		billing: { stripeSecretKey: 'sk_billing', proPriceId: 'price_pro' },
+		logMagicCodes: true,
+	};
+
+	it('refuses an http endpoint on cloud, because the payload carries an email', async () => {
+		const ch = await makeHarness({ config: cloud });
+		const owner = await signUp(ch.app, ch.logger, 'v@vendor.test', 'vendor');
+		await createProduct(
+			ch.app,
+			{ slug: 'app', name: 'App', key_prefix: 'APP', email_from: 'r@v.test' },
+			owner,
+		);
+		const res = await ch.app.request('/admin/webhooks/endpoints', {
+			method: 'POST',
+			headers: owner,
+			body: JSON.stringify({ url: 'http://hooks.vendor.test/h', events: ['license.issued'] }),
+		});
+		expect(res.status).toBeGreaterThanOrEqual(400);
+		expect(JSON.stringify(await res.json())).toMatch(/https/i);
+	});
+
+	it('still allows http on self-host, where the operator owns the network', async () => {
+		// Same rule as the loopback case: self-host is one operator's own machines.
+		const r = await addEndpoint('http://127.0.0.1:9998/h', ['license.issued']);
+		expect(r.status, JSON.stringify(r.body)).toBe(200);
+	});
+
+	it('sends a null email to a cloud endpoint whose URL is plaintext', async () => {
+		// Registration refuses these now, but a row may already exist from before the rule.
+		// The buyer object still ships, so no consumer has to branch on its absence; the
+		// address just does not travel in the clear.
+		const ch = await makeHarness({ config: cloud });
+		const owner = await signUp(ch.app, ch.logger, 'v@vendor.test', 'vendor');
+		await createProduct(
+			ch.app,
+			{ slug: 'app', name: 'App', key_prefix: 'APP', email_from: 'r@v.test' },
+			owner,
+		);
+		const register = async (url: string) => {
+			const res = await ch.app.request('/admin/webhooks/endpoints', {
+				method: 'POST',
+				headers: owner,
+				body: JSON.stringify({ url, events: ['license.issued'] }),
+			});
+			expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+		};
+		// Registered over https, which is allowed, then downgraded behind our back.
+		await register('https://plain.vendor.test/h');
+		await register('https://secure.vendor.test/h');
+		const local = await listen();
+		await rawExec(
+			`UPDATE webhook_endpoints SET url = '${local}' WHERE url = 'https://plain.vendor.test/h'`,
+		);
+
+		await issueKey(ch.app, { product: 'app', email: 'buyer@x.test', kind: 'perpetual' }, owner);
+		await drainOutbox(ch.deps);
+
+		// What actually went over the plaintext connection.
+		expect(received).toHaveLength(1);
+		expect(JSON.parse(received[0].body).buyer.email).toBeNull();
+
+		// The https endpoint is unreachable in a test, but its body is stored, and that body
+		// is what proves the null above is about the scheme and not about losing the email.
+		const rows = await rawQuery<{ payload: string }>(
+			"SELECT d.payload FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id = d.endpoint_id WHERE e.url = 'https://secure.vendor.test/h'",
+		);
+		expect(JSON.parse(rows[0].payload).buyer.email).toBe('buyer@x.test');
+	});
+});
+
+describe('redirects are not followed', () => {
+	it('refuses to follow a redirect, so the payload cannot be moved elsewhere', async () => {
+		// fetch follows redirects by default, which would let a receiver bounce the body,
+		// buyer email included, onto http:// or onto a private address the registration
+		// checks refused. The delivery fails instead and says why.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		redirectTo = `${url}/somewhere-else`;
+
+		await issueKey(h.app, { product: 'clementine', email: 'buyer@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+
+		// One request only. Following the redirect would have produced a second.
+		expect(received).toHaveLength(1);
+		const [row] = await rawQuery<{ status: string; last_error: string }>(
+			'SELECT status, last_error FROM webhook_deliveries',
+		);
+		expect(row.status).toBe('pending');
+		expect(row.last_error).toMatch(/redirect/i);
+	});
+});
+
+describe('retention (#141)', () => {
+	it('an in-flight delivery survives a prune and still delivers afterwards', async () => {
+		// The prune skips pending rows, and this is why it has to: the stored payload is the
+		// only copy of the body. Delete it and the retry has nothing to send.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+
+		respondWith = 500;
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		const [pending] = await rawQuery<{ status: string; payload: string }>(
+			'SELECT status, payload FROM webhook_deliveries',
+		);
+		expect(pending.status).toBe('pending');
+
+		// Age it far past the window. A finished delivery this old would go.
+		h.clock.advance(60 * 24 * 60 * 60 * 1000);
+		expect(await pruneWebhookDeliveries(h.deps)).toBe(0);
+
+		respondWith = 200;
+		await drainOutbox(h.deps);
+		const [after] = await rawQuery<{ status: string; payload: string }>(
+			'SELECT status, payload FROM webhook_deliveries',
+		);
+		expect(after.status).toBe('delivered');
+		// The body that went is the one that was stored, not one rebuilt from now.
+		expect(after.payload).toBe(pending.payload);
+		expect(received).toHaveLength(2);
+	});
+
+	it('a delivery pruned out from under an in-flight job is a clean no-op', async () => {
+		// The prune only touches terminal rows, so this needs the delete to land between the
+		// worker reading a row and finishing with it. What has to hold is that a vanished row
+		// is not an error: the job completes, so there is no retry storm and no second send.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		respondWith = 500;
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		expect(received).toHaveLength(1);
+
+		await rawExec('DELETE FROM webhook_deliveries');
+
+		// The outbox job still points at the row that is now gone.
+		respondWith = 200;
+		h.clock.advance(5 * 60_000);
+		await drainOutbox(h.deps);
+
+		// No further attempt was made, and the job did not stay pending to try again forever.
+		expect(received).toHaveLength(1);
+		const outbox = await rawQuery<{ status: string }>(
+			"SELECT status FROM outbox WHERE kind = 'deliver_webhook'",
+		);
+		expect(outbox.every((o) => o.status !== 'pending')).toBe(true);
+	});
+
+	it('prunes the same delivery once it is finished', async () => {
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		const [row] = await rawQuery<{ status: string }>('SELECT status FROM webhook_deliveries');
+		expect(row.status).toBe('delivered');
+
+		h.clock.advance(60 * 24 * 60 * 60 * 1000);
+		expect(await pruneWebhookDeliveries(h.deps)).toBe(1);
 	});
 });
 

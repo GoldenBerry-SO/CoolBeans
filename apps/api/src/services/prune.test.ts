@@ -1,12 +1,17 @@
 // ABOUTME: Retention prune (issue #49) — provider_events age out, audit_log never does.
 // ABOUTME: The window matters: prune inside a provider's retry window and idempotency breaks.
 
-import { providerEvents } from '@coolbeans/db';
+import { providerEvents, webhookDeliveries, webhookEndpoints } from '@coolbeans/db';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { writeAudit } from '../store/audit.js';
 import { makeHarness, type TestHarness } from '../test/harness.js';
 import { rawQuery } from '../test/pg.js';
-import { PROVIDER_EVENT_RETENTION_DAYS, pruneProviderEvents } from './prune.js';
+import {
+	PROVIDER_EVENT_RETENTION_DAYS,
+	pruneProviderEvents,
+	pruneWebhookDeliveries,
+	WEBHOOK_DELIVERY_RETENTION_DAYS,
+} from './prune.js';
 
 let h: TestHarness;
 
@@ -100,5 +105,110 @@ describe('pruneProviderEvents', () => {
 		);
 		// Postgres COUNT(*) comes back as a bigint the driver serialises to a string.
 		expect(Number(n.n)).toBe(0);
+	});
+});
+
+describe('pruneWebhookDeliveries', () => {
+	/** An endpoint to hang deliveries off; the FK requires one. */
+	async function seedEndpoint(): Promise<number> {
+		const [row] = await h.deps.db
+			.insert(webhookEndpoints)
+			.values({
+				accountId: 1,
+				url: 'https://vendor.example.com/hook',
+				events: JSON.stringify(['license.issued']),
+				secret: 'cbw_seeded',
+			})
+			.returning({ id: webhookEndpoints.id });
+		if (!row) throw new Error('no endpoint');
+		return row.id;
+	}
+
+	async function seedDelivery(
+		endpointId: number,
+		status: 'pending' | 'delivered' | 'failed',
+		ageDays: number,
+	): Promise<number> {
+		const createdAt = new Date(h.clock.now().getTime() - ageDays * DAY).toISOString();
+		const [row] = await h.deps.db
+			.insert(webhookDeliveries)
+			.values({
+				endpointId,
+				eventType: 'license.issued',
+				payload: JSON.stringify({ buyer: { email: 'buyer@example.test' } }),
+				status,
+				createdAt,
+			})
+			.returning({ id: webhookDeliveries.id });
+		if (!row) throw new Error('no delivery');
+		return row.id;
+	}
+
+	const statuses = async () =>
+		(await h.deps.db.select().from(webhookDeliveries)).map((r) => r.status).sort();
+
+	it('keeps a finished delivery that is still inside the window', async () => {
+		const e = await seedEndpoint();
+		await seedDelivery(e, 'delivered', 0);
+		await seedDelivery(e, 'failed', WEBHOOK_DELIVERY_RETENTION_DAYS - 1);
+		expect(await pruneWebhookDeliveries(h.deps)).toBe(0);
+		expect(await statuses()).toEqual(['delivered', 'failed']);
+	});
+
+	it('drops delivered and failed deliveries past the window', async () => {
+		// The stored payload is the reason this matters: it is the whole event body, and
+		// once buyers ride in it that is personal data we should not keep forever.
+		const e = await seedEndpoint();
+		await seedDelivery(e, 'delivered', WEBHOOK_DELIVERY_RETENTION_DAYS + 1);
+		await seedDelivery(e, 'failed', WEBHOOK_DELIVERY_RETENTION_DAYS + 40);
+		await seedDelivery(e, 'delivered', 1);
+		expect(await pruneWebhookDeliveries(h.deps)).toBe(2);
+		expect(await statuses()).toEqual(['delivered']);
+	});
+
+	it('never prunes a pending delivery, however old it looks', async () => {
+		// A pending row still owes a retry, and the body cannot be rebuilt: the licence may
+		// have been disabled since, and at-least-once has to send the event as it was.
+		const e = await seedEndpoint();
+		await seedDelivery(e, 'pending', WEBHOOK_DELIVERY_RETENTION_DAYS + 365);
+		expect(await pruneWebhookDeliveries(h.deps)).toBe(0);
+		expect(await statuses()).toEqual(['pending']);
+	});
+
+	it('records what it pruned, and stays quiet when it pruned nothing', async () => {
+		const e = await seedEndpoint();
+		await seedDelivery(e, 'delivered', WEBHOOK_DELIVERY_RETENTION_DAYS + 5);
+		await pruneWebhookDeliveries(h.deps);
+		const [row] = await rawQuery<{ actor: string; detail: string }>(
+			"SELECT actor, detail FROM audit_log WHERE action = 'webhook_deliveries.pruned'",
+		);
+		expect(row?.actor).toBe('system');
+		expect(JSON.parse(row?.detail ?? '{}')).toMatchObject({ deleted: 1 });
+
+		expect(await pruneWebhookDeliveries(h.deps)).toBe(0);
+		const [n] = await rawQuery<{ n: number }>(
+			"SELECT COUNT(*) n FROM audit_log WHERE action = 'webhook_deliveries.pruned'",
+		);
+		expect(Number(n.n)).toBe(1);
+	});
+
+	it('actually runs from the sweep, and is counted in what it reports', async () => {
+		// Without this the prune is dead code that still passes every test above: nothing in
+		// production calls it directly, only runSweeps does.
+		const { runSweeps } = await import('./sweep.js');
+		const e = await seedEndpoint();
+		await seedDelivery(e, 'delivered', WEBHOOK_DELIVERY_RETENTION_DAYS + 2);
+		await seedDelivery(e, 'pending', WEBHOOK_DELIVERY_RETENTION_DAYS + 2);
+
+		const result = await runSweeps(h.deps);
+
+		expect(result.pruned).toBe(1);
+		expect(await statuses()).toEqual(['pending']);
+	});
+
+	it('shares one retention window with the provider-event prune', async () => {
+		// Two retention policies for "rows we only needed briefly" is a policy to forget to
+		// change in one place.
+		expect(WEBHOOK_DELIVERY_RETENTION_DAYS).toBe(PROVIDER_EVENT_RETENTION_DAYS);
 	});
 });

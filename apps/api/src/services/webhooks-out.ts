@@ -3,7 +3,7 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { License, Product, WebhookEndpoint } from '@coolbeans/db';
-import { products, webhookDeliveries, webhookEndpoints } from '@coolbeans/db';
+import { products, purchases, webhookDeliveries, webhookEndpoints } from '@coolbeans/db';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate, withTx } from '../deps.js';
@@ -82,7 +82,30 @@ function assertUsableUrl(deps: AppDeps, raw: string): URL {
 			'That URL points inside a private network. Webhook receivers must be publicly reachable.',
 		);
 	}
+	// The payload carries the buyer's email, so on cloud it crosses networks we do not own
+	// and plaintext would put a customer's address in front of every observer on the path.
+	// Self-host keeps http on purpose: there the operator owns both ends, the same reason
+	// loopback receivers are allowed there.
+	if (deps.config.billing && url.protocol !== 'https:') {
+		throw validationError(
+			"Webhook URLs must use https: the payload carries your customer's email address.",
+		);
+	}
 	return url;
+}
+
+/**
+ * True when this endpoint would carry the buyer's email over a connection we do not own.
+ * Cloud only: on self-host the operator owns both ends of the wire.
+ */
+function sendsBuyerInClear(deps: AppDeps, endpointUrl: string): boolean {
+	if (!deps.config.billing) return false;
+	try {
+		return new URL(endpointUrl).protocol !== 'https:';
+	} catch {
+		// An unparseable stored URL cannot be shown to be safe, so withhold the address.
+		return true;
+	}
 }
 
 function assertKnownEvents(events: string[]): asserts events is WebhookEventType[] {
@@ -241,11 +264,35 @@ export async function emitWebhookEvent(deps: AppDeps, args: WebhookEventArgs): P
 				(e.productId == null || e.productId === args.product.id),
 		);
 		if (subscribed.length === 0) return;
-		const payload = JSON.stringify({
-			event: { type: args.type, created_at: nowDate(deps).toISOString() },
-			license: serializeLicense(args.license, args.product),
-			...(args.detail ?? {}),
-		});
+
+		// Only now that something is actually listening. activation.created fires on every
+		// activation, so a vendor with no webhooks configured must not pay for this read on
+		// the frozen public path.
+		//
+		// purchase_id is NOT NULL behind a foreign key and purchases.email is NOT NULL, so
+		// there is no absent-buyer case to design around. If the row somehow cannot be read
+		// anyway, deliver with the field null rather than dropping the event: a consumer that
+		// receives nothing is worse off than one that receives a null it will never see.
+		const [purchase] = await deps.db
+			.select({ email: purchases.email })
+			.from(purchases)
+			.where(eq(purchases.id, args.license.purchaseId));
+
+		const createdAt = nowDate(deps).toISOString();
+		const bodyFor = (endpointUrl: string) =>
+			JSON.stringify({
+				event: { type: args.type, created_at: createdAt },
+				// The §9 licence object exactly as the public API serializes it. The buyer is
+				// assembled here and never in that shared serializer, because a field added there
+				// would surface on every activate and validate response, which is the drift §9
+				// forbids.
+				license: serializeLicense(args.license, args.product),
+				// Registration refuses plaintext on cloud, but a row predating that rule can
+				// still be http. The object always ships so no consumer branches on its absence;
+				// the address is what stays behind.
+				buyer: { email: sendsBuyerInClear(deps, endpointUrl) ? null : (purchase?.email ?? null) },
+				...(args.detail ?? {}),
+			});
 		for (const endpoint of subscribed) {
 			// One transaction per delivery: a row without its outbox job would sit 'pending'
 			// forever, since the drain only ever claims jobs (Codex, #108 review).
@@ -253,7 +300,7 @@ export async function emitWebhookEvent(deps: AppDeps, args: WebhookEventArgs): P
 				const scoped = withTx(deps, tx as AppDeps['db']);
 				const [row] = await scoped.db
 					.insert(webhookDeliveries)
-					.values({ endpointId: endpoint.id, eventType: args.type, payload })
+					.values({ endpointId: endpoint.id, eventType: args.type, payload: bodyFor(endpoint.url) })
 					.returning({ id: webhookDeliveries.id });
 				if (row) await enqueue(scoped, 'deliver_webhook', { deliveryId: row.id });
 			});
@@ -326,8 +373,17 @@ export async function deliverWebhook(deps: AppDeps, deliveryId: number): Promise
 				'X-CoolBeans-Signature': signWebhookBody(secret, timestamp, delivery.payload),
 			},
 			body: delivery.payload,
+			// Never follow a redirect. Left on the default, a receiver could bounce the body,
+			// buyer email included, onto http:// or onto a private address that registration
+			// refused, and fetch would replay the POST at every hop until it hit its limit.
+			redirect: 'manual',
 			signal: AbortSignal.timeout(10_000),
 		});
+		if (res.status >= 300 && res.status < 400) {
+			throw new Error(
+				`Receiver redirected (HTTP ${res.status}). Register the final URL instead; we do not follow redirects.`,
+			);
+		}
 		if (!res.ok) throw new Error(`Receiver answered HTTP ${res.status}`);
 		await deps.db
 			.update(webhookDeliveries)

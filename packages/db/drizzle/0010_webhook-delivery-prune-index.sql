@@ -1,0 +1,1 @@
+CREATE INDEX "idx_webhook_deliveries_prune" ON "webhook_deliveries" USING btree ("status","created_at");

@@ -51,8 +51,41 @@ delivery log.
 | `activation.created` | A device claimed a seat; `instance` carries its id and name |
 | `activation.deactivated` | A seat was freed: manual deactivate, the customer portal, or an expired floating lease (`reason: "lease_expired"`) |
 
-Every payload carries `event` (`type`, `created_at`) and the `license` object exactly as the public
-API serializes it: `key`, `status`, `kind`, `plan`, `product`, `expires_at`.
+Every payload carries `event` (`type`, `created_at`), the `license` object exactly as the public
+API serializes it (`key`, `status`, `kind`, `plan`, `product`, `expires_at`), and `buyer`:
+
+```json
+{
+  "event":   { "type": "license.issued", "created_at": "2026-08-21T20:41:00.000Z" },
+  "license": { "key": "CLEM-...", "status": "active", "kind": "perpetual", "product": "clementine" },
+  "buyer":   { "email": "someone@example.com" }
+}
+```
+
+`buyer.email` is the address the licence was issued to, so you can wire a CRM or a Slack message
+without looking the customer up first. It rides on all six event types, so you never have to branch
+on the type to know whether it's there.
+
+**This means the payload contains your customer's email address.** Two things follow.
+
+On the hosted service, webhook URLs must be `https`. We refuse to register an `http` one, because
+the address would cross networks we don't own in the clear. If you have an older endpoint that is
+still `http`, it keeps receiving events and the `buyer` object still arrives, but `email` comes
+through as `null` until you re-register it over https. Self-hosting keeps `http`, including
+loopback and LAN addresses, because there you own both ends of the wire.
+
+We also keep a copy, though not one you can read back. Each delivery stores the exact body it sent,
+because a retry has to send the event as it was rather than rebuilt from whatever is true later. The
+delivery log you see in the console shows status, attempts and the last error, never the body, so
+the email is not served back out to anyone.
+
+A stored row is deleted once its delivery has finished, succeeded or given up, and the event it
+carries is more than 30 days old. The clock runs from the event, not from the delivery, because it
+is the customer's address we're putting a limit on. A delivery still waiting to retry is kept
+regardless of age, since its stored body is the only copy of what it owes.
+
+Email only, deliberately. You already know what your customer paid, because the charge is in your
+own Stripe account.
 
 ## Delivery contract
 
@@ -61,6 +94,10 @@ API serializes it: `key`, `status`, `kind`, `plan`, `product`, `expires_at`.
 - A dead receiver never slows or fails issuance. Delivery is asynchronous by design.
 - Answer any 2xx quickly and do your work after responding. Anything else counts as a failure and is
   retried.
+- **Redirects are not followed.** A 3xx counts as a failure, so register the final URL rather than
+  one that bounces. We refuse because a redirect can move the payload, your customer's email
+  included, onto a plaintext connection or to an address we would have refused at registration. If a
+  load balancer adds or strips a trailing slash, register the URL it settles on.
 - The delivery log (console, then Webhooks, then Deliveries) shows status, attempts, and the last
   error per delivery.
 

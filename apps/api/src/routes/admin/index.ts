@@ -15,7 +15,7 @@ import { connectStripe } from '../../services/stripe-connect.js';
 import { startConnectAuthorization } from '../../services/stripe-onboarding.js';
 import { recentValidationCounts } from '../../services/validation-stats.js';
 import { writeAudit } from '../../store/audit.js';
-import { accountProductIds } from '../../store/products.js';
+import { liveProductIds } from '../../store/products.js';
 import { registerAdminBillingRoutes } from './billing.js';
 import { registerAdminExportRoutes } from './export.js';
 import { registerAdminGrantRoutes } from './grants.js';
@@ -45,10 +45,11 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	// layer. Each count therefore has to carry its own account filter — licences and
 	// activations reach it by joining back through products.
 	//
-	// The archived filter is deliberately on the product count only. Archiving stops new
-	// issuance; §9 promises issued keys keep validating, so licences and seats on an
-	// archived product are genuinely still live and zeroing them would hide real
-	// customers from a vendor who still owes them support.
+	// Every count here excludes archived products. This is a dashboard, so it answers
+	// "what is my business doing now", and a retired product inflating the numbers makes
+	// the live ones unreadable. Archived data is not lost: the product list still shows it
+	// with include_archived, the purchases lookup is scoped to every product an account
+	// has ever owned, and the keys themselves keep validating exactly as §9 promises.
 	admin.get('/stats', async (c) => {
 		const accountId = accountScope(c).id;
 		// COUNT(*) is bigint, which the driver hands back as a string to avoid losing
@@ -62,25 +63,22 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		return c.json({
 			ok: true,
 			stats: {
-				// Live products only, so this agrees with the console list and with the plan
-				// cap, both of which exclude archived. It used to count them and reported one
-				// more product than the operator could see anywhere else.
 				products: await count(
 					sql`SELECT COUNT(*) n FROM products WHERE account_id = ${accountId} AND archived_at IS NULL`,
 				),
 				active_licenses: await count(
-					sql`SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND l.status = 'active'`,
+					sql`SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND p.archived_at IS NULL AND l.status = 'active'`,
 				),
 				total_licenses: await count(
-					sql`SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId}`,
+					sql`SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND p.archived_at IS NULL`,
 				),
 				live_activations: await count(
-					sql`SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND a.deactivated_at IS NULL`,
+					sql`SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND p.archived_at IS NULL AND a.deactivated_at IS NULL`,
 				),
 				// New seats claimed in the last week — the "is anyone using this" pulse (#99).
 				// ISO-8601 strings in one zone compare correctly as text.
 				activations_7d: await count(
-					sql`SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND a.created_at > ${new Date(nowDate(deps).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()}`,
+					sql`SELECT COUNT(*) n FROM activations a JOIN licenses l ON l.id = a.license_id JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND p.archived_at IS NULL AND a.created_at > ${new Date(nowDate(deps).getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()}`,
 				),
 			},
 		});
@@ -99,7 +97,7 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 				productId: product?.id,
 				// With no slug the chart covers the whole account, which means every product
 				// it owns and no one else's.
-				...(product ? {} : { productIds: await accountProductIds(deps.db, accountId) }),
+				...(product ? {} : { productIds: await liveProductIds(deps.db, accountId) }),
 			}),
 		});
 	});

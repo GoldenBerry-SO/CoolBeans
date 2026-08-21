@@ -95,10 +95,28 @@ jobs:
       # Publishing from the package directory is safe because neither package depends on
       # a workspace package: the SDK has no runtime dependencies and the CLI only needs
       # commander from the registry. There is no workspace: protocol to leave unresolved.
+      #
+      # Each package is skipped if that exact version is already on the registry, which
+      # makes the whole step re-runnable. Without the check, an SDK publish that succeeds
+      # followed by a CLI publish that fails (a transient npm error is enough) can never be
+      # repaired by re-running: npm versions are immutable, so the retry dies on the SDK
+      # again, `bash -e` aborts the step, and the loop never reaches the CLI. The release
+      # would sit half-published until someone bumped both versions and re-tagged.
+      #
+      # `npm view` exits non-zero when the version does not exist, including for a package
+      # that has never been published, so a first release falls through to publish. If the
+      # lookup fails for some other reason we still attempt the publish, which is the same
+      # behaviour as before rather than a silent skip.
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
         run: |
           for p in sdk cli; do
+            NAME=$(node -p "require('./packages/$p/package.json').name")
+            VER=$(node -p "require('./packages/$p/package.json').version")
+            if npm view "$NAME@$VER" version >/dev/null 2>&1; then
+              echo "$NAME@$VER is already on the registry, skipping"
+              continue
+            fi
             ( cd "packages/$p" && npm publish --access public --provenance )
           done
         env:

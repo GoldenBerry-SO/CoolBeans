@@ -7,7 +7,7 @@ import { licenses, products } from '@coolbeans/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Config } from '../config.js';
 import { makeHarness, type TestHarness } from '../test/harness.js';
-import { rawQuery } from '../test/pg.js';
+import { rawExec, rawQuery } from '../test/pg.js';
 import { createProduct, issueKey, post, signUp } from '../test/seed.js';
 import { drainOutbox } from './outbox.js';
 import { pruneWebhookDeliveries } from './prune.js';
@@ -339,6 +339,78 @@ describe('buyer in the payload (#143)', () => {
 		});
 		expect(JSON.stringify(validated.body)).not.toContain('private@x.test');
 		expect(JSON.stringify(activated.body)).not.toContain('private@x.test');
+	});
+});
+
+describe('buyer email never rides plaintext on cloud (#143)', () => {
+	const cloud: Partial<Config> = {
+		billing: { stripeSecretKey: 'sk_billing', proPriceId: 'price_pro' },
+		logMagicCodes: true,
+	};
+
+	it('refuses an http endpoint on cloud, because the payload carries an email', async () => {
+		const ch = await makeHarness({ config: cloud });
+		const owner = await signUp(ch.app, ch.logger, 'v@vendor.test', 'vendor');
+		await createProduct(
+			ch.app,
+			{ slug: 'app', name: 'App', key_prefix: 'APP', email_from: 'r@v.test' },
+			owner,
+		);
+		const res = await ch.app.request('/admin/webhooks/endpoints', {
+			method: 'POST',
+			headers: owner,
+			body: JSON.stringify({ url: 'http://hooks.vendor.test/h', events: ['license.issued'] }),
+		});
+		expect(res.status).toBeGreaterThanOrEqual(400);
+		expect(JSON.stringify(await res.json())).toMatch(/https/i);
+	});
+
+	it('still allows http on self-host, where the operator owns the network', async () => {
+		// Same rule as the loopback case: self-host is one operator's own machines.
+		const r = await addEndpoint('http://127.0.0.1:9998/h', ['license.issued']);
+		expect(r.status, JSON.stringify(r.body)).toBe(200);
+	});
+
+	it('sends a null email to a cloud endpoint whose URL is plaintext', async () => {
+		// Registration refuses these now, but a row may already exist from before the rule.
+		// The buyer object still ships, so no consumer has to branch on its absence; the
+		// address just does not travel in the clear.
+		const ch = await makeHarness({ config: cloud });
+		const owner = await signUp(ch.app, ch.logger, 'v@vendor.test', 'vendor');
+		await createProduct(
+			ch.app,
+			{ slug: 'app', name: 'App', key_prefix: 'APP', email_from: 'r@v.test' },
+			owner,
+		);
+		const register = async (url: string) => {
+			const res = await ch.app.request('/admin/webhooks/endpoints', {
+				method: 'POST',
+				headers: owner,
+				body: JSON.stringify({ url, events: ['license.issued'] }),
+			});
+			expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+		};
+		// Registered over https, which is allowed, then downgraded behind our back.
+		await register('https://plain.vendor.test/h');
+		await register('https://secure.vendor.test/h');
+		const local = await listen();
+		await rawExec(
+			`UPDATE webhook_endpoints SET url = '${local}' WHERE url = 'https://plain.vendor.test/h'`,
+		);
+
+		await issueKey(ch.app, { product: 'app', email: 'buyer@x.test', kind: 'perpetual' }, owner);
+		await drainOutbox(ch.deps);
+
+		// What actually went over the plaintext connection.
+		expect(received).toHaveLength(1);
+		expect(JSON.parse(received[0].body).buyer.email).toBeNull();
+
+		// The https endpoint is unreachable in a test, but its body is stored, and that body
+		// is what proves the null above is about the scheme and not about losing the email.
+		const rows = await rawQuery<{ payload: string }>(
+			"SELECT d.payload FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id = d.endpoint_id WHERE e.url = 'https://secure.vendor.test/h'",
+		);
+		expect(JSON.parse(rows[0].payload).buyer.email).toBe('buyer@x.test');
 	});
 });
 

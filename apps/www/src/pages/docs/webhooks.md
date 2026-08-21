@@ -66,9 +66,15 @@ API serializes it (`key`, `status`, `kind`, `plan`, `product`, `expires_at`), an
 without looking the customer up first. It rides on all six event types, so you never have to branch
 on the type to know whether it's there.
 
-**This means the payload contains your customer's email address.** Two things follow. Your endpoint
-should be a URL you'd be comfortable sending personal data to, so HTTPS and a receiver you control.
-And we keep a copy: the delivery log stores the exact body that was sent, so you can see what went
+**This means the payload contains your customer's email address.** Two things follow.
+
+On the hosted service, webhook URLs must be `https`. We refuse to register an `http` one, because
+the address would cross networks we don't own in the clear. If you have an older endpoint that is
+still `http`, it keeps receiving events and the `buyer` object still arrives, but `email` comes
+through as `null` until you re-register it over https. Self-hosting keeps `http`, including
+loopback and LAN addresses, because there you own both ends of the wire.
+
+We also keep a copy. The delivery log stores the exact body that was sent, so you can see what went
 out. Those rows are deleted 30 days after a delivery finishes, whether it succeeded or gave up. A
 delivery still waiting to retry is kept regardless of age, because its stored body is the only copy
 and a retry has to send the event as it was.

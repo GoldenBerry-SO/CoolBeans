@@ -73,7 +73,13 @@ export const webhookDeliveries = pgTable(
 		deliveredAt: text('delivered_at'),
 		createdAt: text('created_at').notNull().default(isoNow),
 	},
-	(t) => [index('idx_webhook_deliveries_endpoint').on(t.endpointId, t.id)],
+	(t) => [
+		index('idx_webhook_deliveries_endpoint').on(t.endpointId, t.id),
+		// The retention sweep runs every few minutes and filters on exactly this pair. Without
+		// it that sweep scans the whole retained log even when nothing is eligible, so its cost
+		// grows with webhook volume. Same shape as idx_outbox_pending.
+		index('idx_webhook_deliveries_prune').on(t.status, t.createdAt),
+	],
 );
 
 export type WebhookEndpoint = typeof webhookEndpoints.$inferSelect;

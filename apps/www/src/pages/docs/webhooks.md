@@ -75,9 +75,11 @@ through as `null` until you re-register it over https. Self-hosting keeps `http`
 loopback and LAN addresses, because there you own both ends of the wire.
 
 We also keep a copy. The delivery log stores the exact body that was sent, so you can see what went
-out. Those rows are deleted 30 days after a delivery finishes, whether it succeeded or gave up. A
-delivery still waiting to retry is kept regardless of age, because its stored body is the only copy
-and a retry has to send the event as it was.
+out. A row is deleted once the delivery has finished, succeeded or given up, and the event it
+carries is more than 30 days old. The clock runs from the event, not from the delivery, because it
+is the customer's address we're putting a limit on. A delivery still waiting to retry is kept
+regardless of age, because its stored body is the only copy and a retry has to send the event as it
+was.
 
 Email only, deliberately. You already know what your customer paid, because the charge is in your
 own Stripe account.

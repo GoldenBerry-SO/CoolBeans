@@ -17,11 +17,13 @@ let h: TestHarness;
 let server: Server | undefined;
 let received: Array<{ headers: Record<string, string | string[] | undefined>; body: string }>;
 let respondWith = 200;
+let redirectTo: string | null = null;
 
 /** A real local HTTP server: the repo rule is real transports, never mocks. */
 async function listen(): Promise<string> {
 	received = [];
 	respondWith = 200;
+	redirectTo = null;
 	server = createServer((req, res) => {
 		let body = '';
 		req.on('data', (chunk) => {
@@ -29,6 +31,12 @@ async function listen(): Promise<string> {
 		});
 		req.on('end', () => {
 			received.push({ headers: req.headers, body });
+			if (redirectTo) {
+				res.statusCode = 307;
+				res.setHeader('Location', redirectTo);
+				res.end();
+				return;
+			}
 			res.statusCode = respondWith;
 			res.end();
 		});
@@ -411,6 +419,28 @@ describe('buyer email never rides plaintext on cloud (#143)', () => {
 			"SELECT d.payload FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id = d.endpoint_id WHERE e.url = 'https://secure.vendor.test/h'",
 		);
 		expect(JSON.parse(rows[0].payload).buyer.email).toBe('buyer@x.test');
+	});
+});
+
+describe('redirects are not followed', () => {
+	it('refuses to follow a redirect, so the payload cannot be moved elsewhere', async () => {
+		// fetch follows redirects by default, which would let a receiver bounce the body,
+		// buyer email included, onto http:// or onto a private address the registration
+		// checks refused. The delivery fails instead and says why.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		redirectTo = `${url}/somewhere-else`;
+
+		await issueKey(h.app, { product: 'clementine', email: 'buyer@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+
+		// One request only. Following the redirect would have produced a second.
+		expect(received).toHaveLength(1);
+		const [row] = await rawQuery<{ status: string; last_error: string }>(
+			'SELECT status, last_error FROM webhook_deliveries',
+		);
+		expect(row.status).toBe('pending');
+		expect(row.last_error).toMatch(/redirect/i);
 	});
 });
 

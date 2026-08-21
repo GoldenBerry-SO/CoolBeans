@@ -64,6 +64,13 @@ export const WEBHOOK_DELIVERY_RETENTION_DAYS = PROVIDER_EVENT_RETENTION_DAYS;
  * now. Same reasoning as the 'processing' exclusion above.
  *
  * This is also what keeps buyer emails in those payloads from being kept indefinitely.
+ *
+ * The window is measured from createdAt, when the event fired, not from when delivery
+ * happened to finish. That is deliberate: this is a retention policy over personal data,
+ * so the clock should start when the address entered the table, not when we managed to
+ * hand it over. The practical effect is a delivery that stayed pending for longer than the
+ * window is eligible as soon as it settles, which needs the worker to have been down for a
+ * month. In that situation the missing delivery log is not the problem worth solving.
  */
 export async function pruneWebhookDeliveries(deps: AppDeps): Promise<number> {
 	const cutoff = new Date(

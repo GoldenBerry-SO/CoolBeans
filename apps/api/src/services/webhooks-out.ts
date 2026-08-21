@@ -373,8 +373,17 @@ export async function deliverWebhook(deps: AppDeps, deliveryId: number): Promise
 				'X-CoolBeans-Signature': signWebhookBody(secret, timestamp, delivery.payload),
 			},
 			body: delivery.payload,
+			// Never follow a redirect. Left on the default, a receiver could bounce the body,
+			// buyer email included, onto http:// or onto a private address that registration
+			// refused, and fetch would replay the POST at every hop until it hit its limit.
+			redirect: 'manual',
 			signal: AbortSignal.timeout(10_000),
 		});
+		if (res.status >= 300 && res.status < 400) {
+			throw new Error(
+				`Receiver redirected (HTTP ${res.status}). Register the final URL instead; we do not follow redirects.`,
+			);
+		}
 		if (!res.ok) throw new Error(`Receiver answered HTTP ${res.status}`);
 		await deps.db
 			.update(webhookDeliveries)

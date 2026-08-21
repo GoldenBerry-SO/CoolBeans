@@ -474,6 +474,32 @@ describe('retention (#141)', () => {
 		expect(received).toHaveLength(2);
 	});
 
+	it('a delivery pruned out from under an in-flight job is a clean no-op', async () => {
+		// The prune only touches terminal rows, so this needs the delete to land between the
+		// worker reading a row and finishing with it. What has to hold is that a vanished row
+		// is not an error: the job completes, so there is no retry storm and no second send.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		respondWith = 500;
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		expect(received).toHaveLength(1);
+
+		await rawExec('DELETE FROM webhook_deliveries');
+
+		// The outbox job still points at the row that is now gone.
+		respondWith = 200;
+		h.clock.advance(5 * 60_000);
+		await drainOutbox(h.deps);
+
+		// No further attempt was made, and the job did not stay pending to try again forever.
+		expect(received).toHaveLength(1);
+		const outbox = await rawQuery<{ status: string }>(
+			"SELECT status FROM outbox WHERE kind = 'deliver_webhook'",
+		);
+		expect(outbox.every((o) => o.status !== 'pending')).toBe(true);
+	});
+
 	it('prunes the same delivery once it is finished', async () => {
 		const url = await listen();
 		await addEndpoint(url, ['license.issued']);

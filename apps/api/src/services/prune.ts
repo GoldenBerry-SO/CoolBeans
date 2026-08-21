@@ -1,8 +1,8 @@
-// ABOUTME: Retention prune (issue #49, ARCHITECTURE "Retention") — ages out provider_events.
+// ABOUTME: Retention prune (issues #49, #141) — ages out provider_events and webhook_deliveries.
 // ABOUTME: audit_log is deliberately never pruned: it is the operator's record of who did what.
 
-import { affected, providerEvents } from '@coolbeans/db';
-import { and, eq, lt } from 'drizzle-orm';
+import { affected, providerEvents, webhookDeliveries } from '@coolbeans/db';
+import { and, eq, inArray, lt } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate } from '../deps.js';
 import { DEFAULT_ACCOUNT_ID } from '../store/accounts.js';
@@ -40,6 +40,53 @@ export async function pruneProviderEvents(deps: AppDeps): Promise<number> {
 			actor: 'system',
 			// Instance-level housekeeping with no single owner; filed under the default
 			// account, which is the operator's on self-host and ours on cloud.
+			accountId: DEFAULT_ACCOUNT_ID,
+			detail: { deleted, older_than: cutoff },
+		});
+	}
+	return deleted;
+}
+
+/**
+ * How long a finished webhook delivery is kept. Deliberately the same window as its
+ * sibling above rather than a second policy: both tables hold rows that were only ever
+ * needed briefly, and two numbers is one to forget to change.
+ */
+export const WEBHOOK_DELIVERY_RETENTION_DAYS = PROVIDER_EVENT_RETENTION_DAYS;
+
+/**
+ * Delete finished webhook deliveries past the retention window. Returns how many went.
+ *
+ * Only terminal rows are eligible. A 'pending' row still owes a retry and its stored
+ * payload is the only copy of the body: it cannot be rebuilt from current state, because
+ * state may have moved on since the event fired (the licence may since have been
+ * disabled) and at-least-once delivery has to send the event as it was, not as things are
+ * now. Same reasoning as the 'processing' exclusion above.
+ *
+ * This is also what keeps buyer emails in those payloads from being kept indefinitely.
+ */
+export async function pruneWebhookDeliveries(deps: AppDeps): Promise<number> {
+	const cutoff = new Date(
+		nowDate(deps).getTime() - WEBHOOK_DELIVERY_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+	).toISOString();
+
+	const result = await deps.db
+		.delete(webhookDeliveries)
+		.where(
+			and(
+				inArray(webhookDeliveries.status, ['delivered', 'failed']),
+				lt(webhookDeliveries.createdAt, cutoff),
+			),
+		)
+		.returning({ id: webhookDeliveries.id });
+	const deleted = affected(result);
+
+	if (deleted > 0) {
+		await writeAudit(deps.db, {
+			action: 'webhook_deliveries.pruned',
+			actor: 'system',
+			// Instance-level housekeeping, filed like its sibling: the deliveries span every
+			// account, so no single one owns the row.
 			accountId: DEFAULT_ACCOUNT_ID,
 			detail: { deleted, older_than: cutoff },
 		});

@@ -3,12 +3,15 @@
 
 import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { licenses, products } from '@coolbeans/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Config } from '../config.js';
 import { makeHarness, type TestHarness } from '../test/harness.js';
 import { rawQuery } from '../test/pg.js';
 import { createProduct, issueKey, post, signUp } from '../test/seed.js';
 import { drainOutbox } from './outbox.js';
+import { pruneWebhookDeliveries } from './prune.js';
+import { emitWebhookEvent, WEBHOOK_EVENT_TYPES } from './webhooks-out.js';
 
 let h: TestHarness;
 let server: Server | undefined;
@@ -268,6 +271,117 @@ describe('tenancy', () => {
 			});
 			expect(res.status, url).toBeGreaterThanOrEqual(400);
 		}
+	});
+});
+
+describe('buyer in the payload (#143)', () => {
+	it('carries buyer.email on every event type, so a consumer never branches', async () => {
+		const url = await listen();
+		await addEndpoint(url, [...WEBHOOK_EVENT_TYPES]);
+		await issueKey(h.app, { product: 'clementine', email: 'buyer@x.test', kind: 'perpetual' });
+
+		// Drive the emitter directly for every type: the six real triggers need six very
+		// different set-ups, and what is under test is that the field is unconditional.
+		const [license] = await h.deps.db.select().from(licenses);
+		const [product] = await h.deps.db.select().from(products);
+		// Flush the delivery the issuance above already queued, so the count below is the
+		// loop's own six and nothing else.
+		await drainOutbox(h.deps);
+		received = [];
+		for (const type of WEBHOOK_EVENT_TYPES) {
+			await emitWebhookEvent(h.deps, { accountId: 1, type, license, product });
+		}
+		await drainOutbox(h.deps);
+
+		expect(received).toHaveLength(WEBHOOK_EVENT_TYPES.length);
+		for (const r of received) {
+			const body = JSON.parse(r.body) as { event: { type: string }; buyer?: { email: string } };
+			expect(body.buyer?.email, `missing on ${body.event.type}`).toBe('buyer@x.test');
+		}
+	});
+
+	it('carries the buyer for a manually issued key', async () => {
+		// Manual issuance still creates a purchase row, so there is no absent-buyer case.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		await issueKey(h.app, { product: 'clementine', email: 'hand@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		expect(JSON.parse(received[0].body).buyer.email).toBe('hand@x.test');
+	});
+
+	it('keeps the email out of the public licence object', async () => {
+		// The `license` object is the frozen §9 shape and the docs promise it matches what
+		// the public API serializes. buyer is assembled in the emitter, never in the shared
+		// serializer, so activate and validate must stay clean.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		const key = await issueKey(h.app, {
+			product: 'clementine',
+			email: 'private@x.test',
+			kind: 'perpetual',
+		});
+		await drainOutbox(h.deps);
+
+		const delivered = JSON.parse(received[0].body) as {
+			license: Record<string, unknown>;
+			buyer: { email: string };
+		};
+		expect(delivered.buyer.email).toBe('private@x.test');
+		expect(delivered.license).not.toHaveProperty('email');
+
+		const activated = await post(h.app, '/v1/activate', {
+			license_key: key,
+			instance_name: 'their-mac',
+		});
+		const validated = await post(h.app, '/v1/validate', {
+			license_key: key,
+			instance_id: (activated.body as { instance: { id: string } }).instance.id,
+		});
+		expect(JSON.stringify(validated.body)).not.toContain('private@x.test');
+		expect(JSON.stringify(activated.body)).not.toContain('private@x.test');
+	});
+});
+
+describe('retention (#141)', () => {
+	it('an in-flight delivery survives a prune and still delivers afterwards', async () => {
+		// The prune skips pending rows, and this is why it has to: the stored payload is the
+		// only copy of the body. Delete it and the retry has nothing to send.
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+
+		respondWith = 500;
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		const [pending] = await rawQuery<{ status: string; payload: string }>(
+			'SELECT status, payload FROM webhook_deliveries',
+		);
+		expect(pending.status).toBe('pending');
+
+		// Age it far past the window. A finished delivery this old would go.
+		h.clock.advance(60 * 24 * 60 * 60 * 1000);
+		expect(await pruneWebhookDeliveries(h.deps)).toBe(0);
+
+		respondWith = 200;
+		await drainOutbox(h.deps);
+		const [after] = await rawQuery<{ status: string; payload: string }>(
+			'SELECT status, payload FROM webhook_deliveries',
+		);
+		expect(after.status).toBe('delivered');
+		// The body that went is the one that was stored, not one rebuilt from now.
+		expect(after.payload).toBe(pending.payload);
+		expect(received).toHaveLength(2);
+	});
+
+	it('prunes the same delivery once it is finished', async () => {
+		const url = await listen();
+		await addEndpoint(url, ['license.issued']);
+		await issueKey(h.app, { product: 'clementine', email: 'b@x.test', kind: 'perpetual' });
+		await drainOutbox(h.deps);
+		const [row] = await rawQuery<{ status: string }>('SELECT status FROM webhook_deliveries');
+		expect(row.status).toBe('delivered');
+
+		h.clock.advance(60 * 24 * 60 * 60 * 1000);
+		expect(await pruneWebhookDeliveries(h.deps)).toBe(1);
 	});
 });
 

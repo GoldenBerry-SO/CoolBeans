@@ -3,7 +3,7 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { License, Product, WebhookEndpoint } from '@coolbeans/db';
-import { products, webhookDeliveries, webhookEndpoints } from '@coolbeans/db';
+import { products, purchases, webhookDeliveries, webhookEndpoints } from '@coolbeans/db';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { AppDeps } from '../deps.js';
 import { nowDate, withTx } from '../deps.js';
@@ -241,9 +241,28 @@ export async function emitWebhookEvent(deps: AppDeps, args: WebhookEventArgs): P
 				(e.productId == null || e.productId === args.product.id),
 		);
 		if (subscribed.length === 0) return;
+
+		// Only now that something is actually listening. activation.created fires on every
+		// activation, so a vendor with no webhooks configured must not pay for this read on
+		// the frozen public path.
+		//
+		// purchase_id is NOT NULL behind a foreign key and purchases.email is NOT NULL, so
+		// there is no absent-buyer case to design around. If the row somehow cannot be read
+		// anyway, deliver with the field null rather than dropping the event: a consumer that
+		// receives nothing is worse off than one that receives a null it will never see.
+		const [purchase] = await deps.db
+			.select({ email: purchases.email })
+			.from(purchases)
+			.where(eq(purchases.id, args.license.purchaseId));
+
 		const payload = JSON.stringify({
 			event: { type: args.type, created_at: nowDate(deps).toISOString() },
+			// The §9 licence object exactly as the public API serializes it. The buyer is
+			// assembled here and never in that shared serializer, because a field added there
+			// would surface on every activate and validate response, which is the drift §9
+			// forbids.
 			license: serializeLicense(args.license, args.product),
+			buyer: { email: purchase?.email ?? null },
 			...(args.detail ?? {}),
 		});
 		for (const endpoint of subscribed) {

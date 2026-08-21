@@ -51,8 +51,30 @@ delivery log.
 | `activation.created` | A device claimed a seat; `instance` carries its id and name |
 | `activation.deactivated` | A seat was freed: manual deactivate, the customer portal, or an expired floating lease (`reason: "lease_expired"`) |
 
-Every payload carries `event` (`type`, `created_at`) and the `license` object exactly as the public
-API serializes it: `key`, `status`, `kind`, `plan`, `product`, `expires_at`.
+Every payload carries `event` (`type`, `created_at`), the `license` object exactly as the public
+API serializes it (`key`, `status`, `kind`, `plan`, `product`, `expires_at`), and `buyer`:
+
+```json
+{
+  "event":   { "type": "license.issued", "created_at": "2026-08-21T20:41:00.000Z" },
+  "license": { "key": "CLEM-...", "status": "active", "kind": "perpetual", "product": "clementine" },
+  "buyer":   { "email": "someone@example.com" }
+}
+```
+
+`buyer.email` is the address the licence was issued to, so you can wire a CRM or a Slack message
+without looking the customer up first. It rides on all six event types, so you never have to branch
+on the type to know whether it's there.
+
+**This means the payload contains your customer's email address.** Two things follow. Your endpoint
+should be a URL you'd be comfortable sending personal data to, so HTTPS and a receiver you control.
+And we keep a copy: the delivery log stores the exact body that was sent, so you can see what went
+out. Those rows are deleted 30 days after a delivery finishes, whether it succeeded or gave up. A
+delivery still waiting to retry is kept regardless of age, because its stored body is the only copy
+and a retry has to send the event as it was.
+
+Email only, deliberately. You already know what your customer paid, because the charge is in your
+own Stripe account.
 
 ## Delivery contract
 

@@ -95,8 +95,9 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 			validations: await recentValidationCounts(deps, {
 				days: 16,
 				productId: product?.id,
-				// With no slug the chart covers the whole account, which means every product
-				// it owns and no one else's.
+				// With no slug the chart covers the account's live products and no one
+				// else's. Archived ones are left out for the same reason as the tiles: a
+				// dashboard shows current activity, not history.
 				...(product ? {} : { productIds: await liveProductIds(deps.db, accountId) }),
 			}),
 		});

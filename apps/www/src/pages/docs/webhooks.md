@@ -19,6 +19,9 @@ so nothing changed for them. Note that the `license` object in every payload alr
 product slug, so you can tell products apart on a shared endpoint too; scoping is about separate
 URLs and separate secrets, not about identifying the product.
 
+The scope is fixed when you create the endpoint. To change it, add the endpoint you want and
+disable the old one, which means a new signing secret to store.
+
 The same registration over the admin API (self-host, bearer `ADMIN_TOKEN`):
 
 ```sh

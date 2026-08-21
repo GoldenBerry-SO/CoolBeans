@@ -1,0 +1,2 @@
+ALTER TABLE "webhook_endpoints" ADD COLUMN "product_id" integer;--> statement-breakpoint
+ALTER TABLE "webhook_endpoints" ADD CONSTRAINT "fk_webhook_endpoints_product" FOREIGN KEY ("account_id","product_id") REFERENCES "public"."products"("account_id","id") ON DELETE restrict ON UPDATE no action;

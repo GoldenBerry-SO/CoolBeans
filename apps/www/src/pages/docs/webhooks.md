@@ -8,14 +8,28 @@ Cool Beans can call your server when licence lifecycle events happen. Register a
 console (Webhooks, then Your endpoints), pick the event types you care about, and store the signing
 secret it returns. It's shown exactly once.
 
+## One endpoint, or one per product
+
+An endpoint can be scoped to a single product, or left on **all products** to receive events for
+everything in the account. Scoping is what lets a vendor selling several apps give each one its own
+URL and its own signing secret, so a rotation on one app never touches another.
+
+Leaving it unscoped is the default and is what every endpoint created before scoping existed does,
+so nothing changed for them. Note that the `license` object in every payload already carries the
+product slug, so you can tell products apart on a shared endpoint too; scoping is about separate
+URLs and separate secrets, not about identifying the product.
+
 The same registration over the admin API (self-host, bearer `ADMIN_TOKEN`):
 
 ```sh
 curl -X POST "$COOLBEANS_URL/admin/webhooks/endpoints" \
   -H "Authorization: Bearer $COOLBEANS_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"url":"https://example.com/hooks/coolbeans","events":["license.issued","license.disabled"]}'
+  -d '{"url":"https://example.com/hooks/coolbeans","events":["license.issued","license.disabled"],"product":"clementine"}'
 ```
+
+`product` is optional: omit it and the endpoint receives events for every product in the account.
+A slug that isn't yours answers `404`, the same as everywhere else on the admin surface.
 
 The response carries the endpoint and its signing secret. `GET /admin/webhooks/event-types` lists
 the valid event names, `GET /admin/webhooks/endpoints` lists what's registered, and per endpoint

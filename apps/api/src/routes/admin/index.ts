@@ -44,6 +44,11 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 	// Raw SQL, so it sidesteps every store helper and type-level guard in the scoping
 	// layer. Each count therefore has to carry its own account filter — licences and
 	// activations reach it by joining back through products.
+	//
+	// The archived filter is deliberately on the product count only. Archiving stops new
+	// issuance; §9 promises issued keys keep validating, so licences and seats on an
+	// archived product are genuinely still live and zeroing them would hide real
+	// customers from a vendor who still owes them support.
 	admin.get('/stats', async (c) => {
 		const accountId = accountScope(c).id;
 		// COUNT(*) is bigint, which the driver hands back as a string to avoid losing
@@ -57,7 +62,12 @@ export function registerAdminRoutes(app: OpenAPIHono, deps: AppDeps): void {
 		return c.json({
 			ok: true,
 			stats: {
-				products: await count(sql`SELECT COUNT(*) n FROM products WHERE account_id = ${accountId}`),
+				// Live products only, so this agrees with the console list and with the plan
+				// cap, both of which exclude archived. It used to count them and reported one
+				// more product than the operator could see anywhere else.
+				products: await count(
+					sql`SELECT COUNT(*) n FROM products WHERE account_id = ${accountId} AND archived_at IS NULL`,
+				),
 				active_licenses: await count(
 					sql`SELECT COUNT(*) n FROM licenses l JOIN products p ON p.id = l.product_id WHERE p.account_id = ${accountId} AND l.status = 'active'`,
 				),

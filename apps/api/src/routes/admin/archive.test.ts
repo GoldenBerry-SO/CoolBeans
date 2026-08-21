@@ -107,12 +107,20 @@ describe('archived products and the dashboard stats', () => {
 		expect(((await list.json()) as { products: unknown[] }).products).toHaveLength(1);
 	});
 
-	it('keeps counting licences and seats on an archived product', async () => {
-		// Deliberately NOT filtered. Archiving stops new issuance; §9 promises issued keys
-		// keep validating, so those licences really are active and those seats really are
-		// in use. Zeroing them would hide live customers from the vendor who still owes
-		// them support.
+	it('drops an archived product out of every count, not just the product one', async () => {
+		// The dashboard answers "what is my business doing now", so a retired product must
+		// not inflate any tile. Its keys keep validating exactly as §9 promises, and the
+		// data stays reachable through the product list with include_archived and through
+		// the purchases lookup; it just stops being counted as live activity.
 		await post(h.app, '/v1/activate', { license_key: key, instance_name: 'Mac' });
+
+		const before = await h.app.request('/admin/stats', { headers: h.adminHeaders });
+		const seen = (await before.json()) as {
+			stats: { active_licenses: number; live_activations: number };
+		};
+		expect(seen.stats.active_licenses).toBe(1);
+		expect(seen.stats.live_activations).toBe(1);
+
 		await h.app.request('/admin/products/clementine', {
 			method: 'DELETE',
 			headers: h.adminHeaders,
@@ -120,10 +128,37 @@ describe('archived products and the dashboard stats', () => {
 
 		const res = await h.app.request('/admin/stats', { headers: h.adminHeaders });
 		const { stats } = (await res.json()) as {
-			stats: { products: number; active_licenses: number; live_activations: number };
+			stats: {
+				products: number;
+				active_licenses: number;
+				total_licenses: number;
+				live_activations: number;
+				activations_7d: number;
+			};
 		};
 		expect(stats.products).toBe(0);
-		expect(stats.active_licenses).toBe(1);
-		expect(stats.live_activations).toBe(1);
+		expect(stats.active_licenses).toBe(0);
+		expect(stats.total_licenses).toBe(0);
+		expect(stats.live_activations).toBe(0);
+		expect(stats.activations_7d).toBe(0);
+	});
+
+	it('still lets the operator reach an archived product and its purchases', async () => {
+		// The counts going quiet must not mean the data is gone. This is the line between
+		// "not on the dashboard" and "lost".
+		await h.app.request('/admin/products/clementine', {
+			method: 'DELETE',
+			headers: h.adminHeaders,
+		});
+
+		const all = await h.app.request('/admin/products?include_archived=1', {
+			headers: h.adminHeaders,
+		});
+		expect(((await all.json()) as { products: unknown[] }).products).toHaveLength(1);
+
+		const purchases = await h.app.request('/admin/purchases?email=buyer@example.com', {
+			headers: h.adminHeaders,
+		});
+		expect(((await purchases.json()) as { purchases: unknown[] }).purchases).toHaveLength(1);
 	});
 });

@@ -323,6 +323,18 @@ describe('per-product endpoint scope (#142)', () => {
 		expect(endpoints.find((e) => e.url.includes('b.example.com'))?.product).toBeNull();
 	});
 
+	it('reports the scope the same way on create as on list', async () => {
+		// These two shapes drifted once: create answered with a raw product_id while the
+		// list answered with a slug, so the console's shared type was quietly wrong.
+		const scoped = await addEndpoint('https://a.example.com/h', ['license.issued'], 'tideglass');
+		const unscoped = await addEndpoint('https://b.example.com/h', ['license.issued']);
+
+		const scopedEndpoint = scoped.body.endpoint as Record<string, unknown>;
+		expect(scopedEndpoint.product).toBe('tideglass');
+		expect((unscoped.body.endpoint as Record<string, unknown>).product).toBeNull();
+		expect(scopedEndpoint).not.toHaveProperty('productId');
+	});
+
 	it('refuses an unknown product slug', async () => {
 		const r = await addEndpoint('https://a.example.com/h', ['license.issued'], 'nope');
 		expect(r.status).toBe(404);

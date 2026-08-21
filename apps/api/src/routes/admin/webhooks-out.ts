@@ -41,7 +41,7 @@ export function registerAdminWebhookRoutes(admin: OpenAPIHono, deps: AppDeps): v
 			accountId: account.id,
 			url: body.url,
 			events: body.events,
-			productId: product?.id ?? null,
+			...(product ? { product: { id: product.id, slug: product.slug } } : {}),
 		});
 		await writeAudit(deps.db, {
 			action: 'webhook_endpoint.created',

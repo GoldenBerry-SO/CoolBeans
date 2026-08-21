@@ -2,17 +2,17 @@
 	"name": "@coolbeans/cli",
 	"version": "0.1.0",
 	"type": "module",
-	"description": "beans \u2014 the Cool Beans admin CLI.",
+	"description": "beans, the Cool Beans admin CLI.",
 	"license": "MIT",
 	"author": "GoldenBerry",
 	"homepage": "https://coolbeans.tools",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/GoldenBerry-SO/coolbeans.git",
+		"url": "git+https://github.com/GoldenBerry-SO/CoolBeans.git",
 		"directory": "packages/cli"
 	},
 	"bugs": {
-		"url": "https://github.com/GoldenBerry-SO/coolbeans/issues"
+		"url": "https://github.com/GoldenBerry-SO/CoolBeans/issues"
 	},
 	"keywords": [
 		"license",

@@ -8,11 +8,11 @@
 	"homepage": "https://coolbeans.tools",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/GoldenBerry-SO/coolbeans.git",
+		"url": "git+https://github.com/GoldenBerry-SO/CoolBeans.git",
 		"directory": "packages/sdk"
 	},
 	"bugs": {
-		"url": "https://github.com/GoldenBerry-SO/coolbeans/issues"
+		"url": "https://github.com/GoldenBerry-SO/CoolBeans/issues"
 	},
 	"keywords": [
 		"license",

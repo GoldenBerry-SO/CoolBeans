@@ -2,16 +2,28 @@
 // ABOUTME: The beans CLI (PRD §16) — CLI-first admin over the Cool Beans HTTP API.
 // ABOUTME: Subcommands for products, keys, and purchases; --json for scripting.
 
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { apiRequest, type ClientOptions, resolveClient } from './client.js';
 import { parseEntitlementsFlag, parseSeatsFlag } from './entitlements-flag.js';
+
+/**
+ * Read the version off our own manifest rather than hardcoding it. A literal here went
+ * stale the moment the package was versioned for release, so `beans --version` reported
+ * 0.0.0 from a 0.1.0 install, which makes every bug report from the field misleading.
+ *
+ * createRequire, not a JSON import: the bundle is ESM and a static import of package.json
+ * would be inlined at build time, which is the same staleness by another route. From
+ * dist/index.js this resolves to the package root, where npm always ships package.json.
+ */
+const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
 
 const program = new Command();
 
 program
 	.name('beans')
-	.description('Cool Beans admin CLI — issue a key, activate it, check it is still good.')
-	.version('0.0.0')
+	.description('Cool Beans admin CLI. Issue a key, activate it, check it is still good.')
+	.version(version)
 	.option('--url <url>', 'Cool Beans server URL (or COOLBEANS_URL)')
 	.option('--token <token>', 'Admin bearer token (or COOLBEANS_ADMIN_TOKEN)')
 	.option('--json', 'Emit raw JSON for scripting');

@@ -6,8 +6,12 @@ keys, Stripe wiring and purchase lookup, with `--json` on everything so you can 
 Cool Beans is the open source licensing layer: it turns Stripe and PayPal payments into licence
 keys and answers whether a key is still good. MIT, self-hostable with one `docker compose up`.
 
+Not on npm yet, so run it from the repo for now:
+
 ```sh
-npm i -g @coolbeans/cli
+pnpm install
+pnpm --filter @coolbeans/cli build
+alias beans="node $PWD/packages/cli/dist/index.js"
 ```
 
 ## Point it at your instance

@@ -7,8 +7,11 @@
 #   3. Add it as the repo secret NPM_TOKEN.
 #
 # To release:
-#   Bump the version in packages/sdk/package.json and packages/cli/package.json,
-#   merge that, then `git tag v0.1.0 && git push --tags`.
+#   Bump the version in packages/sdk/package.json and packages/cli/package.json to the
+#   same number, merge that, then `git tag v0.1.0 && git push --tags`.
+#
+# The two packages version in lockstep, because one tag cannot match two different
+# versions. If they ever need to diverge, this needs per-package tags instead.
 #
 # The tag is what triggers this. Nothing publishes on a normal merge to main.
 
@@ -36,23 +39,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Before anything expensive. A mistyped tag should cost seconds, not a full
+      # install, build and test run.
+      - name: Verify the tag matches the package versions
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          for p in sdk cli; do
+            VER=$(node -p "require('./packages/$p/package.json').version")
+            if [ "$VER" != "$TAG" ]; then
+              echo "::error::tag v$TAG does not match @coolbeans/$p version $VER"
+              exit 1
+            fi
+          done
+          echo "tag and package versions agree: $TAG"
+
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+          # Writes the .npmrc that npm publish reads NODE_AUTH_TOKEN from.
           registry-url: 'https://registry.npmjs.org'
 
       - run: pnpm install --frozen-lockfile
 
-      # The publish is gated on the same checks main is. A broken SDK on npm is
-      # far more expensive to walk back than a failed release run.
       - name: Lint and typecheck
         run: pnpm run check
 
-      - name: Test
-        run: pnpm test
+      # Scoped to what is being published rather than the whole monorepo. The tag points
+      # at a commit main's CI already ran the full suite against, so re-running it here
+      # only adds time and exposes the release to an unrelated flake in another package.
+      # The SDK suite includes contract.test.ts, which is the shared fixture set both
+      # SDKs must agree on.
+      - name: Test the publishable packages
+        run: pnpm --filter @coolbeans/sdk --filter @coolbeans/cli test
 
       - name: Build the publishable packages
         run: pnpm --filter @coolbeans/sdk --filter @coolbeans/cli build
@@ -66,23 +88,18 @@ jobs:
             ( cd "packages/$p" && npm pack --dry-run )
           done
 
-      - name: Verify the tag matches the package version
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          for p in sdk cli; do
-            VER=$(node -p "require('./packages/$p/package.json').version")
-            if [ "$VER" != "$TAG" ]; then
-              echo "::error::tag v$TAG does not match @coolbeans/$p version $VER"
-              exit 1
-            fi
-          done
-          echo "tag and package versions agree: $TAG"
-
+      # npm, not pnpm. pnpm publish has no --provenance flag (checked against 11.14.0),
+      # so this step would die on an unknown option. npm also reads NODE_AUTH_TOKEN from
+      # the .npmrc setup-node wrote, which pnpm does not reliably do.
+      #
+      # Publishing from the package directory is safe because neither package depends on
+      # a workspace package: the SDK has no runtime dependencies and the CLI only needs
+      # commander from the registry. There is no workspace: protocol to leave unresolved.
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/v') && inputs.dry_run != true
         run: |
-          pnpm --filter @coolbeans/sdk publish --access public --provenance --no-git-checks
-          pnpm --filter @coolbeans/cli publish --access public --provenance --no-git-checks
+          for p in sdk cli; do
+            ( cd "packages/$p" && npm publish --access public --provenance )
+          done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

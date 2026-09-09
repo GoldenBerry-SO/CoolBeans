@@ -9,8 +9,9 @@ purchase lookup, all with a `--json` flag so you can script any of it.
 
 ## Running it
 
-**`@coolbeans/cli` is not on npm yet** (publishing is tracked in [#123](https://github.com/GoldenBerry-SO/coolbeans/issues/123)). Don't try `npm i -g @coolbeans/cli`, it won't resolve. Run
-it from the repo:
+**`@coolbeans/cli` is not on npm yet** (publishing is tracked in [#123](https://github.com/GoldenBerry-SO/coolbeans/issues/123)). The release workflow that
+publishes it is in place and fires on a `v*` tag; no such tag has been pushed, so
+`npm i -g @coolbeans/cli` won't resolve. Run it from the repo:
 
 ```sh
 pnpm install

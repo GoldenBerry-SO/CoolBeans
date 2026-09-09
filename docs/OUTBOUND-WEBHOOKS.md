@@ -30,6 +30,19 @@ cannot point at another tenant's product.
 The published page at `/docs/webhooks` is the fuller version of this, including the https
 rule and the retention window. Keep the two in step.
 
+## The admin surface
+
+Registration and management live under `/admin`, alongside everything else an operator touches:
+
+| Route | What it does |
+| --- | --- |
+| `GET /admin/webhooks/event-types` | The valid event names |
+| `GET /admin/webhooks/endpoints` | What is registered |
+| `POST /admin/webhooks/endpoints` | Register one; the response carries the signing secret, once |
+| `POST /admin/webhooks/endpoints/:id/rotate` | New signing secret, shown once |
+| `DELETE /admin/webhooks/endpoints/:id` | Remove one |
+| `GET /admin/webhooks/endpoints/:id/deliveries` | The delivery log: status, attempts, last error, never the body |
+
 ## Delivery contract
 
 - At-least-once. Deliveries retry with backoff (up to 5 attempts); make your handler

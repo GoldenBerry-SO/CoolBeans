@@ -27,8 +27,9 @@ Compose needs these in the environment or `.env`, and refuses to start without t
 - `EMAIL_PROVIDER`: `resend` or `smtp`, **plus its credential**: `RESEND_API_KEY` for resend, or at
   least `SMTP_HOST` (and usually `SMTP_USER` / `SMTP_PASS`) for smtp. Compose only enforces
   `EMAIL_PROVIDER` itself; with the credential missing the API still starts, it just can't deliver
-  key emails. `console` is also accepted for a local try-out. It logs emails instead of sending
-  them, and is refused in production.
+  key emails. `console`, which logs emails instead of sending them, is for running from source: the
+  image sets `NODE_ENV=production` and the server refuses to start with it, because an instance
+  that quietly logs key emails looks healthy while every buyer waits.
 
 Optional: `PUBLIC_URL` (defaults to `http://localhost:3000`) and `API_PORT` (defaults to `3000`,
 which is the host port mapped to the container's 3000).
@@ -39,21 +40,29 @@ Generate the two secrets:
 openssl rand -hex 32
 ```
 
-Once it's up, `GET /health` answers `{ "ok": true }` and `GET /docs` serves interactive API docs.
+Once it's up, `GET /health` answers `{ "ok": true, "status": "ok" }` and `GET /docs` serves
+interactive API docs.
 
 `MIGRATE_ON_BOOT=true` exists for a genuinely single-process install where you don't want a
 separate migrate step.
 
-## Development
+## Running from source
 
 Prereqs: Node >= 22, pnpm 11 (`corepack enable`).
 
 ```sh
 pnpm install
-pnpm dev        # local dev server on :3000
-pnpm test       # vitest
+pnpm build
+pnpm test       # vitest, against PGlite: no database to install
 pnpm check      # biome lint + typecheck
 ```
+
+Starting the server takes a little more than `pnpm dev`, because nothing in the repo reads a `.env`
+file: that is compose's job. Export `DATABASE_URL` (a `postgres://` URL, which the server insists
+on), `ADMIN_TOKEN` and `SIGNING_KEY_SECRET`, apply the schema with
+`pnpm --filter @coolbeans/db db:migrate`, then run `pnpm --filter @coolbeans/api dev`. The full
+recipe, including the throwaway database and the console dev server, is in
+[docs/development.md](https://github.com/GoldenBerry-SO/CoolBeans/blob/main/docs/development.md).
 
 ## Configuration reference
 
@@ -73,6 +82,11 @@ instead.
 | Variable | What it does |
 |---|---|
 | `PORT` | Listen port when running the Node process directly. Default `3000`. Under compose the container always listens on 3000 and the host-side knob is `API_PORT` instead. |
+| `PUBLIC_URL` | Where the console and portal are served from, used to build portal, billing and Connect callback links. Defaults to `http://localhost:<PORT>`. |
+| `REDIS_URL` | Backs rate limiting across replicas and the background job queue. Compose sets it. Without it, rate limiting falls back to in-process counters, which is right for a single instance and wrong for several. |
+| `MIGRATE_ON_BOOT` | `true` folds migrations into server startup, for a genuinely single-process install. Anything with replicas or a separate worker leaves this unset and runs the migrator on its own. |
+| `WEB_ROOT` | Where the built admin console is served from. Defaults to `apps/web/dist`, which is where the image puts it. |
+| `NODE_ENV` | `production` in the shipped image. It is what makes the server refuse the development-only settings below. |
 
 ### Offline tokens
 
@@ -148,15 +162,21 @@ single default connection instead.
 
 | Variable | What it does |
 |---|---|
-| `EMAIL_PROVIDER` | `resend`, `smtp`, or `console`. `console` logs emails instead of delivering them, so local development needs no mail provider at all. It's refused when `NODE_ENV=production`. |
+| `EMAIL_PROVIDER` | `resend`, `smtp`, or `console`. `console` logs emails instead of delivering them, so running from source needs no mail provider at all. It's refused when `NODE_ENV=production`, which the shipped image sets. |
 | `RESEND_API_KEY` | For `EMAIL_PROVIDER=resend`. |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | For `EMAIL_PROVIDER=smtp`. |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | For `EMAIL_PROVIDER=smtp`. `SMTP_PORT` defaults to `587`. |
+| `EMAIL_SENDER` | The verified From address for platform-sent mail. Set it where key and recovery emails must come from a domain you have verified rather than a customer's; the product's own address then becomes Reply-To. Leave it unset on self-host and the per-product `email_from` is used directly. |
+
+The server refuses to start in production with no email provider at all. An instance that issues
+keys and never delivers them answers `200` to Stripe and looks healthy while every buyer waits.
 
 ### Local development only
 
 | Variable | What it does |
 |---|---|
 | `LOG_MAGIC_CODES` | Print console sign-in codes to the log instead of hunting for the email. A code is a credential, so the server refuses to start with this enabled when `NODE_ENV=production`. |
+| `EMAIL_PROVIDER=console` | Log each rendered email instead of delivering it. Refused under `NODE_ENV=production` for the same reason. |
+| `RESEND_BASE_URL` | Point the Resend client at a mock instead of `api.resend.com`, for the journey scripts. Nothing enforces this one, so leave it unset anywhere real. |
 
 ## Rate limiting
 

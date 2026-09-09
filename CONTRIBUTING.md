@@ -9,12 +9,19 @@ Prereqs: Node >= 22, pnpm 11 (`corepack enable`).
 
 ```sh
 pnpm install
-pnpm dev        # local dev server on :3000
+pnpm build      # turbo build, every package that has one
 pnpm test       # vitest
-pnpm check      # biome lint + typecheck
+pnpm check      # biome lint + typecheck, and what the pre-commit hook runs
 ```
 
-`pnpm test` runs against PGlite, so you don't need a database installed. The compose stack
+`pnpm test` runs against PGlite, so you don't need a database installed. On a machine with many
+cores the API files can contend on PGlite startup and time out; the same files pass on their own,
+and `pnpm --filter @coolbeans/api exec vitest run --maxWorkers=4` runs the suite deterministically.
+A timeout is not a result by itself.
+
+Starting the server needs a little setup, because nothing in the repo reads a `.env` file: that is
+compose's job. [docs/development.md](docs/development.md) has the recipe, along with the race
+suite, the commercial journeys and the compose smoke test. The compose stack
 (`docker compose up`) gives you the full thing with PostgreSQL and Redis if you want it.
 
 ## Before you open a PR
@@ -35,10 +42,13 @@ These protect paying end users of the products built on Cool Beans, so they get 
    `disabled` revokes access. No change may lock out an offline user.
 3. **The key is the credential.** Public endpoints carry no service secret.
 4. **Atomic limit enforcement.** Seats, leases, and quotas are enforced in single guarded SQL
-   statements, never read-then-write. Race tests are mandatory on these paths, and changes here
-   get an extra concurrency review before merge.
+   statements under a row lock, never read-then-write. A race test in
+   `apps/api/src/test/race/` is mandatory on these paths, because PGlite is one connection and
+   cannot stage contention, so the default suite does not cover them. Changes here get an extra
+   concurrency review before merge.
 5. **Portable SQL.** Storage sits behind the adapter in `packages/db`. No driver-specific SQL
-   outside it.
+   outside it, and never a driver rowcount: guarded statements carry `RETURNING` and decide
+   through `applied()` / `affected()`. A source-scan test bans the count fields outright.
 
 If your change touches any of those areas, say so in the PR description and expect the review to
 take longer.

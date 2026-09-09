@@ -25,10 +25,10 @@ because that is what decides whether a restart burns another seat.
 | Tauri | the Stronghold plugin or a file in the app config dir | same |
 | Node / CLI | a file under `~/.config/<app>` | a daemon restart must not re-activate |
 
-**The one rule:** outside a browser, always pass a durable `storage`. Without it the SDK
-falls back to memory (and warns), a fresh device id is minted on every start, and each
-start consumes another activation seat until the customer is locked out of their own
-license.
+**The one rule:** outside a browser, always pass a durable `storage`. The SDK refuses to construct
+without one, throwing `storage_required`, because memory storage mints a fresh device id on every
+start and each start would consume another activation seat until the customer is locked out of
+their own licence. `allowEphemeralStorage: true` opts out, for tests and throwaway scripts only.
 
 - [`browser.ts`](browser.ts)
 - [`electron-main.ts`](electron-main.ts)

@@ -5,6 +5,12 @@ lives and how it's verified. Automated suites cover the API, SDK, database, web 
 logger, and CLI; a **Docker Compose smoke test** boots the stack and issues a first key. Exact test
 counts are intentionally left to the runner so this document cannot drift every time coverage grows.
 
+**Current state.** PostgreSQL is the database everywhere, cloud and self-host alike, and the SQLite
+adapter this document once described as shipped is gone. The rows below that still name SQLite,
+boot-time migrations, or the token-paste console gate are marked with what replaced them. Where a
+scope note has since been closed, it says so rather than being deleted, because the reasoning is
+still worth reading.
+
 ## §3 Goals
 
 | Goal | Status | Where / evidence |
@@ -16,7 +22,7 @@ counts are intentionally left to the runner so this document cannot drift every 
 | Offline verification via signed tokens | ✅ | `domain/token.ts` (Ed25519), `services/signing.ts`; `token.test.ts`, e2e offline |
 | Drop-in SDK | ✅ | `packages/sdk`; `sdk/index.test.ts`, `test/e2e.test.ts` |
 | Admin dashboard + CLI | ✅ | `apps/web` console, `packages/cli`; browser-verified |
-| Self-host + cloud from one codebase | Partial | SQLite self-host/compose ships; the async Postgres cloud adapter remains issue #32 |
+| Self-host + cloud from one codebase | ✅ | One PostgreSQL dialect both sides: `postgres-js` in production, `postgres:16-alpine` in compose, PGlite in tests. Supersedes the earlier "SQLite self-host, Postgres cloud" split (issue #32, closed) |
 | Lemon Squeezy API parity | ✅ | `routes/v1/ls.ts`; `ls.test.ts` |
 
 ## §9 Public client API (the frozen contract)
@@ -103,8 +109,12 @@ Confirm the §9 example is just illustrative; if 12 chars is intended, it's a on
 
 All tables present (`products, purchases, licenses, activations, metrics, usage_counters,
 signing_keys, provider_events, audit_log`, plus `outbox` for durable jobs) with the specified
-constraints, indexes, and the partial live-activation index. Migrations apply on boot. `packages/db`,
-`index.test.ts`.
+constraints, indexes, and the partial live-activation index. `packages/db`, `index.test.ts`.
+
+Migrations run in exactly one place, and it is not boot. `migrate-cli` holds an advisory lock and is
+the only migrator: a one-shot `migrate` service in compose, a Job in Kubernetes, or
+`MIGRATE_ON_BOOT=true` for a genuine single-process self-host. A serving process calls
+`assertSchemaCurrent` and refuses a schema its build was not made for.
 
 ## §18–§19 Deployment & security
 
@@ -112,7 +122,7 @@ constraints, indexes, and the partial live-activation index. Migrations apply on
 |---|---|---|
 | Self-host `docker compose up` | ✅ | `Dockerfile`, `docker-compose.yml`; smoke test green |
 | Cloud on k8s (Docker → GHCR → GitOps) | ✅ | `.github/workflows/deploy.yml` |
-| Migrations on boot | ✅ | `node.ts` calls `migrate` |
+| Migrations applied before anything serves | ✅ | `packages/db/src/migrate-cli.ts` under an advisory lock, run by the compose `migrate` service and the k8s Job; `node.ts` asserts and refuses. Supersedes the earlier migrate-on-boot design, which raced across replicas |
 | Rate limiting 30/min on /v1 (webhook excluded), Redis-backed | ✅ | `middleware/rate-limit.ts` + `redis-store.ts`; `rate-limit.test.ts` |
 | Uniform error shapes, format check before storage | ✅ | `http/errors.ts`; parse-before-lookup |
 | Webhook signature mandatory | ✅ | both webhook routes reject unverified |
@@ -127,16 +137,26 @@ rejection + idempotency (Stripe + PayPal), lapse-to-disable and trial-expiry, pl
 simulation suite** (`test/e2e.test.ts`) driving the real SDK through every flow, and the **Docker
 Compose smoke test**.
 
-## Deliberate scope notes
+## Scope notes, and what became of them
 
-- **Postgres (issue #32):** the shipped data layer is synchronous better-sqlite3. A Postgres adapter
-  needs an async refactor, Postgres schema/migrations, and explicit locking for seat caps — documented
-  in `ARCHITECTURE.md`, not advertised as a working `DATABASE_URL` option.
-- **Better Auth dashboard sessions (#26):** the console uses a token-paste gate today (the PRD listed
-  session-vs-token as an open decision). Better Auth wiring is the follow-up; `packages/auth` scaffolds it.
-- **Native SDK stubs (Swift/C#/C++):** PRD marks these v1-or-fast-follow; not built.
-- **Dashboard export / some read-only views (Customers/Usage/Webhooks aggregates):** the console
-  ships functional read+write for the core flows; a few aggregate views remain placeholders.
+- **Postgres (issue #32, closed):** the note said the data layer was synchronous better-sqlite3 and
+  a Postgres adapter would need an async refactor, Postgres migrations, and explicit locking for
+  seat caps. All three happened. PostgreSQL is now the only dialect, the locking is documented in
+  `ARCHITECTURE.md`, and `pnpm --filter @coolbeans/api test:race` is its oracle.
+- **Console sessions (#26, closed):** the token-paste gate this note described has been replaced by
+  a bespoke email magic-code flow (six digits, hashed at rest, 10-minute TTL, 5-attempt cap). Better
+  Auth itself was not adopted; `packages/auth` is wired to nothing and is a candidate for deletion
+  unless SSO lands. `ADMIN_TOKEN` remains for self-host and the CLI.
+- **Native SDKs:** Swift shipped, in its own repository at
+  [coolbeans-swift](https://github.com/GoldenBerry-SO/coolbeans-swift), and runs the same
+  `contract/access-states.json` fixtures as the TypeScript SDK. C# and C++ remain unbuilt.
+- **Dashboard export and aggregate views:** key export and the usage, audit, validations, purchases
+  and webhook-delivery views are served by `routes/admin/*` and read live data. The usage and
+  webhook pages, which were the placeholders, are pinned by
+  `routes/admin/console-surfaces.test.ts`.
+- **npm publication (#123, open):** `@coolbeans/sdk` and `@coolbeans/cli` are marked publishable and
+  a tag-triggered release workflow exists, but no `v*` tag has been pushed and neither package is on
+  the registry. Both are used from the repo today.
 
 ## Provider CLI checks (PRD §20)
 
@@ -158,9 +178,9 @@ One command stands up the whole world and tears it down again:
 ./scripts/journey/journey.sh
 ```
 
-It runs a Stripe stand-in and the API with emails logged rather than sent, then walks
-four journeys with hard assertions. No containers, no mail service, nothing to install:
-`node` is enough.
+It runs a throwaway PostgreSQL container, a Stripe stand-in and the API with emails logged rather
+than sent, then walks four journeys with hard assertions, and tears all of it down on exit. Docker
+and `node` are the only requirements: no mail service, no Stripe account, nothing to register.
 
 1. **Buy a perpetual licence and run it on three machines.** A signature-valid
    `checkout.session.completed` issues the key; the buyer's email is asserted to carry the

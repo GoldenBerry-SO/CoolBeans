@@ -11,6 +11,35 @@ Throughout this doc, `<PREFIX>` is a product's key prefix (Clementine's is `CLEM
 contract in **§9 is frozen first** — Clementine and every other product builds against it, so it must
 not drift once a product ships.
 
+## Current state
+
+This is the spec, written before the build, and it is kept as written. What follows is where the
+code stands against it, so a reader knows which parts are description and which are still intent.
+
+- **§9, the public client contract, is built and frozen.** It is the authority on request and
+  response shapes; where a published page and this section disagree, this section is right.
+- **Built and covered by tests:** the full licence lifecycle, node-locked and floating seats, Stripe
+  and PayPal payment handling, usage metering, Ed25519 offline tokens and offline activation, the
+  admin API and console, the customer portal, the `beans` CLI, outbound webhooks, and the Lemon
+  Squeezy parity routes. `VALIDATION.md` walks the sections one by one.
+- **Changed since the spec, and superseded where they disagree:**
+  - **PostgreSQL is the only database**, cloud and self-host alike. §18 says so; §7, §8, §12, §17
+    and §22 still describe SQLite for dev or self-host, and `ARCHITECTURE.md` records the port and
+    the traps it had to clear. Where those sections say SQLite, read PostgreSQL.
+  - **Admin auth is broader than §16's bearer token.** The console signs in with a bespoke email
+    magic-code flow (six digits, hashed at rest, 10-minute TTL, 5-attempt cap) and the instance
+    `ADMIN_TOKEN` is optional, present on self-host and absent on the hosted deployment, where it
+    would be a global bypass with no account behind it. Per-product tokens are unchanged.
+  - **Multi-tenancy is new.** An `accounts` row is the tenant, plan limits hang off it, and
+    cross-account access answers `404`. This document predates all of it.
+  - **Stripe Connect** carries the hosted multi-vendor case, alongside the single-account
+    `STRIPE_*` path §13 describes.
+- **Open questions since answered:** native SDK stubs were the fast-follow, and Swift shipped in its
+  own repository. C# and C++ remain unbuilt. `@coolbeans/sdk` and the CLI are publishable but not
+  yet on npm.
+
+`ARCHITECTURE.md` records the decisions this document did not anticipate, and the reasons.
+
 ---
 
 ## 1. Summary

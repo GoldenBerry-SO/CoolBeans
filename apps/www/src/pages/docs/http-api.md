@@ -182,7 +182,9 @@ lifetime or manually issued key.
 
 ## Interactive reference
 
-Any instance serves the full OpenAPI reference at **`/docs`**, generated from the routes themselves.
+Any instance serves an OpenAPI reference at **`/docs`**, rendered from the document at `/doc`. It
+describes the frozen public contract on this page, which is written out explicitly and pinned by a
+test rather than derived from the handlers. The admin surface is not in it.
 
 For a coding agent, `GET /v1/llms.txt` is the complete integration guide as markdown, and
 `GET /v1/integration/<slug>` is your product's brief with its real base URL, slug, key prefix, seat

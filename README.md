@@ -27,6 +27,21 @@ You can run it yourself or let us run it for you. It's the same codebase either 
 - **Cloud** at [app.coolbeans.tools](https://app.coolbeans.tools) is run by us, with Stripe Connect
   so every vendor plugs in their own Stripe account.
 
+## Status
+
+Pre-1.0. The workspace is versioned `0.0.0` and private; the two publishable packages,
+`@coolbeans/sdk` and `@coolbeans/cli`, sit at `0.1.0`.
+
+Neither package is on the npm registry yet. The release workflow that publishes them exists and
+fires on a `v*` tag; no such tag has been pushed. Until one is, use the SDK and the CLI from this
+repo (see [TypeScript SDK](https://coolbeans.tools/docs/sdk-typescript) and
+[the beans CLI](https://coolbeans.tools/docs/cli)). Tracked as
+[#123](https://github.com/GoldenBerry-SO/coolbeans/issues/123).
+
+The Swift SDK lives in its own repository,
+[GoldenBerry-SO/coolbeans-swift](https://github.com/GoldenBerry-SO/coolbeans-swift), and is
+consumed through SwiftPM.
+
 ## The whole integration
 
 ```ts
@@ -60,12 +75,6 @@ explicit revocation, or a signed expiry, denies. The same contract ships for
 - **Agent-ready.** Every instance serves `/v1/llms.txt` and a per-product integration brief, so a
   coding agent can wire your app up in one read.
 
-**Docs live at [coolbeans.tools/docs](https://coolbeans.tools/docs)**: quickstart, self-hosting,
-both SDKs, the CLI, the frozen HTTP contract, payments, webhooks, and offline behaviour. The full
-spec is [`docs/PRD.md`](docs/PRD.md), architecture in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), design system in
-[`docs/DESIGN.md`](docs/DESIGN.md), PRD coverage in [`docs/VALIDATION.md`](docs/VALIDATION.md).
-
 ## Self-host in one command
 
 ```sh
@@ -73,11 +82,111 @@ cp .env.example .env   # fill in POSTGRES_PASSWORD, ADMIN_TOKEN, SIGNING_KEY_SEC
 docker compose up
 ```
 
-`GET /health` answers `{ "ok": true }`, `GET /docs` serves the interactive API reference, and the
+The stack is the API, a background worker, PostgreSQL 16 and Redis, with a one-shot `migrate`
+service that applies migrations before anything serves. `GET /health` answers
+`{ "ok": true, "status": "ok" }`, `GET /docs` serves the interactive API reference, and the
 [self-hosting guide](https://coolbeans.tools/docs/self-hosting) covers every variable. Self-host is
 unlimited: no caps, no feature flags held back.
 
-## Repo layout
+## Getting started as a developer
+
+Prerequisites: Node >= 22, pnpm 11 (`corepack enable`), and Docker if you want a local PostgreSQL.
+
+```sh
+git clone https://github.com/GoldenBerry-SO/CoolBeans.git
+cd CoolBeans
+pnpm install
+pnpm build       # turbo build, every package that has one
+pnpm check       # biome lint + tsc typecheck
+pnpm test        # vitest, against PGlite (no database to install)
+```
+
+`pnpm install` also installs the husky pre-commit hook, which runs `pnpm run check`.
+
+### Running the API locally
+
+The service reads its configuration from the process environment. Nothing in the repo loads a
+`.env` file for you: `.env` is read by `docker compose`, not by `pnpm dev`. Export the variables
+yourself, or point compose at them.
+
+`DATABASE_URL` must be a `postgres://` URL; the server refuses to start otherwise. A throwaway
+container is enough:
+
+```sh
+docker run -d --rm --name coolbeans-dev-pg \
+  -e POSTGRES_PASSWORD=beans -e POSTGRES_DB=coolbeans \
+  -p 55432:5432 postgres:16-alpine
+
+export DATABASE_URL=postgres://postgres:beans@localhost:55432/coolbeans
+export ADMIN_TOKEN=...            # any string of 16 characters or more
+export SIGNING_KEY_SECRET=...     # any string of 16 characters or more
+export EMAIL_PROVIDER=console     # logs emails instead of delivering them
+
+pnpm --filter @coolbeans/db db:migrate   # boot does not migrate; this is the migrator
+pnpm --filter @coolbeans/api dev         # http://localhost:3000
+```
+
+Generate the two secrets with `openssl rand -hex 32`. Never commit them.
+
+`curl http://localhost:3000/health` answers `{"ok":true,"status":"ok"}` once it is up.
+
+The admin console is a separate Vite dev server that proxies `/admin`, `/auth` and `/v1` to the API:
+
+```sh
+pnpm --filter @coolbeans/web dev         # http://localhost:5173
+```
+
+`pnpm dev` at the root starts every app at once through Turborepo, which is convenient when the
+environment above is already exported.
+
+For the race suite, the commercial journeys, the compose smoke test and the release flow, see
+[docs/development.md](docs/development.md).
+
+## The API surface at a glance
+
+The public client contract is frozen (PRD §9). Every body carries `ok`, the licence key is the only
+credential, and no public endpoint takes a service secret.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /v1/activate` | Binds a key to a device and takes a seat |
+| `POST /v1/validate` | Confirms a key and returns a signed offline token |
+| `POST /v1/deactivate` | Frees a seat, idempotently |
+| `POST /v1/heartbeat` | Renews a floating lease |
+| `POST /v1/keyset` | Signing keys for the product a licence belongs to |
+| `GET /v1/pubkey?product=<slug>` | The same keys, by product slug |
+| `POST /v1/usage/increment`, `GET /v1/usage` | Atomic metering and quota reads |
+| `POST /v1/licenses/{activate,validate,deactivate}` | Lemon Squeezy parity shapes |
+| `POST /v1/portal/{lookup,recover,billing-session}` | Key-authed customer self-service |
+| `GET /v1/purchase/session/:checkout_session_id` | Success-page purchase lookup, product-token authed |
+| `GET /v1/llms.txt`, `GET /v1/integration/:slug` | Markdown integration guides for coding agents |
+| `POST /v1/stripe/webhook`, `/v1/paypal/webhook` | Provider webhooks, signature-verified before parsing |
+
+Admin lives under `/admin`, authenticated by a magic-code console session, the instance
+`ADMIN_TOKEN`, or a per-product token: products, keys, grants, team, audit, export, outbound
+webhook endpoints, billing, and unfulfilled-payment rescue. Cross-account access answers `404`,
+never `403`.
+
+`GET /doc` serves the OpenAPI document for the frozen public surface and `GET /docs` renders it.
+Full reference: [HTTP API](https://coolbeans.tools/docs/http-api).
+
+## SDKs
+
+- **TypeScript**, in this repo at [`packages/sdk`](packages/sdk/README.md): Node, Electron, Tauri
+  and the browser, zero runtime dependencies, Ed25519 through WebCrypto.
+- **Swift**, at [GoldenBerry-SO/coolbeans-swift](https://github.com/GoldenBerry-SO/coolbeans-swift):
+  macOS and iOS, Keychain storage, the same verdict type.
+
+Both run `contract/access-states.json`, so neither can change who stays unlocked without failing a
+test. Copyable per-host quickstarts live in [`examples/`](examples/README.md).
+
+## Architecture
+
+Node and TypeScript on [Hono](https://hono.dev), one codebase for self-host and cloud, PostgreSQL
+everywhere. Route handlers stay thin and hand off to services (business logic) and store (data
+access), with pure domain modules for key generation and token signing that have no I/O.
+Dependencies are injected through `createApp(deps)`, so handlers are testable via `app.request()`
+with no HTTP server.
 
 ```
 apps/
@@ -86,27 +195,72 @@ apps/
   web/          React SPA (Vite), the admin dashboard
   www/          Astro marketing site + docs, coolbeans.tools (Cloudflare Pages)
 packages/
-  auth/         Better Auth factory, admin sessions for the dashboard only
+  auth/         Better Auth factory, wired to nothing today
   cli/          beans, the admin CLI
   db/           Drizzle pg schema, postgres-js adapter, and the migrate CLI
   email/        React Email templates + Resend/SMTP sender seam
   logger/       Structured logger, zero deps
-  sdk/          @coolbeans/sdk, one open() call on launch; Node, Electron, Tauri, browser
+  sdk/          @coolbeans/sdk, one open() call on launch
 contract/       access-states.json, the access states every SDK must agree on
-docs/           PRD and architecture notes
+docs/           PRD, architecture, design, validation, and developer notes
 examples/       Copyable quickstarts, one per host
+scripts/        Smoke test, commercial journeys, Postgres atomicity checks
 ```
 
-## Development
+Four rules carry most of the design, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains each:
 
-Prereqs: Node >= 22, pnpm 11 (`corepack enable`).
+- **The public contract is frozen.** PRD §9 shapes do not drift; products ship against them.
+- **Offline-tolerant by contract.** An unknown key is `404`, never `disabled`. Only an explicit
+  `disabled` revokes access, so no failure mode locks out a paying user.
+- **Atomic limit enforcement.** Seats, floating leases and usage quotas are single guarded SQL
+  statements under a row lock, never read-then-write, with a dedicated race suite as the oracle.
+- **Tenancy is enforced in the store layer.** An `accounts` row is the tenant, and cross-account
+  reads answer `404` so nothing confirms what lives in someone else's account.
 
-```sh
-pnpm install
-pnpm dev        # local dev server on :3000
-pnpm test       # vitest
-pnpm check      # biome lint + typecheck
-```
+## Development workflow
+
+Work happens on branches off `main`, one pull request per change, with tests written first. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before the first PR: it covers the setup, the expectations, and
+the five rules that get extra scrutiny because they protect paying end users.
+
+CI runs lint, typecheck and the test suite on every push and pull request, plus a Docker Compose
+smoke test that boots the stack and issues a first key. Changes touching concurrency or
+exactly-once behaviour get an OpenAI Codex review before merge; see [CLAUDE.md](CLAUDE.md).
+
+## Documentation
+
+Published docs live at [coolbeans.tools/docs](https://coolbeans.tools/docs) and their source is in
+[`apps/www/src/pages/docs/`](apps/www/src/pages/docs).
+
+| Page | What it covers |
+|---|---|
+| [What Cool Beans is](https://coolbeans.tools/docs) | The mental model and the one rule that matters |
+| [Quickstart](https://coolbeans.tools/docs/quickstart) | Issue a key and wire up an app |
+| [Self-hosting](https://coolbeans.tools/docs/self-hosting) | Compose, plus every configuration variable |
+| [TypeScript SDK](https://coolbeans.tools/docs/sdk-typescript) | The full client surface |
+| [Swift SDK](https://coolbeans.tools/docs/sdk-swift) | macOS and iOS |
+| [The beans CLI](https://coolbeans.tools/docs/cli) | Every command and flag |
+| [HTTP API](https://coolbeans.tools/docs/http-api) | The frozen contract, by hand |
+| [Payments](https://coolbeans.tools/docs/payments) | Prices, grants, and what the webhook does |
+| [Outbound webhooks](https://coolbeans.tools/docs/webhooks) | Lifecycle events for your systems |
+| [Offline verification](https://coolbeans.tools/docs/offline) | Tokens, grace, and air-gapped machines |
+| [Migrating from LemonSqueezy](https://coolbeans.tools/docs/migrate-from-lemonsqueezy) | Parity routes and the migration path |
+
+In-repo notes, indexed in [docs/README.md](docs/README.md):
+
+| Document | What it covers |
+|---|---|
+| [docs/PRD.md](docs/PRD.md) | The full product spec, and §9, the frozen contract |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Engineering decisions and the traps behind them |
+| [docs/development.md](docs/development.md) | Every command a contributor runs, and what each proves |
+| [docs/VALIDATION.md](docs/VALIDATION.md) | Section-by-section check of the build against the PRD |
+| [docs/DESIGN.md](docs/DESIGN.md) | The console and portal design system |
+| [docs/OUTBOUND-WEBHOOKS.md](docs/OUTBOUND-WEBHOOKS.md) | The webhook emitter, from the inside |
+
+Also here: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md),
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [CLAUDE.md](CLAUDE.md), and package READMEs for
+[`packages/sdk`](packages/sdk/README.md), [`packages/cli`](packages/cli/README.md) and
+[`examples/`](examples/README.md).
 
 ## License
 

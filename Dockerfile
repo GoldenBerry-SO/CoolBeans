@@ -22,5 +22,6 @@ COPY --from=builder /app ./
 RUN addgroup -S app && adduser -S app -G app && mkdir -p /app/data && chown -R app:app /app/data
 USER app
 EXPOSE 3000
-# Default runs the API (migrations apply on boot). Override CMD for the worker.
+# Default runs the API. Migrations are not applied here: the same image runs the migrate
+# CLI as a one-shot service (compose) or Job (k8s). Override CMD for that and for the worker.
 CMD ["node", "apps/api/dist/node.js"]

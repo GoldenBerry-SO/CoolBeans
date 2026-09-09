@@ -182,12 +182,15 @@ limits hang off it. Decisions worth knowing before changing any of it:
   it to `pro`. That is what lets an existing install upgrade without waking up capped, what
   gives a self-hoster a working instance with no signup ceremony, and what kept the whole
   pre-tenancy test suite passing unchanged.
-- **No foreign keys on the new `account_id` columns.** SQLite refuses a non-NULL default on
-  a column added with a `REFERENCES` clause while `foreign_keys` is ON, and the pragma
-  cannot be turned off inside the migrator's transaction. The usual Drizzle workaround
-  (rebuild the table) is unsafe here because six tables reference `products`.
-  `assertAccountsResolve` runs at boot in the constraint's place. A Postgres port would fix
-  this properly.
+- **`account_id` is a real foreign key.** Superseded decision, kept because the shape of the
+  workaround still explains the code around it: SQLite refused a non-NULL default on a column added
+  with a `REFERENCES` clause while `foreign_keys` was ON, the pragma could not be turned off inside
+  the migrator's transaction, and rebuilding the table was unsafe because six tables reference
+  `products`. So the column went unenforced and `assertAccountsResolve` ran at boot in the
+  constraint's place. The Postgres port took the constraint properly: `products.account_id` and
+  `admin_users.account_id` both reference `accounts` with `ON DELETE RESTRICT`, so deleting a
+  populated account fails loudly instead of orphaning a tenant's licences. The boot check stays for
+  one release as proof the constraints took.
 - **Grants and connections are tenant-locked by composite foreign key.** Pricing lives in
   `license_grants` (one Stripe price mapped to a product, `kind` = perpetual or subscription,
   plus a display-only `plan` label) hanging off a `stripe_connections` row. A grant references

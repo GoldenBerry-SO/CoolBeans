@@ -11,6 +11,7 @@ import {
 	getGrantByPrice,
 	SELF_HOST_CONNECTION_ID,
 } from '../store/grants.js';
+import { checkoutAttemptId } from './checkout-reference.js';
 import {
 	lastSubscriptionEventAt,
 	markSubscriptionEventApplied,
@@ -150,6 +151,7 @@ export async function ensureLicenseForSession(
 		provider: 'stripe',
 		eventId: actorEventId,
 		checkoutId: str(obj, 'id') ?? actorEventId,
+		checkoutAttemptId: checkoutAttemptId(obj.client_reference_id),
 		kind,
 		plan: grant.plan,
 		issuedGrantId: grant.id,

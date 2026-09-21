@@ -22,7 +22,7 @@ export function MagicCodeEmail({ code, expiresMinutes, logoSrc }: MagicCodeEmail
 			heading="Your sign-in code"
 			footer={<>You are receiving this because someone asked to sign in to Cool Beans.</>}
 		>
-			<Text style={textStyle}>Enter this code in the console to finish signing in.</Text>
+			<Text style={textStyle}>Enter this code on the Cool Beans sign-in page.</Text>
 			<Section style={panelStyle}>
 				<Text
 					style={{
@@ -42,7 +42,7 @@ export function MagicCodeEmail({ code, expiresMinutes, logoSrc }: MagicCodeEmail
 			    <!-- --> markers between them, which bloats the HTML and splits words that
 			    tests (and humans reading source) expect to be contiguous. */}
 			<Text style={mutedTextStyle}>
-				{`It expires in ${expiresMinutes} minutes. If you didn't ask to sign in, you can ignore this email and nothing happens.`}
+				{`It expires in ${expiresMinutes} minutes. If you didn't request it, you can ignore this email.`}
 			</Text>
 		</EmailShell>
 	);

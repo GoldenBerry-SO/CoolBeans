@@ -25,8 +25,8 @@ export function KeyRecoveryEmail({ keys, logoSrc }: KeyRecoveryEmailProps) {
 		>
 			<Text style={textStyle}>
 				{keys.length === 1
-					? 'Here is the key we hold for this email address.'
-					: `Here are the ${keys.length} keys we hold for this email address.`}
+					? 'This license key is linked to your email address.'
+					: `These ${keys.length} license keys are linked to your email address.`}
 			</Text>
 			{keys.map((k) => (
 				<Section key={k.key} style={{ ...panelStyle, textAlign: 'left' }}>
@@ -44,8 +44,8 @@ export function KeyRecoveryEmail({ keys, logoSrc }: KeyRecoveryEmailProps) {
 				</Section>
 			))}
 			<Text style={mutedTextStyle}>
-				A key with a status of <strong>disabled</strong> will not activate. If that looks wrong,
-				reply to this email.
+				A key with a status of <strong>disabled</strong> will not activate. If you need help with a
+				key, reply to this email.
 			</Text>
 			<Text style={mutedTextStyle}>If you didn't ask for this, you can ignore it.</Text>
 		</EmailShell>

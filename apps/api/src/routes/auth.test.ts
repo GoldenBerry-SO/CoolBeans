@@ -12,8 +12,9 @@ let h: TestHarness;
 function lastCode(): string {
 	const email = h.email.sent.at(-1);
 	if (!email) throw new Error('no email captured');
-	const match = email.subject.match(/^(\d{6}) /);
-	if (!match?.[1]) throw new Error(`no code in subject: ${email.subject}`);
+	const match = email.html.replace(/<[^>]*>/g, ' ').match(/\b(\d{6})\b/);
+	if (!match?.[1]) throw new Error('no code in email body');
+	expect(email.subject).not.toContain(match[1]);
 	return match[1];
 }
 

@@ -114,7 +114,7 @@ export async function requestCode(deps: AppDeps, emailInput: string): Promise<Re
 		await deps.email.send({
 			from: 'Cool Beans <console@coolbeans.tools>',
 			to: email,
-			subject: `${code} is your Cool Beans sign-in code`,
+			subject: 'Your Cool Beans sign-in code',
 			html,
 		});
 	}

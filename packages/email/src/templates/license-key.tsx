@@ -42,7 +42,7 @@ export function LicenseKeyEmail({
 		>
 			{/* Interpolated as one string on purpose: JSX text next to an expression renders
 			    with <!-- --> between them, splitting the product name out of the sentence. */}
-			<Text style={textStyle}>{`Here is your key. Enter it in ${productName} to activate.`}</Text>
+			<Text style={textStyle}>{`Enter this key in ${productName} to activate your license.`}</Text>
 			<Section style={panelStyle}>
 				<Text style={keyStyle}>{licenseKey}</Text>
 			</Section>
@@ -54,9 +54,7 @@ export function LicenseKeyEmail({
 				</Section>
 			) : null}
 			{renewalDate ? (
-				<Text style={mutedTextStyle}>
-					{`Your license renews on ${renewalDate}. Nothing to do until then.`}
-				</Text>
+				<Text style={mutedTextStyle}>{`Your license renews on ${renewalDate}.`}</Text>
 			) : null}
 			{portalUrl ? (
 				<Text style={mutedTextStyle}>
@@ -67,7 +65,6 @@ export function LicenseKeyEmail({
 					.
 				</Text>
 			) : null}
-			<Text style={mutedTextStyle}>Cool beans, you're all set.</Text>
 		</EmailShell>
 	);
 }

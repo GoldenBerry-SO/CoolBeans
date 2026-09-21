@@ -76,3 +76,7 @@ test, journeys and atomicity checks.
   `SIGNING_KEY_SECRET` are exported (nothing here reads `.env`; that is compose's job)
 
 `docs/development.md` has the full local recipe and the rest of the suites.
+
+## Email copy
+
+Read [docs/email-writing.md](docs/email-writing.md) before editing customer emails.

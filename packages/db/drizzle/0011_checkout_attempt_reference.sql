@@ -1,0 +1,1 @@
+ALTER TABLE "purchases" ADD COLUMN "checkout_attempt_id" text;

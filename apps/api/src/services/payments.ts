@@ -27,6 +27,7 @@ export interface EnsureArgs {
 	product: Product;
 	provider: 'stripe' | 'paypal';
 	checkoutId: string;
+	checkoutAttemptId?: string | null;
 	kind: Kind;
 	plan?: string | null;
 	issuedGrantId?: number | null;
@@ -124,6 +125,7 @@ export async function ensureLicense(deps: AppDeps, args: EnsureArgs): Promise<En
 					provider: args.provider,
 					stripeConnectionId: args.stripeConnectionId ?? null,
 					providerCheckoutId: args.checkoutId,
+					checkoutAttemptId: args.checkoutAttemptId ?? null,
 					providerCustomerId: args.customerId ?? null,
 					providerSubscriptionId: args.subscriptionId ?? null,
 					providerPaymentId: args.paymentId ?? null,

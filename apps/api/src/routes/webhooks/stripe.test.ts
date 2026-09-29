@@ -83,6 +83,35 @@ function checkout(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Stripe webhook', () => {
+	it('retains the first opaque checkout reference across provider retries', async () => {
+		const ref = 'gb_checkout_12345678-1234-4234-8234-123456789abc';
+		expect((await webhook(h.app, checkout({ client_reference_id: ref }))).status).toBe(200);
+		expect(
+			(
+				await webhook(h.app, {
+					...checkout({ client_reference_id: 'gb_checkout_87654321-1234-4234-8234-123456789abc' }),
+					id: 'evt_replay_ref',
+				})
+			).status,
+		).toBe(200);
+		const rows = await rawQuery<{ checkout_attempt_id: string }>(
+			'SELECT checkout_attempt_id FROM purchases',
+		);
+		expect(rows).toEqual([{ checkout_attempt_id: ref }]);
+		expect(await keysForEmail(h, 'buyer@example.com')).toHaveLength(1);
+	});
+
+	it('issues without retaining arbitrary private client references', async () => {
+		expect(
+			(await webhook(h.app, checkout({ client_reference_id: 'buyer@example.com' }))).status,
+		).toBe(200);
+		const rows = await rawQuery<{ checkout_attempt_id: string | null }>(
+			'SELECT checkout_attempt_id FROM purchases',
+		);
+		expect(rows).toEqual([{ checkout_attempt_id: null }]);
+		expect(await keysForEmail(h, 'buyer@example.com')).toHaveLength(1);
+	});
+
 	it('rejects an unverified signature before doing anything', async () => {
 		const r = await webhook(h.app, checkout(), 'bogus');
 		expect(r.status).toBe(400);

@@ -12,6 +12,7 @@ import { assertSchemaCurrent, createDb, createPool } from '@coolbeans/db';
 import { createLogger } from '@coolbeans/logger';
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
+import { JOB_RETENTION } from './retention.js';
 
 const logger = createLogger();
 const config = loadConfig();
@@ -66,7 +67,7 @@ const worker = new Worker(
 			logger.info('Ran sweeps', result);
 		}
 	},
-	{ connection },
+	{ connection, ...JOB_RETENTION },
 );
 
 worker.on('failed', (job, err) => {

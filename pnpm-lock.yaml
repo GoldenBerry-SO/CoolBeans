@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@esbuild-kit/core-utils>esbuild': 0.25.12
+  '@esbuild-kit/core-utils>esbuild': 0.28.1
 
 importers:
 
@@ -5884,7 +5884,7 @@ snapshots:
 
   '@esbuild-kit/core-utils@3.3.2':
     dependencies:
-      esbuild: 0.25.12
+      esbuild: 0.28.1
       source-map-support: 0.5.21
 
   '@esbuild-kit/esm-loader@2.6.5':

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "UTC",
+  "schedule": ["before 9am on Monday"],
+  "dependencyDashboard": true,
+  "packageRules": [
+    {
+      "description": "The Node and Bun runtime under the image: a security release must not wait for Monday. Patch and digest bumps automerge once CI is green; a minor gets a PR the same day.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node", "oven/bun"],
+      "schedule": ["at any time"],
+      "prPriority": 10
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node", "oven/bun"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "A major is a decision, not a bump.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions: SHA-pinned, so the common case is a digest bump.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr"
+    }
+  ]
+}

@@ -10,6 +10,9 @@ on:
       - 'apps/**'
       - 'packages/**'
       - 'Dockerfile'
+      # A dependency bump that only moves the lockfile (Renovate's security PRs often do) changes the image too.
+      - 'package.json'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/deploy.yml'
 
 concurrency:

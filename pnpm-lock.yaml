@@ -40,22 +40,22 @@ importers:
         version: link:../../packages/logger
       '@hono/node-server':
         specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.30)
+        version: 2.0.10(hono@4.13.11)
       '@hono/zod-openapi':
         specifier: ^1.5.1
-        version: 1.5.1(hono@4.12.30)(zod@4.4.3)
+        version: 1.5.1(hono@4.13.11)(zod@4.4.3)
       '@scalar/hono-api-reference':
         specifier: ^0.11.11
-        version: 0.11.11(hono@4.12.30)
+        version: 0.11.11(hono@4.13.11)
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@electric-sql/pglite@0.5.4)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.11.1)(kysely@0.29.3)(postgres@3.4.9)
       hono:
         specifier: ^4.12.30
-        version: 4.12.30
+        version: 4.13.11
       hono-rate-limiter:
         specifier: ^0.5.3
-        version: 0.5.3(hono@4.12.30)(unstorage@1.17.5(ioredis@5.11.1))
+        version: 0.5.3(hono@4.13.11)(unstorage@1.17.5(ioredis@5.11.1))
       ioredis:
         specifier: ^5.9.2
         version: 5.11.1
@@ -4065,8 +4065,8 @@ packages:
       unstorage:
         optional: true
 
-  hono@4.12.30:
-    resolution: {integrity: sha512-emn+JoJjrN9YTpRDS5it/UI2SO9BAE37T6I3d963RxcZ81G9A4pr2SZTEiiaiKbzx+NKRg5BZ89fCL7gCJCUog==}
+  hono@4.13.11:
+    resolution: {integrity: sha512-/SMX/RQNJn7oNmFwH6DtwDqcrzZU2otm1FD6OJe2cWF6cfy/F8hq0XVBv7xW3FTJshRQwuBnXHDq2kNsdZnshg==}
     engines: {node: '>=16.9.0'}
 
   html-escaper@3.0.3:
@@ -6143,21 +6143,21 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
-  '@hono/node-server@2.0.10(hono@4.12.30)':
+  '@hono/node-server@2.0.10(hono@4.13.11)':
     dependencies:
-      hono: 4.12.30
+      hono: 4.13.11
 
-  '@hono/zod-openapi@1.5.1(hono@4.12.30)(zod@4.4.3)':
+  '@hono/zod-openapi@1.5.1(hono@4.13.11)(zod@4.4.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
-      '@hono/zod-validator': 0.9.0(hono@4.12.30)(zod@4.4.3)
-      hono: 4.12.30
+      '@hono/zod-validator': 0.9.0(hono@4.13.11)(zod@4.4.3)
+      hono: 4.13.11
       openapi3-ts: 4.6.0
       zod: 4.4.3
 
-  '@hono/zod-validator@0.9.0(hono@4.12.30)(zod@4.4.3)':
+  '@hono/zod-validator@0.9.0(hono@4.13.11)(zod@4.4.3)':
     dependencies:
-      hono: 4.12.30
+      hono: 4.13.11
       zod: 4.4.3
 
   '@hookform/resolvers@5.4.0(react-hook-form@7.81.0(react@19.2.7))':
@@ -7471,10 +7471,10 @@ snapshots:
 
   '@scalar/helpers@0.9.2': {}
 
-  '@scalar/hono-api-reference@0.11.11(hono@4.12.30)':
+  '@scalar/hono-api-reference@0.11.11(hono@4.13.11)':
     dependencies:
       '@scalar/client-side-rendering': 0.3.4
-      hono: 4.12.30
+      hono: 4.13.11
 
   '@scalar/schemas@0.7.4':
     dependencies:
@@ -8633,13 +8633,13 @@ snapshots:
       property-information: 7.2.0
       space-separated-tokens: 2.0.2
 
-  hono-rate-limiter@0.5.3(hono@4.12.30)(unstorage@1.17.5(ioredis@5.11.1)):
+  hono-rate-limiter@0.5.3(hono@4.13.11)(unstorage@1.17.5(ioredis@5.11.1)):
     dependencies:
-      hono: 4.12.30
+      hono: 4.13.11
     optionalDependencies:
       unstorage: 1.17.5(ioredis@5.11.1)
 
-  hono@4.12.30: {}
+  hono@4.13.11: {}
 
   html-escaper@3.0.3: {}
 

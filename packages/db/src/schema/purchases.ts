@@ -20,6 +20,8 @@ export const purchases = pgTable(
 			.notNull()
 			.default('stripe'),
 		providerCheckoutId: text('provider_checkout_id').unique(),
+		// Optional opaque correlation, never a credential or authority for issuance.
+		checkoutAttemptId: text('checkout_attempt_id'),
 		providerCustomerId: text('provider_customer_id'),
 		providerSubscriptionId: text('provider_subscription_id'),
 		providerPaymentId: text('provider_payment_id'),

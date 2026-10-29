@@ -1,7 +1,7 @@
 # ABOUTME: Multi-stage image for the Cool Beans API and worker (PRD §18) — Node on Alpine.
 # ABOUTME: Build target selects api or worker; both share the pruned monorepo install.
 
-FROM node:22.23.4-alpine AS base
+FROM node:26.13.0-alpine AS base
 RUN corepack enable
 WORKDIR /app
 

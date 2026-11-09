@@ -55,7 +55,7 @@ importers:
         version: 4.13.11
       hono-rate-limiter:
         specifier: ^0.5.3
-        version: 0.5.3(hono@4.13.11)(unstorage@1.17.6(ioredis@5.11.1))
+        version: 0.5.4(hono@4.13.11)(unstorage@1.17.6(ioredis@5.11.1))
       ioredis:
         specifier: ^5.9.2
         version: 5.11.1
@@ -4341,8 +4341,8 @@ packages:
   hast-util-whitespace@3.0.0:
     resolution: {integrity: sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw==}
 
-  hono-rate-limiter@0.5.3:
-    resolution: {integrity: sha512-M0DxbVMpPELEzLi0AJg1XyBHLGJXz7GySjsPoK+gc5YeeBsdGDGe+2RvVuCAv8ydINiwlbxqYMNxUEyYfRji/A==}
+  hono-rate-limiter@0.5.4:
+    resolution: {integrity: sha512-P3/cscAmz1hA+MuM+Hn9gP/EyO2zWv2aXIFkVYuLZkPzrPa4oaWdVCS94vyDlsNBgeMnE/Hr2+LznIKQxrF0ng==}
     peerDependencies:
       hono: ^4.10.8
       unstorage: ^1.17.3
@@ -9222,7 +9222,7 @@ snapshots:
     dependencies:
       '@types/hast': 3.0.5
 
-  hono-rate-limiter@0.5.3(hono@4.13.11)(unstorage@1.17.6(ioredis@5.11.1)):
+  hono-rate-limiter@0.5.4(hono@4.13.11)(unstorage@1.17.6(ioredis@5.11.1)):
     dependencies:
       hono: 4.13.11
     optionalDependencies:

@@ -40,7 +40,7 @@ importers:
         version: link:../../packages/logger
       '@hono/node-server':
         specifier: ^2.0.10
-        version: 2.0.10(hono@4.13.11)
+        version: 2.1.6(hono@4.13.11)
       '@hono/zod-openapi':
         specifier: ^1.5.1
         version: 1.5.1(hono@4.13.11)(zod@4.6.6)
@@ -1493,11 +1493,11 @@ packages:
   '@floating-ui/utils@0.2.12':
     resolution: {integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==}
 
-  '@hono/node-server@2.0.10':
-    resolution: {integrity: sha512-ZcnNVhKTmyDJeg0UlnZjvM73JBsTAuhrH/J4fjwGOw59PwOW51r4J+p6CsKZWXdKSme4MFqU62CZMOsdDrU4CA==}
+  '@hono/node-server@2.1.6':
+    resolution: {integrity: sha512-p/KH9MnfNcsm3sR6x4lNgm5j+QN4Et8srKredl9DZfXiyZ1UQ3aQ2YVpFLbqktYN5JI+DB+VZFKM2PqE5hLKjQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      hono: ^4
+      hono: ^4 || ^5.0.0-0
 
   '@hono/zod-openapi@1.5.1':
     resolution: {integrity: sha512-ZaDdEIkn6PEGjIYHXJeyByg6yhvLzI+UXn968pWtahpwcQ6HMjQYXI3zNffTl0Wl9QZ79nUnGqiN1erEIu23fA==}
@@ -6671,7 +6671,7 @@ snapshots:
 
   '@floating-ui/utils@0.2.12': {}
 
-  '@hono/node-server@2.0.10(hono@4.13.11)':
+  '@hono/node-server@2.1.6(hono@4.13.11)':
     dependencies:
       hono: 4.13.11
 
